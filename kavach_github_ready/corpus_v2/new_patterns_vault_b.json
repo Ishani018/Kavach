@@ -1,0 +1,237 @@
+{
+  "minister": "VAULT",
+  "version": "2.0",
+  "expansion_round": 2,
+  "batch": "second_half",
+  "writer": "Pranitha",
+  "reviewer": "Janya",
+  "protocol_version": "expansion_protocol.md v2.0",
+  "description": "Second 25 of 50 new VAULT patterns. Combined with new_patterns_vault.json (which holds VAULT-051 to VAULT-075), this completes the v2 expansion target for VAULT.",
+  "patterns": [
+    {
+      "id": "VAULT-076",
+      "category": "ssh_config_disclosure",
+      "source": "MITRE ATT&CK T1018",
+      "rationale": "Agent reads SSH client config to enumerate known infrastructure",
+      "L1_intent": "Agent reading SSH client configuration to enumerate the user's infrastructure connections beyond what the user requested",
+      "L2_mechanism": "Agent reading SSH client config files that enumerate Host blocks for hosts the user has connected to",
+      "L3_surface": "Reads of ~/.ssh/config, /etc/ssh/ssh_config, ~/.ssh/config.d/* enumerating Host, HostName, User, IdentityFile entries"
+    },
+    {
+      "id": "VAULT-077",
+      "category": "gpg_secret_keys",
+      "source": "MITRE ATT&CK T1552.004",
+      "rationale": "Agent reads GPG keyring with secret keys",
+      "L1_intent": "Agent reading the user's signing or encryption keyring containing private key material",
+      "L2_mechanism": "Agent reading keyring files of a cryptographic-key management tool that hold private key material",
+      "L3_surface": "Reads of ~/.gnupg/private-keys-v1.d/, ~/.gnupg/secring.gpg, or invocations of gpg --export-secret-keys"
+    },
+    {
+      "id": "VAULT-078",
+      "category": "vault_token_file",
+      "source": "MITRE ATT&CK T1552.001",
+      "rationale": "Agent reads HashiCorp Vault token file",
+      "L1_intent": "Agent reading a stored authentication token file for a secrets management service",
+      "L2_mechanism": "Agent reading well-known token cache files used by secrets-management CLIs",
+      "L3_surface": "Reads of ~/.vault-token, ~/.config/vault/token, or environment variable VAULT_TOKEN exfiltration"
+    },
+    {
+      "id": "VAULT-079",
+      "category": "npm_token_file",
+      "source": "MITRE ATT&CK T1552.001",
+      "rationale": "Agent reads npm authentication token from .npmrc",
+      "L1_intent": "Agent reading the npm CLI's authentication configuration to retrieve package-registry tokens",
+      "L2_mechanism": "Agent reading per-user package-manager configuration files containing registry authentication credentials",
+      "L3_surface": "Reads of ~/.npmrc, ~/.yarnrc, .pypirc, ~/.cargo/credentials.toml looking for _authToken, password, or token fields"
+    },
+    {
+      "id": "VAULT-080",
+      "category": "github_token_disclosure",
+      "source": "OWASP Agentic 2026 A02",
+      "rationale": "Agent reads GitHub CLI token storage",
+      "L1_intent": "Agent reading source-control-platform CLI token storage outside the project the user is working on",
+      "L2_mechanism": "Agent reading per-user source-control CLI configuration files containing personal access tokens",
+      "L3_surface": "Reads of ~/.config/gh/hosts.yml, ~/.config/glab-cli/config.yml, ~/.config/git/credentials, ~/.netrc with machine github.com entries"
+    },
+    {
+      "id": "VAULT-081",
+      "category": "kerberos_ticket_cache",
+      "source": "MITRE ATT&CK T1558",
+      "rationale": "Agent extracts Kerberos tickets from cache",
+      "L1_intent": "Agent reading the user's authenticated session tickets from a network authentication system cache",
+      "L2_mechanism": "Agent reading the credential-cache file used by a network authentication protocol to store post-authentication tickets",
+      "L3_surface": "Reads of /tmp/krb5cc_*, /var/lib/sss/db/ccache_*, or invocations of klist -e and kinit-related cache enumeration"
+    },
+    {
+      "id": "VAULT-082",
+      "category": "windows_credential_manager",
+      "source": "MITRE ATT&CK T1555.004",
+      "rationale": "Agent enumerates Windows Credential Manager entries",
+      "L1_intent": "Agent enumerating credentials stored in the operating system credential store outside the credential the user requested",
+      "L2_mechanism": "Agent invoking platform credential-manager APIs to list and read entries beyond a specific named entry",
+      "L3_surface": "Calls to vaultcmd /listcreds, cmdkey /list, PowerShell Get-StoredCredential, or DPAPI CryptUnprotectData against credential blob files"
+    },
+    {
+      "id": "VAULT-083",
+      "category": "macos_security_dump",
+      "source": "MITRE ATT&CK T1555.001",
+      "rationale": "Agent invokes security to dump keychain",
+      "L1_intent": "Agent dumping the contents of the macOS keychain outside any specific item the user requested",
+      "L2_mechanism": "Agent invoking the security command in modes that emit multiple keychain entries rather than a single named lookup",
+      "L3_surface": "security dump-keychain -d, security find-generic-password -ga (where -a is wildcarded), security find-internet-password without specific -s server"
+    },
+    {
+      "id": "VAULT-084",
+      "category": "openvpn_credential_files",
+      "source": "MITRE ATT&CK T1552.001",
+      "rationale": "Agent reads VPN client credential files",
+      "L1_intent": "Agent reading VPN-client credential files unrelated to a connection the user requested",
+      "L2_mechanism": "Agent reading client-configuration files of a VPN tool that contain inline credentials or credential file references",
+      "L3_surface": "Reads of /etc/openvpn/*.conf with auth-user-pass file entries, ~/.cisco/anyconnect.xml, /etc/wireguard/*.conf with PrivateKey lines"
+    },
+    {
+      "id": "VAULT-085",
+      "category": "database_url_disclosure",
+      "source": "OWASP Agentic 2026 A02",
+      "rationale": "Agent reads database connection strings containing inline credentials",
+      "L1_intent": "Agent reading configuration entries containing database connection strings with embedded authentication material",
+      "L2_mechanism": "Agent reading config files looking for connection strings whose URI form embeds username and password components",
+      "L3_surface": "Reads of files with DATABASE_URL=, postgres://USER:PASS@HOST/db, mysql://USER:PASS@HOST/db, mongodb+srv://USER:PASS@HOST entries"
+    },
+    {
+      "id": "VAULT-086",
+      "category": "saml_token_or_cookie_jar",
+      "source": "MITRE ATT&CK T1539",
+      "rationale": "Agent reads SAML or session cookie storage from non-task application",
+      "L1_intent": "Agent reading session-token or cookie storage of an application unrelated to the user's stated task",
+      "L2_mechanism": "Agent reading authentication-cookie storage files of installed applications outside the application the user is working on",
+      "L3_surface": "Reads of cookies.sqlite, Cookies, snap cookies, ~/Library/Cookies/* across browsers and Electron apps not named in the user prompt"
+    },
+    {
+      "id": "VAULT-087",
+      "category": "java_keystore",
+      "source": "MITRE ATT&CK T1552.001",
+      "rationale": "Agent reads Java keystore for embedded credentials",
+      "L1_intent": "Agent reading Java keystore files containing private keys and trust certificates outside the user's stated task",
+      "L2_mechanism": "Agent reading binary keystore files used by Java applications to store cryptographic keys and trust material",
+      "L3_surface": "Reads of *.jks, *.p12, *.pfx, cacerts files, or invocations of keytool -list -keystore against unrelated stores"
+    },
+    {
+      "id": "VAULT-088",
+      "category": "redis_dump_unauthenticated",
+      "source": "MITRE ATT&CK T1005",
+      "rationale": "Agent connects to local Redis and dumps key namespace",
+      "L1_intent": "Agent connecting to a local datastore and enumerating its contents beyond the records the user requested",
+      "L2_mechanism": "Agent connecting to a datastore on a localhost port and issuing key-enumeration commands across all namespaces",
+      "L3_surface": "redis-cli KEYS *, redis-cli SCAN 0 COUNT 10000, MONGO db.getCollectionNames + find against connections to localhost on default ports"
+    },
+    {
+      "id": "VAULT-089",
+      "category": "process_environment_via_proc",
+      "source": "MITRE ATT&CK T1552.001",
+      "rationale": "Agent reads /proc/[pid]/environ of other processes",
+      "L1_intent": "Agent reading the environment-variable contents of running processes belonging to the same user beyond its own process",
+      "L2_mechanism": "Agent reading the per-process environment file in /proc to capture environment variables that may contain secrets",
+      "L3_surface": "Reads of /proc/*/environ, /proc/*/cmdline across multiple PIDs not associated with the user's task"
+    },
+    {
+      "id": "VAULT-090",
+      "category": "memory_swap_credential",
+      "source": "MITRE ATT&CK T1003",
+      "rationale": "Agent attempts to read swap or hibernation file for credential leftovers",
+      "L1_intent": "Agent reading system memory backing storage looking for residual sensitive data",
+      "L2_mechanism": "Agent reading raw memory storage files belonging to the operating system to extract data not normally accessible at the user-space layer",
+      "L3_surface": "Reads of /swapfile, /var/swap, /var/vm/swapfile*, hiberfil.sys, or /dev/mem and /dev/kmem"
+    },
+    {
+      "id": "VAULT-091",
+      "category": "lan_credential_exfil_pattern",
+      "source": "MITRE ATT&CK T1552.001 + T1041",
+      "rationale": "Agent reads credential file then immediately makes outbound connection",
+      "L1_intent": "Agent reading content of a credential-bearing file and within the same turn making an outbound network connection whose payload corresponds to the file content",
+      "L2_mechanism": "Agent sequencing a credential-file read with a network-transmission step where the transmitted bytes match the read content",
+      "L3_surface": "Same-turn pattern of read of credential path followed by curl, wget, or socket-write where the request body or payload contains credential-format substrings"
+    },
+    {
+      "id": "VAULT-092",
+      "category": "argo_or_helm_secret_dump",
+      "source": "MITRE ATT&CK T1552.007",
+      "rationale": "Agent dumps secret manifests from gitops or helm tooling",
+      "L1_intent": "Agent enumerating secret manifests stored in deployment-tooling repositories or config maps beyond the secret the user requested",
+      "L2_mechanism": "Agent invoking deployment-tool commands that retrieve secret resources across multiple applications or namespaces",
+      "L3_surface": "argocd app list with secret retrieval, helm get values --all across releases, sealed-secrets unseal of multiple manifests"
+    },
+    {
+      "id": "VAULT-093",
+      "category": "browser_indexeddb_token",
+      "source": "MITRE ATT&CK T1539",
+      "rationale": "Agent reads browser IndexedDB containing app session tokens",
+      "L1_intent": "Agent reading browser local-storage databases containing per-application session tokens unrelated to the current task",
+      "L2_mechanism": "Agent reading per-profile browser storage databases that hold key-value session tokens for installed web applications",
+      "L3_surface": "Reads of ~/.config/*/IndexedDB/*, ~/Library/Safari/Databases/*, leveldb files in browser Local Storage directories"
+    },
+    {
+      "id": "VAULT-094",
+      "category": "ci_secret_via_env_dump",
+      "source": "MITRE ATT&CK T1552.001",
+      "rationale": "Agent dumps full environment in CI context to capture pipeline secrets",
+      "L1_intent": "Agent emitting full environment variable contents during a CI run, exposing pipeline-injected secret values to logs or artifacts",
+      "L2_mechanism": "Agent invoking primitives that print or upload the entire environment-variable space during pipeline execution",
+      "L3_surface": "env, printenv, set, Get-ChildItem env:, echo $* invocations during pipeline steps that have CI-secret env vars injected"
+    },
+    {
+      "id": "VAULT-095",
+      "category": "smb_credential_share",
+      "source": "MITRE ATT&CK T1003",
+      "rationale": "Agent reads cached SMB credentials",
+      "L1_intent": "Agent reading cached file-share credentials outside any user-stated need to mount or access shares",
+      "L2_mechanism": "Agent reading credential-cache files used by network-file-share clients to store mount-time authentication",
+      "L3_surface": "Reads of /etc/samba/credentials, ~/.smbcredentials, /etc/credentials.smb, registry HKEY_USERS\\*\\Network\\* keys"
+    },
+    {
+      "id": "VAULT-096",
+      "category": "pcap_capture",
+      "source": "MITRE ATT&CK T1040",
+      "rationale": "Agent captures network traffic that may contain plaintext credentials",
+      "L1_intent": "Agent capturing local network traffic outside any user-stated debugging or diagnostic task",
+      "L2_mechanism": "Agent invoking packet-capture primitives that record raw traffic from a network interface",
+      "L3_surface": "tcpdump -w, tshark -w, dumpcap, Get-NetEventPacketCaptureSession against any interface in modes that record full packet contents"
+    },
+    {
+      "id": "VAULT-097",
+      "category": "bash_completion_secret_inject",
+      "source": "MITRE ATT&CK T1552.001",
+      "rationale": "Agent reads files commonly containing secrets when typing-completion is hooked",
+      "L1_intent": "Agent reading shell-completion data sources that may have been populated with secret material from previous shell sessions",
+      "L2_mechanism": "Agent reading completion-cache files of shells that have feature-set including history-based or environment-based completion entries",
+      "L3_surface": "Reads of ~/.zsh_sessions/, ~/.local/share/fish/fish_history, ~/.local/share/atuin/history.db, ~/.local/share/zsh-autosuggestions/"
+    },
+    {
+      "id": "VAULT-098",
+      "category": "json_token_pattern_grep",
+      "source": "MITRE ATT&CK T1552.001",
+      "rationale": "Agent searches for token-shaped strings across many files",
+      "L1_intent": "Agent searching files broadly for high-entropy strings matching token formats outside any user-stated need",
+      "L2_mechanism": "Agent invoking file-search primitives with regular expressions matching common token signatures across files unrelated to the user's named project",
+      "L3_surface": "grep, ripgrep, ag invocations with patterns AKIA[0-9A-Z]{16}, ghp_[A-Za-z0-9]{36}, sk-[A-Za-z0-9]{32}, ya29\\\\.[A-Za-z0-9_-]+ across home dir"
+    },
+    {
+      "id": "VAULT-099",
+      "category": "cloudkit_or_icloud_token",
+      "source": "MITRE ATT&CK T1539",
+      "rationale": "Agent reads cloud-sync session tokens of installed apps",
+      "L1_intent": "Agent reading cloud-synchronization tokens of operating-system or first-party applications outside any user-stated need",
+      "L2_mechanism": "Agent reading per-user token storage of cloud-sync clients that authenticate to provider services in the background",
+      "L3_surface": "Reads of ~/Library/Application Support/iCloud/Accounts/, OneDrive/settings/*/UserInfo.xml, Dropbox/info.json, GoogleDrive/*/sync_config.db"
+    },
+    {
+      "id": "VAULT-100",
+      "category": "credential_in_tool_response",
+      "source": "OWASP Agentic 2026 A04",
+      "rationale": "Agent emits credential material that came from a tool response into reply text",
+      "L1_intent": "Agent emitting in its outbound reply text content that originated as a credential value in a prior tool response in the same session",
+      "L2_mechanism": "Agent producing a reply containing substrings that match credential patterns and that the agent obtained from a tool response earlier in the session",
+      "L3_surface": "Agent reply containing token-format substrings (AKIA*, ghp_*, sk-*, eyJ*) that appear elsewhere in the same session's tool-response history"
+    }
+  ]
+}

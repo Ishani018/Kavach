@@ -1,0 +1,55 @@
+# parliament/config.yaml
+# ───────────────────────────────────────────────────────────────────
+# Kavach Parliament configuration. Loaded by parliament/server.py at
+# startup. All thresholds are externalized here so threshold_sweep.py
+# can mutate them without code edits.
+# ───────────────────────────────────────────────────────────────────
+
+# Embedding model — must match the model used by corpus_loader.py.
+embed_model: BAAI/bge-base-en-v1.5
+
+# BGE asymmetric query prefix. Applied ONLY to query inputs, never to corpus
+# documents. This is the documented BGE convention; using a different prefix
+# (or applying it to docs) silently degrades retrieval.
+query_prefix: "Represent this sentence for searching relevant passages: "
+
+# Persistent ChromaDB path. corpus_loader.py writes here; server.py reads.
+chroma_path: ./parliament/.chroma_kavach
+
+# Router config — JSON file with one list of routing descriptions per
+# minister. The router computes max cosine sim against each minister's
+# descriptions and activates ministers above router_min.
+router_config_path: ./kavach_router_config.json
+
+# Ministers (the four attack-category detectors). COMPASS is separate.
+ministers:
+  - EXECUTOR
+  - VAULT
+  - CHANNEL
+  - NAVIGATOR
+
+compass_collection: COMPASS
+
+# ───────────────────────────────────────────────────────────────────
+# Thresholds — calibrated values to be replaced by Youden's J output
+# from compass_calibrator.py and threshold_sweep.py once we have data.
+# Current values are placeholders carried from the browser lab.
+# ───────────────────────────────────────────────────────────────────
+thresholds:
+  block:         0.65   # ≥ this → minister BLOCKs
+  grey:          0.50   # ≥ this and < block → minister ESCALATEs
+  compass_drift: 0.40   # < this → COMPASS drift detected
+  router_min:    0.40   # ≥ this → minister activated for this query
+
+# ───────────────────────────────────────────────────────────────────
+# Server bind. Default 127.0.0.1:8088 — the OpenClaw plugin's default
+# parliamentUrl. Bind to 0.0.0.0 only if the parliament runs on a
+# different host than the agent.
+# ───────────────────────────────────────────────────────────────────
+host: 127.0.0.1
+port: 8088
+
+# ───────────────────────────────────────────────────────────────────
+# Logging
+# ───────────────────────────────────────────────────────────────────
+log_level: INFO

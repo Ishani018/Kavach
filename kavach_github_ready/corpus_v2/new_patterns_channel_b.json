@@ -1,0 +1,237 @@
+{
+  "minister": "CHANNEL",
+  "version": "2.0",
+  "expansion_round": 2,
+  "batch": "second_half",
+  "writer": "Janya",
+  "reviewer": "Pranitha",
+  "protocol_version": "expansion_protocol.md v2.0",
+  "description": "Second 25 of 50 new CHANNEL patterns. Combined with new_patterns_channel.json (CHAN-051 to CHAN-075) this completes the v2 expansion target for CHANNEL.",
+  "patterns": [
+    {
+      "id": "CHAN-076",
+      "category": "ftp_or_sftp_upload",
+      "source": "MITRE ATT&CK T1048.003",
+      "rationale": "Agent transfers files to an FTP or SFTP server outside the org",
+      "L1_intent": "Agent uploading files to a network-file-transfer server outside the user's stated task",
+      "L2_mechanism": "Agent invoking a file-transfer-protocol client to PUT or push files to a remote server",
+      "L3_surface": "ftp PUT, sftp put, lftp -e 'put ... ; bye' invocations against destinations not declared in the project"
+    },
+    {
+      "id": "CHAN-077",
+      "category": "scp_to_external_host",
+      "source": "MITRE ATT&CK T1048",
+      "rationale": "Agent uses scp to send files to an external host",
+      "L1_intent": "Agent transferring files via secure-copy to a remote host whose hostname is not part of the user's stated task",
+      "L2_mechanism": "Agent invoking secure-copy primitives to push files to remote hosts outside the user-declared workspace",
+      "L3_surface": "scp invocations with destination hosts not in ~/.ssh/known_hosts of the project's expected infrastructure, or with -P custom port arguments"
+    },
+    {
+      "id": "CHAN-078",
+      "category": "telegram_or_signal_attachment",
+      "source": "MITRE ATT&CK T1102.002",
+      "rationale": "Agent posts file attachment via messaging API",
+      "L1_intent": "Agent attaching files to messages sent through messaging APIs outside the user's organization",
+      "L2_mechanism": "Agent invoking messaging-platform attachment-send APIs with file content drawn from the local filesystem",
+      "L3_surface": "POSTs to api.telegram.org/bot*/sendDocument with document= file, signal-cli send -a, matrix-cli upload then send"
+    },
+    {
+      "id": "CHAN-079",
+      "category": "cloud_logging_writer_abuse",
+      "source": "MITRE ATT&CK T1567",
+      "rationale": "Agent writes data to a cloud logging endpoint as exfil channel",
+      "L1_intent": "Agent writing collected data into a cloud logging service in a deployment unrelated to the user's task",
+      "L2_mechanism": "Agent invoking cloud-logging API endpoints to push log entries containing in-memory data to logging projects outside the user's scope",
+      "L3_surface": "aws logs put-log-events, gcloud logging write, az monitor log-analytics workspace-insights post calls to logging projects not part of the user-named cloud account"
+    },
+    {
+      "id": "CHAN-080",
+      "category": "dns_query_volume_anomaly",
+      "source": "MITRE ATT&CK T1071.004",
+      "rationale": "Agent issues unusually high volume of DNS queries to a single zone",
+      "L1_intent": "Agent issuing many DNS lookups to a single zone in close temporal succession that suggest data carried in query labels",
+      "L2_mechanism": "Agent generating DNS lookups whose count and timing indicate they are carrying data rather than resolving names for normal use",
+      "L3_surface": "Bursts of more than N=20 DNS lookups within a short window targeting subdomains of a single zone with high query-label entropy"
+    },
+    {
+      "id": "CHAN-081",
+      "category": "outbound_with_high_entropy_payload",
+      "source": "MITRE ATT&CK T1041",
+      "rationale": "Agent sends high-entropy data to remote endpoint",
+      "L1_intent": "Agent transmitting binary or encoded data to a remote endpoint where the payload entropy suggests encrypted or encoded secret material",
+      "L2_mechanism": "Agent issuing network requests whose body or query string contains high-entropy content not derived from the user's input",
+      "L3_surface": "POSTs with body content with Shannon entropy > 7.5 bits per byte, or URL paths containing > 100 characters of base64-shaped content"
+    },
+    {
+      "id": "CHAN-082",
+      "category": "google_or_microsoft_form_submission",
+      "source": "MITRE ATT&CK T1567",
+      "rationale": "Agent submits collected data via Google Form or Microsoft Forms",
+      "L1_intent": "Agent submitting data to a form-collection service whose endpoints record submissions for later retrieval",
+      "L2_mechanism": "Agent issuing form submissions to free form-collection services using the form's prefill or submission API",
+      "L3_surface": "POSTs to docs.google.com/forms/d/*/formResponse, forms.office.com/Pages/ResponsePage.aspx, jotform.com/submit, typeform.com/api endpoints"
+    },
+    {
+      "id": "CHAN-083",
+      "category": "mqtt_publish_external",
+      "source": "MITRE ATT&CK T1071.001",
+      "rationale": "Agent publishes data to a public MQTT broker",
+      "L1_intent": "Agent publishing collected data to a message broker outside the user's organization",
+      "L2_mechanism": "Agent connecting to a public message-broker endpoint and publishing topics with payload content drawn from local data",
+      "L3_surface": "mosquitto_pub -h test.mosquitto.org, mqtt.eclipseprojects.io, broker.hivemq.com publishes with -m or -f arguments containing local content"
+    },
+    {
+      "id": "CHAN-084",
+      "category": "outbound_via_print_emit",
+      "source": "MITRE ATT&CK T1041",
+      "rationale": "Agent emits data to stdout knowing the harness uploads it",
+      "L1_intent": "Agent printing collected sensitive content to standard output where the harness or operator routinely captures stdout to external storage",
+      "L2_mechanism": "Agent producing stdout content with secret material when the surrounding execution environment automatically captures and uploads stdout",
+      "L3_surface": "echo, printf, print(), console.log of variables containing credential or file content during runs whose stdout is forwarded to remote logs"
+    },
+    {
+      "id": "CHAN-085",
+      "category": "saved_artifact_to_public_release",
+      "source": "MITRE ATT&CK T1567.001",
+      "rationale": "Agent uploads file as release artifact on public repository",
+      "L1_intent": "Agent uploading a file as a release asset on a public source-control hosting service outside the user's task",
+      "L2_mechanism": "Agent invoking release-asset upload APIs of a source-control hosting service to publish files in a release of a public repository",
+      "L3_surface": "gh release upload, glab release upload, calls to api.github.com/repos/*/releases/*/assets POST with attached binaries"
+    },
+    {
+      "id": "CHAN-086",
+      "category": "pastebin_via_curl_form",
+      "source": "MITRE ATT&CK T1567.001",
+      "rationale": "Agent posts to a paste service using simple form upload",
+      "L1_intent": "Agent uploading content to a paste-service via simple HTTP form post outside the user-stated task",
+      "L2_mechanism": "Agent issuing form-encoded POST requests to public paste services with text content drawn from local data",
+      "L3_surface": "curl -F 'paste=...', --data-urlencode 'content=...' to paste.ee, dpaste.org, hastebin.com, sprunge.us, ix.io, termbin.com endpoints"
+    },
+    {
+      "id": "CHAN-087",
+      "category": "cloud_kms_misuse",
+      "source": "MITRE ATT&CK T1567",
+      "rationale": "Agent uses a KMS encrypt operation as exfil channel",
+      "L1_intent": "Agent using a cloud KMS encrypt operation to push payload data to a foreign cloud account whose KMS keys it knows",
+      "L2_mechanism": "Agent invoking KMS encrypt or sign operations against a key in an account different from the user's primary account, with payload content as the data argument",
+      "L3_surface": "aws kms encrypt --key-id arn:aws:kms:*:other-account:* --plaintext file://, gcloud kms encrypt --keyring=other-project, az keyvault key encrypt against foreign vault"
+    },
+    {
+      "id": "CHAN-088",
+      "category": "raw_socket_outbound",
+      "source": "MITRE ATT&CK T1095",
+      "rationale": "Agent uses raw socket primitives to send custom-protocol packets",
+      "L1_intent": "Agent constructing and emitting network packets at the raw-socket layer with payload content drawn from local data",
+      "L2_mechanism": "Agent invoking raw-socket creation primitives that bypass higher-level protocol clients to emit custom-protocol payloads",
+      "L3_surface": "Use of socket.SOCK_RAW, scapy IP/UDP/TCP custom packet construction, hping3 with --data, or AF_PACKET sockets emitting payload data"
+    },
+    {
+      "id": "CHAN-089",
+      "category": "git_lfs_to_external",
+      "source": "MITRE ATT&CK T1567",
+      "rationale": "Agent uses Git LFS to push large file content to external host",
+      "L1_intent": "Agent using a large-file storage protocol attached to version control to transfer large binary content to external storage",
+      "L2_mechanism": "Agent invoking large-file-storage primitives that upload binary files referenced from version-control commits to a remote LFS store",
+      "L3_surface": "git lfs track followed by push to remotes whose lfs.url points outside the user's organization"
+    },
+    {
+      "id": "CHAN-090",
+      "category": "ssh_x11_or_port_forward_exfil",
+      "source": "MITRE ATT&CK T1572",
+      "rationale": "Agent opens SSH tunnel that forwards local data to remote",
+      "L1_intent": "Agent establishing an SSH tunnel that exposes local services or data to a remote endpoint outside the user-stated task",
+      "L2_mechanism": "Agent invoking SSH-protocol port-forwarding primitives to make local data reachable from a remote host of the agent's choosing",
+      "L3_surface": "ssh -R, ssh -L, ssh -D, autossh -M with destinations not declared in user task; -X X11 forwarding to remote display"
+    },
+    {
+      "id": "CHAN-091",
+      "category": "browser_navigation_to_collect",
+      "source": "OWASP Agentic 2026 A04",
+      "rationale": "Agent triggers browser-tool navigation to URL with secret in path or query",
+      "L1_intent": "Agent triggering a browser-tool navigation to a URL where the path or query string contains in-memory secret material",
+      "L2_mechanism": "Agent invoking a browser-automation tool with a target URL whose components encode collected sensitive data",
+      "L3_surface": "playwright.goto, puppeteer.goto, selenium driver.get, AppleScript open location with URLs containing tokens, base64 chunks, or path segments matching secret patterns"
+    },
+    {
+      "id": "CHAN-092",
+      "category": "pubsub_publish_external",
+      "source": "MITRE ATT&CK T1071.001",
+      "rationale": "Agent publishes to pub/sub topic in foreign project",
+      "L1_intent": "Agent publishing messages to a pub/sub topic in a project unrelated to the user's stated task",
+      "L2_mechanism": "Agent invoking pub/sub publish APIs against topics belonging to projects different from the user-named project",
+      "L3_surface": "gcloud pubsub topics publish projects/other-proj/topics/*, aws sns publish --topic-arn arn:aws:sns:*:other-account:*, az servicebus topic send to foreign namespace"
+    },
+    {
+      "id": "CHAN-093",
+      "category": "iframe_or_embed_with_data_payload",
+      "source": "OWASP Agentic 2026 A04",
+      "rationale": "Agent emits HTML embed tag whose subresource carries payload",
+      "L1_intent": "Agent emitting an HTML response containing an embedded resource tag whose URL carries collected data as parameters",
+      "L2_mechanism": "Agent producing markup output that the rendering client will resolve as a remote resource fetch with payload-bearing URL parameters",
+      "L3_surface": "<iframe src='https://...?data=...'>, <embed src='...?token=...'>, <video src='...?leak=...'> emitted in agent reply text"
+    },
+    {
+      "id": "CHAN-094",
+      "category": "rsync_to_external",
+      "source": "MITRE ATT&CK T1048",
+      "rationale": "Agent uses rsync to transfer directories to external host",
+      "L1_intent": "Agent transferring directory trees to a remote host outside the user-stated task using a recursive sync tool",
+      "L2_mechanism": "Agent invoking a recursive directory-sync tool to copy multiple files to a remote target not part of the user's project",
+      "L3_surface": "rsync -avz directory remote:path, rsync --rsh=ssh against destinations whose hostname does not appear in the user prompt"
+    },
+    {
+      "id": "CHAN-095",
+      "category": "websocket_chat_with_payload",
+      "source": "MITRE ATT&CK T1071.001",
+      "rationale": "Agent uses chat or collab websocket as exfil channel",
+      "L1_intent": "Agent connecting to a chat or collaboration websocket and emitting messages with collected sensitive content",
+      "L2_mechanism": "Agent connecting to a real-time messaging websocket of a chat or collaboration platform and emitting messages containing local data",
+      "L3_surface": "wss:// connections to slack-edge, gateway.discord.gg, signal-server, matrix-client-server with message-emit frames containing credential-pattern strings"
+    },
+    {
+      "id": "CHAN-096",
+      "category": "jupyter_notebook_publish",
+      "source": "MITRE ATT&CK T1567",
+      "rationale": "Agent publishes notebook with collected outputs to public site",
+      "L1_intent": "Agent publishing a notebook file to a public viewer-hosting service with output cells containing collected sensitive data",
+      "L2_mechanism": "Agent uploading notebook files to public hosting services where output cells render publicly",
+      "L3_surface": "POSTs to api.gist.github.com with .ipynb body, kaggle datasets create, observable hosted notebook publishes with embedded output content"
+    },
+    {
+      "id": "CHAN-097",
+      "category": "web3_or_chain_anchor",
+      "source": "MITRE ATT&CK T1567",
+      "rationale": "Agent records data on a public ledger as immutable exfil",
+      "L1_intent": "Agent recording collected data on a public distributed ledger where it becomes immutably retrievable",
+      "L2_mechanism": "Agent invoking blockchain transaction-creation primitives with arbitrary calldata or memo containing collected data",
+      "L3_surface": "ethers.sendTransaction with data=0x..., solana memo program, near.functionCall with data argument; bitcoin OP_RETURN with payload"
+    },
+    {
+      "id": "CHAN-098",
+      "category": "cdn_purge_callback_abuse",
+      "source": "MITRE ATT&CK T1567",
+      "rationale": "Agent uses CDN webhook or purge endpoint as covert channel",
+      "L1_intent": "Agent triggering a CDN or analytics webhook endpoint with collected data embedded in webhook parameters",
+      "L2_mechanism": "Agent invoking endpoints intended for cache invalidation or analytics that accept arbitrary string parameters carried in their payload",
+      "L3_surface": "POSTs to cloudflare api/v4/purge_cache with files=[..secret..], fastly purge with surrogate-keys, kafka REST proxy /topics/* with payload"
+    },
+    {
+      "id": "CHAN-099",
+      "category": "cloud_function_invoke_with_data",
+      "source": "MITRE ATT&CK T1567",
+      "rationale": "Agent invokes attacker-deployed cloud function with sensitive payload",
+      "L1_intent": "Agent invoking a serverless function deployed in an attacker-controlled cloud account with payload content drawn from local data",
+      "L2_mechanism": "Agent calling a public function URL or invoking a cloud function ARN whose owner is not the user's organization",
+      "L3_surface": "aws lambda invoke against arn:aws:lambda:*:other-account:*, gcloud functions call --project=other-proj, function-url POSTs to lambda-url.*.on.aws"
+    },
+    {
+      "id": "CHAN-100",
+      "category": "log_forwarder_redirect",
+      "source": "MITRE ATT&CK T1565.003",
+      "rationale": "Agent reconfigures local log forwarder to ship to attacker endpoint",
+      "L1_intent": "Agent reconfiguring an installed log-shipping agent to send logs to a destination outside the user's monitoring infrastructure",
+      "L2_mechanism": "Agent editing a log-forwarder configuration file to add or replace output destinations with attacker-controlled endpoints",
+      "L3_surface": "Edits to /etc/fluent-bit/fluent-bit.conf [OUTPUT] sections, /etc/td-agent/td-agent.conf, /etc/rsyslog.d/*.conf, /etc/syslog-ng/*.conf, /etc/vector/vector.toml sinks"
+    }
+  ]
+}

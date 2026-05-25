@@ -1,0 +1,150 @@
+% paper/section_1_intro.tex
+% Updated May 2026 — stronger CVE narrative, new papers, AIWILD deadline note.
+
+\section{Introduction}
+\label{sec:intro}
+
+LLM agents have moved from research demos to deployed systems that handle
+non-trivial work: code generation, infrastructure operations, sales pipelines,
+and autonomous decision-making. The implementations of these systems have a
+striking structural property — the agent's harness, the deterministic code that
+wraps the language model with tool dispatch, context management, and persistence,
+is now roughly 98\% of the source lines; the model itself accounts for
+approximately 2\% \cite{liu2026clawdesign}. The model is no longer the system.
+The harness is.
+
+This shift has produced a new class of vulnerabilities, exploited at the harness
+layer rather than at the model. Four incidents from the past six months
+illustrate the pattern unambiguously.
+
+\textbf{CVE-2025-59536 and CVE-2026-21852} (Anthropic Claude Code, Oct 2025 and
+Jan 2026). CVE-2025-59536 allowed code injection in the startup trust dialog,
+enabling attacker-chosen scripts to run before the user could approve them.
+CVE-2026-21852 allowed exfiltration of the user's API key via a malicious
+\texttt{ANTHROPIC\_BASE\_URL} override in \texttt{.claude/settings.json} —
+redirecting traffic to an attacker-controlled server and exfiltrating credentials
+as a side effect of normal agent operation. Both were discovered by Check Point
+Research (disclosed March 2026) and subsequently patched.
+
+\textbf{CVE-2025-68664} (LangChain Core, disclosed December 2025). A
+serialization-injection vulnerability in the \texttt{dumps()}/\texttt{dumpd()}
+APIs enabled arbitrary class instantiation in trusted namespaces (CVSS 9.3
+Critical). The attack surface: \texttt{secrets\_from\_env=True} was the default,
+meaning environment variables containing credentials could be exfiltrated via a
+prompt-injection-crafted response that was then deserialized. At disclosure time,
+LangChain reported approximately 98 million monthly installs. A companion
+vulnerability, CVE-2025-68665, affected the LangChain JavaScript SDK.
+
+\textbf{CVE-2025-34291} (LangFlow, disclosed October 2025). A CSRF vulnerability
+on the refresh endpoint led to account takeover and remote code execution via
+the platform's built-in code-execution feature. This is not a patched historical
+incident: CrowdSec documented \emph{active exploitation in the wild beginning
+January 23, 2026} \cite{crowdsec2026langflow}. The vulnerability is not yet on
+the CISA Known Exploited Vulnerabilities catalog as of May 2026.
+
+These four cases share a structure: none of them exploited the language model's
+reasoning. Each was exploited at the harness layer — configuration parsing,
+serialization, CSRF handling, environment-variable access — by attacks shaped
+for that layer. The model was incidental. Thirty MCP-layer CVEs were disclosed
+in a sixty-day window spanning late 2025 and early 2026 \cite{agentauditkit2026},
+making this the fastest-growing attack surface in production AI infrastructure.
+
+\paragraph{The gap in existing defenses.}
+Existing guardrails address the model's input and output. LlamaFirewall
+\cite{saxe2025llamafirewall} places PromptGuard 2 at message-input time and
+AlignmentCheck at chain-of-thought time. AgentSpec \cite{wang2025agentspec}
+intercepts at plan-evaluation time. AGrail \cite{luo2025agrail} and
+ShieldAgent \cite{chen2025shieldagent} operate at action-evaluation time.
+CaMeL \cite{debenedetti2025camel} constrains capability propagation
+statically. FIDES \cite{costa2025fides} tracks information-flow labels.
+
+All of these systems — spatial defenses, in our terminology — evaluate
+the agent's output or context at a single time-step. None of them fire at the
+\emph{tool-call boundary}: the moment when a resolved tool invocation, with
+actual runtime arguments, is about to execute. This is the gap that Kavach fills.
+
+There is a second, subtler gap. Systems that \emph{intend} to fire at the
+tool-call boundary cannot do so if the host runtime's plugin hook is silently
+broken. On OpenClaw — currently the fastest-growing agent runtime
+\cite{thenewstack2026openclaw} with approximately 370,000 GitHub stars and
+active weekly releases — two upstream bugs (issues \#5513 and \#5943) prevent
+\texttt{before\_tool\_call} from firing at all. Issue \#5513: the typed-hook
+runner snapshots the plugin registry at construction time, so hooks registered
+during the plugin-load phase are invisible to the runner. Issue \#5943:
+\texttt{before\_tool\_call} is defined and documented as available since
+v2026.3.28 but is never invoked in \texttt{executeToolCalls()}. Until both are
+fixed, no security plugin on OpenClaw — including Kavach — can be a real
+guardrail. We contribute fixes for both as the first item of our engineering
+workstream (PR-1).
+
+\paragraph{Contributions.} This paper makes three contributions.
+
+\textbf{First}, we present a parliament-of-ministers architecture for runtime
+tool-call evaluation (\S\ref{sec:architecture}). Four specialized ministers ---
+EXECUTOR for code execution (MITRE ATT\&CK T1059, T1546; OWASP Agentic A09),
+VAULT for credential theft (MITRE T1552, T1539; OWASP Agentic A02, A06),
+CHANNEL for data exfiltration (MITRE T1041, T1567; OWASP Agentic A04), and
+NAVIGATOR for trajectory drift (MITRE T1083, T1057; OWASP Agentic A01) ---
+each query a disjoint ChromaDB collection of attack-pattern descriptions embedded
+with BGE \cite{xiao2024bge}. Each minister produces a confidence-bounded verdict;
+a deterministic speaker combines the verdicts \emph{asymmetrically} (any minister
+BLOCK suffices to block) into a final BLOCK / ESCALATE / ALLOW outcome. A
+separate alignment oracle, COMPASS, measures cosine similarity between the
+seeded user intent and the proposed agent action; drift below a Youden's
+J-calibrated threshold is treated as corroborating evidence.
+
+\textbf{Second}, we formalize the temporal--spatial defense-in-depth distinction
+(\S\ref{sec:temporal-spatial}). We prove a necessity claim --- spatial defense is
+insufficient for any system admitting runtime extension --- and a coverage theorem:
+under three plumbing preconditions about the host platform (established by PR-1),
+every tool call routes through the parliament before execution. We argue that
+future guardrail evaluations should report which enforcement boundary along which
+axis the guardrail occupies, not just final attack-success rate.
+
+\textbf{Third}, we conduct an evaluation with explicit safeguards against
+training-set contamination (\S\ref{sec:eval}). The attack-pattern corpus was
+authored from MITRE ATT\&CK technique IDs and OWASP Agentic 2026 categories
+under a documented eight-rule blind-writing protocol that prohibited reference
+to any specific CVE or benchmark test case during authoring. InjecAgent
+\cite{zhan2024injecagent} (1,054 cases) and TraceSafe-Bench
+\cite{tracesafe2026} were run cold. We measured false-positive rate on a
+hand-curated set of fifty benign agent sessions \emph{before} measuring attack
+recall, and treated FPR ${<}5\%$ as a gate condition. We report cost (latency,
+embedding queries per decision) jointly with detection numbers, following the
+methodological discipline of Kapoor et al.~\cite{kapoor2024aiagents}.
+
+\paragraph{Positioning relative to concurrent work.}
+Three papers published in early 2026 require explicit positioning. DeepContext
+\cite{albrethsen2026deepcontext} proposes an intent-distance oracle over turn
+embeddings (F1 0.84, sub-20 ms), conceptually adjacent to Kavach's COMPASS
+oracle; our differentiation is that COMPASS compares agent actions against a
+fixed declared intent rather than tracking evolving user-turn sequences, and
+feeds a four-minister parliament. PSG-Agent \cite{psgagent2026} introduces a
+four-component guardrail (Plan Monitor, Tool Firewall, Response Guard, Memory
+Guardian) similar in structure to Kavach's ministers; our differentiation is
+that PSG-Agent is personalized and collapses oracle and detector roles, while
+Kavach separates them and applies asymmetric combination. OpenClaw PRISM
+\cite{prism2026} applies defense-in-depth to the same OpenClaw runtime as Kavach;
+our differentiation is that Kavach uses a semantic attack-pattern corpus and
+contributes the upstream hook fixes that make pre-execution interception possible
+on OpenClaw at all.
+
+\paragraph{Scope and non-claims.}
+We do not claim Kavach prevents every class of agent-side attack. The corpus is
+curated; novel techniques not yet in published taxonomies will not appear in it.
+Single-vector cosine similarity has known limits relative to sequence-aware
+detection \cite{advani2026trajectoryguard}; this is a stated future-work
+direction. The four ministers' detection-failure modes may be statistically
+correlated; measuring this is a stated future-work item. We do not propose
+Kavach as a replacement for existing prompt-time or output-time guardrails; we
+argue (\S\ref{sec:temporal-spatial}.4) that they enforce at different boundaries
+along the temporal axis and a comprehensive deployment runs both.
+
+\paragraph{Reproducibility.}
+The corpus (200 attack-pattern descriptions + 100 COMPASS calibration pairs),
+the parliament service, the OpenClaw plugin and upstream PR-1, the benchmark
+harness, and the calibration protocol are all open-source and shipped with the
+paper. The reproducibility checklist in our supplementary material specifies the
+exact validation sequence — including the benign FPR gate (Step 5) that must
+pass before the InjecAgent run is meaningful — that produced the numbers
+reported in \S\ref{sec:eval}.
