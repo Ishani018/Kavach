@@ -1,0 +1,365 @@
+% paper/skeleton.tex
+% ───────────────────────────────────────────────────────────────────
+% Kavach: A Parliament-of-Ministers Semantic Firewall for AI Agents
+% Working title — fill in numbers as workstream D produces them.
+%
+% Target venues (in order of submission preference):
+%   1. ICML 2026 Workshop on Agents in the Wild — non-archival, May/June
+%   2. MASEC @ NeurIPS 2026 — non-archival workshop, September
+%   3. SaTML 2027 — archival, September-October
+%   4. DEF CON AI Village 2026 — talk, June
+% ───────────────────────────────────────────────────────────────────
+
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{algorithm, algorithmic}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{cite}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{definition}{Definition}
+\newtheorem{claim}{Claim}
+
+\title{Kavach: A Parliament-of-Ministers Semantic Firewall \\
+       for Real-Time Interception of LLM Agent Tool Calls}
+\author{[Author names — PES University]}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% ═══════════════════════════════════════════════════════════════════
+\begin{abstract}
+We present Kavach, a runtime guardrail for LLM agents that intercepts every
+tool invocation before execution, evaluates it against a curated corpus of
+attack-pattern descriptions across four semantic ministers
+(EXECUTOR / VAULT / CHANNEL / NAVIGATOR), and combines minister verdicts via
+a deterministic speaker into a BLOCK / ESCALATE / ALLOW decision in a
+real-time budget of [TBD]\,ms p95. We additionally introduce COMPASS, a
+session-level alignment oracle that flags drift between the user's stated
+intent and the agent's proposed actions. Evaluated on InjecAgent
+(1{,}054 cases) and a hand-curated benign trace set (50 sessions), Kavach
+achieves [TBD] BLOCK-recall on attacks at [TBD] FPR on benign work,
+representing [TBD]× reduction in attack success rate relative to
+LlamaFirewall \cite{saxe2025llamafirewall} and AGrail
+\cite{luo2025agrail} at comparable utility. We frame Kavach's primary
+architectural contribution as the \emph{temporal--spatial} defense-in-depth
+distinction: existing guardrails enforce in parallel layers at the same
+time-step; Kavach enforces in serialized layers ordered by trust acquisition,
+ensuring no agent extension code can run before the ministers have validated
+it.
+\end{abstract}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Introduction}
+\label{sec:intro}
+
+LLM agents have reached the operational sophistication that production
+systems delegate non-trivial work to them — code generation, infrastructure
+operations, customer support, sales pipelines. The agent's harness — the
+deterministic code that wraps tool calls, manages context, and persists state
+— now does the bulk of the engineering work; the model itself accounts for
+roughly 1.6\% of source lines in production systems
+\cite{liu2026clawdesign}. This shift has produced a new and growing class of
+vulnerabilities: the harness, not the model, is the attack surface.
+
+Recent CVEs make the pattern unambiguous. CVE-2025-59536 and
+CVE-2026-21852 against Claude Code's pre-trust hooks; CVE-2025-68664 against
+LangChain's serialization paths (98M monthly installs at disclosure time);
+CVE-2025-34291 against Langflow's CORS handling. These are not model
+failures. They are infrastructure failures, and they are exploited by
+infrastructure-shaped attacks: prompt-injection in tool outputs, credential
+exfiltration via metadata services, persistence install via lifecycle hooks.
+
+We argue that the right defense for this surface is a runtime semantic
+firewall — a deterministic layer that evaluates every tool invocation
+against a curated body of attack-pattern semantics before the tool executes.
+This paper presents Kavach, a working implementation of that idea.
+
+\paragraph{Contributions.} This paper makes three contributions:
+\begin{enumerate}
+    \item A \emph{parliament-of-ministers} architecture for runtime agent
+          tool-call evaluation. Four specialized ministers — EXECUTOR for
+          code execution, VAULT for credential theft, CHANNEL for data
+          exfiltration, NAVIGATOR for trajectory drift — query disjoint
+          ChromaDB collections of attack-pattern descriptions and produce
+          confidence-bounded verdicts that a deterministic speaker
+          aggregates into a final BLOCK / ESCALATE / ALLOW outcome
+          (\S\ref{sec:architecture}).
+
+    \item A formalization of the \emph{temporal--spatial} defense-in-depth
+          distinction. Existing guardrails — LlamaFirewall, AgentSpec, AGrail,
+          ShieldAgent — enforce in spatial layers (parallel rails at one
+          time-step). Kavach additionally enforces in temporal layers
+          (ordered by trust acquisition: ministers must be online and
+          authoritative before any agent extension code can register).
+          We give a formal claim about the failure modes each layering
+          discipline can and cannot cover (\S\ref{sec:temporal-spatial}).
+
+    \item An evaluation methodology with explicit safeguards against
+          training-set contamination. We ran the InjecAgent benchmark
+          \emph{cold} — the corpus was authored from MITRE ATT\&CK technique
+          IDs and OWASP Agentic 2026 categories, never from any specific CVE
+          or test case. We measured benign FPR before measuring attack
+          recall, treating FPR\,$<$\,5\% on hand-curated benign traces as a
+          gate condition. We report cost (latency, embedding queries per
+          decision) jointly with detection numbers, following Kapoor et
+          al.~\cite{kapoor2024aiagents}.
+\end{enumerate}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Background}
+\label{sec:background}
+
+\subsection{Agent infrastructure attack surface}
+% Cover: tool calls, MCP, the harness shift, the 1.6/98.4 inversion
+% Cite: Liu 2604.14228, Hou 2506.02040 ETDI 2506.01333 STRIDE 2603.22489
+
+\subsection{Existing guardrails}
+% Layered taxonomy of: prompt-time (PromptGuard 2), CoT-time (AlignmentCheck),
+% tool-time (LlamaFirewall, AgentSpec, AGrail, ShieldAgent),
+% reply-time (NeMo output rails, content safety APIs).
+% Cite: 2505.03574, 2503.18666, 2502.11448, 2503.22738
+
+\subsection{What's missing}
+% Three gaps: (1) tool-time enforcement assumes the harness is itself trusted
+% — Kavach addresses this in §4; (2) the speaker in existing parliaments is
+% a fixed combiner rather than a generator-evaluator with a deterministic
+% backstop; (3) no published guardrail reports cost-controlled evaluation.
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Kavach Architecture}
+\label{sec:architecture}
+
+\subsection{Overview}
+% Pipeline figure: user msg → seed_intent → action proposed →
+%   COMPASS drift check → semantic router → activated ministers in parallel →
+%   speaker → BLOCK/ESCALATE/ALLOW
+% Cite our own openclaw.plugin.json wire format.
+
+\subsection{Ministers}
+% Per minister: source taxonomy, document count, embedding model, threshold.
+% Table: minister × (#patterns, #docs, sources cited).
+
+\subsubsection{EXECUTOR}
+% MITRE T1059, T1190, T1195, T1546, T1574; OWASP A09.
+
+\subsubsection{VAULT}
+% MITRE T1552, T1078, T1539, T1555; OWASP A02, A06.
+
+\subsubsection{CHANNEL}
+% MITRE T1041, T1567, T1071, T1048, T1572; OWASP A04.
+
+\subsubsection{NAVIGATOR}
+% MITRE T1083, T1057, T1005, T1135, T1119; OWASP A01.
+
+\subsection{COMPASS — alignment oracle}
+% Stage II seed_intent stores BGE vector of user message.
+% At each tool call, cosine(intent, action). Drift threshold from Youden's J.
+% Maps to Saha et al.'s task-alignment property in their formal framework.
+% Cite: 2603.19469.
+
+\subsection{Speaker — deterministic verdict combiner}
+% Five cases as in speaker.py: blocking minister wins; drift+escalate→block;
+% any escalate→escalate; drift alone→escalate; otherwise allow.
+% Asymmetric: one strong signal blocks, no score averaging.
+% Comparison to ShieldAgent's verifiable-rule circuits (2503.22738).
+
+\subsection{The semantic router}
+% Why route: avoid running every minister on every call (latency budget).
+% Routing config: per-minister domain descriptions, threshold 0.40.
+% Failure mode: route activates zero ministers → fall back to all four.
+
+\subsection{Real-time interception path}
+% The OpenClaw before_tool_call hook (post bug-fix PR-1).
+% Plugin wire contract: tool:NAME args:JSON → parliament HTTP →
+%   {block, blockReason, requireApproval, params}.
+% Fail-closed on tool calls (250ms timeout); fail-open on replies (500ms).
+% Circuit breaker (3 consecutive failures → 60s open).
+
+% ═══════════════════════════════════════════════════════════════════
+\section{The Temporal--Spatial Defense-in-Depth Distinction}
+\label{sec:temporal-spatial}
+
+% This is the strongest novel theoretical contribution per the research report.
+
+\begin{definition}[Spatial defense-in-depth]
+A guardrail \emph{spatially} defends a system if it places multiple
+independent enforcement points along the request path at a fixed time-step.
+Each point can independently veto. The guardrails are independent in policy
+but coincident in time.
+\end{definition}
+
+\begin{definition}[Temporal defense-in-depth]
+A guardrail \emph{temporally} defends a system if its enforcement points are
+serialized by trust acquisition: enforcement point $E_i$ must be online,
+authoritative, and have validated all components downstream of it before any
+component at $E_{i+1}$ can register or execute. Trust flows forward in time;
+no later component can cause an earlier component to lose authority.
+\end{definition}
+
+\begin{claim}[Necessity of temporal layering]
+\label{claim:necessity}
+Any system that admits user-installable agent extension code (plugins, MCP
+servers, tool registrations) at runtime cannot be made safe by spatial
+defense alone, because spatial defense assumes the enforcement points are
+themselves trusted at the moment they make a decision. If the trust chain
+flows through an extension that registered after the enforcement point's
+trust was established, the extension can subvert the enforcement.
+\end{claim}
+
+% Proof sketch: example with PR-fix #5513 — typed hook runner snapshots
+% before plugins register; even though the hook is a "spatial" defense,
+% temporal ordering breaks it. Generalizable: any pre-snapshot trust capture
+% is broken by post-snapshot extension installation.
+
+\begin{theorem}[Kavach's temporal coverage]
+\label{thm:coverage}
+Under the assumption that the OpenClaw plugin registry is authoritative and
+the Kavach plugin registers before any non-Kavach extension is permitted to
+run a tool call, the parliament evaluates every tool call before it executes.
+Equivalently: no tool side effect occurs without a parliament verdict.
+\end{theorem}
+
+% Proof: rests on PR-1 (the typed-hook runner reads the live registry on
+% every dispatch) plus the plugin manifest's load-order guarantees.
+
+\subsection{What temporal layering does and does not give us}
+% Temporal: Kavach is online before any extension runs → all extension tool
+% calls are evaluated.
+% Spatial: Kavach is one parliament; if a minister mis-classifies, no other
+% layer catches the miss within the same time-step.
+% Therefore Kavach is COMPLEMENTARY to LlamaFirewall-style spatial defense,
+% not a replacement.
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Evaluation}
+\label{sec:eval}
+
+\subsection{Setup}
+% Hardware: RTX 4090, Ubuntu 24.04, BGE-base-en-v1.5, ChromaDB persistent
+% Corpus: 200 attack patterns × 3 levels = 600 documents, 100 COMPASS pairs
+% Threshold derivation: Youden's J on COMPASS calibration set + threshold
+% sweep on InjecAgent
+
+\subsection{Anti-contamination protocol}
+% Replay the protocol from corpus_v2/expansion_protocol.md as Section 5.2.
+% This is what makes the cold-recall number meaningful.
+
+\subsection{Benign FPR gate}
+% 50 hand-curated benign sessions (benchmarks/benign_traces.py)
+% Reported FPR: [TBD]
+% Gate condition: < 5% — passed/failed before InjecAgent
+% By-category FPR table.
+
+\subsection{InjecAgent — cold recall}
+% 1,054 cases, no corpus tuning to test set
+% Headline: BLOCK-recall = [TBD], BLOCK-precision = [TBD], F1 = [TBD]
+% By-category breakdown.
+
+\subsection{Threshold sweep and ROC}
+% Per-minister ROC; Youden's J optimums.
+% Figure: ROC curves with operating points marked.
+
+\subsection{Latency budget}
+% Per-stage latency: COMPASS check + router + 4 ministers (parallel) + speaker
+% p50, p95, p99 in ms.
+% Embedding queries per decision (efficiency relative to ShieldAgent which
+% reports 64.7\% reduction over LLM-judge).
+
+\subsection{Comparison table}
+% Table: System | dataset | recall | FPR | latency p95 | $-cost
+% Lines: LlamaFirewall, AgentSpec, AGrail, ShieldAgent, Kavach
+% Methodology note: numbers reported in original papers, where comparable.
+
+\subsection{Ablations}
+% Without COMPASS: how much does drift detection contribute?
+% Without router: how much latency cost vs how much accuracy?
+% Single-collection (v1 architecture): why per-minister collections matter.
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Related Work}
+\label{sec:related}
+
+% One paragraph per system. Differentiation must be explicit.
+% Source: paper/related_work.md (12 paragraphs already written).
+
+\paragraph{LlamaFirewall} \cite{saxe2025llamafirewall}
+\paragraph{AgentSpec} \cite{wang2025agentspec}
+\paragraph{AGrail} \cite{luo2025agrail}
+\paragraph{ShieldAgent} \cite{chen2025shieldagent}
+\paragraph{CaMeL} \cite{}
+\paragraph{FIDES} \cite{}
+\paragraph{RTBAS} \cite{}
+\paragraph{Conseca} \cite{}
+\paragraph{Task Shield} \cite{}
+\paragraph{Trajectory Guard} \cite{}
+\paragraph{TaskTracker} \cite{abdelnabi2024tasktracker}
+\paragraph{DeepContext / TraceSafe-Bench}
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Limitations}
+\label{sec:limitations}
+
+\paragraph{Single-vector cosine ceiling.} Trajectory Guard
+\cite{abdelnabi2026trajectoryguard} reports F1 0.88--0.94 with sequence-aware
+Siamese encoders, suggesting that single-vector BGE cosine — the workhorse
+of Kavach's ministers — is the floor of semantic-detection performance, not
+the ceiling. Future work should benchmark per-minister sequence models.
+
+\paragraph{Curated-corpus generalization.} The expansion protocol
+(\S\ref{sec:eval}.2) gives us a meaningful cold-recall number, but the
+upper bound of what a curated corpus can detect remains an open question.
+The patterns are written from technique taxonomies; novel techniques
+not yet in MITRE ATT\&CK or OWASP Agentic will not appear in the corpus.
+Detective-style live-corpus growth (Reflexion \cite{shinn2023reflexion},
+Voyager-style memory promotion) is mentioned as future work but not
+implemented in this version.
+
+\paragraph{Minister independence.} We assume the four ministers'
+verdicts are statistically independent on real attack traffic. That
+assumption is testable but untested. Liu et al.\ \cite{liu2026clawdesign}
+flag failure correlation as a real concern in defense-in-depth systems;
+we leave the empirical measurement of inter-minister failure
+correlation to future work.
+
+\paragraph{No AgentDojo or τ-bench yet.} We chose InjecAgent as the first
+benchmark because it is a JSON replay (the simplest possible
+infrastructure). AgentDojo and τ-bench require live tool environments
+and are deferred to a follow-up paper.
+
+% ═══════════════════════════════════════════════════════════════════
+\section{Future Work}
+\label{sec:future}
+
+\paragraph{CORTEX — activation-probe minister.} A fifth minister that
+reads the agent model's residual-stream activations and compares them
+against probes trained on labelled deception/jailbreak signals. The
+research report notes this is the highest-ROI extension; it requires
+white-box model access (which OpenClaw provides through the embedded
+runner).
+
+\paragraph{SUPPLY — supply-chain minister.} An MCP-aware minister that
+inspects MCP server descriptors and tool manifests for poisoning signals
+(Hou et al.\ \cite{hou2025mcp}). This integrates with the
+\texttt{tools/preExecute} MCP extension we propose in
+\S\ref{sec:architecture}.
+
+\paragraph{Federated corpus.} Per-deployment corpora, periodic
+federated aggregation. Kavach's HTTP wire format is framework-agnostic;
+the corpus is the unit of replication.
+
+\paragraph{MCP-Security spec.} Standardize the parliament HTTP contract
+as a Model Context Protocol extension so any MCP-aware client (Claude
+Desktop, Cursor, OpenClaw) can satisfy it.
+
+% ═══════════════════════════════════════════════════════════════════
+\bibliographystyle{plain}
+\bibliography{kavach}
+
+\end{document}

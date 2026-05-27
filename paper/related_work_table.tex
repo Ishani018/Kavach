@@ -1,0 +1,79 @@
+% paper/related_work_table.tex
+% Insert at the start of §6 (Related Work) or at the end of §2 (Background).
+% Five axes: enforcement boundary, mechanism, corpus extensibility,
+%             verdict combination, benchmark numbers.
+%
+% [TBD] cells in the Kavach row are filled in when Workstream D completes.
+% The table uses booktabs for publication-quality formatting.
+
+\begin{table*}[t]
+\centering
+\caption{%
+  Comparison of agent guardrails on five axes. ``Boundary'' indicates where in
+  the agent lifecycle enforcement fires. ``Mechanism'' is the primary detection
+  approach. ``Ext.'' indicates whether the detection corpus / rule set is
+  extensible without retraining. ``Verdict'' indicates how multiple detection
+  signals are combined. AgentDojo ASR and InjecAgent Recall are the best
+  numbers reported by the respective papers; {\em n/r} = not reported;
+  {\em ext.} = experimental; $\dagger$ = estimated from paper description.
+  Lower ASR is better; higher Recall is better.
+}
+\label{tab:guardrail-comparison}
+\small
+\begin{tabular}{@{}lllllrr@{}}
+\toprule
+\textbf{System} & \textbf{Boundary} & \textbf{Mechanism} &
+\textbf{Ext.?} & \textbf{Verdict} &
+\textbf{AgentDojo} & \textbf{InjecAgent} \\
+& & & & & \textbf{ASR $\downarrow$} & \textbf{Recall $\uparrow$} \\
+\midrule
+
+% ─── Spatial / input-output rails ───────────────────────────────────────────
+PromptGuard 2 & input & DeBERTa classifier & no & threshold & 7.5\% & n/r \\
+AlignmentCheck & CoT & LLM judge & no & threshold & 2.89\% & n/r \\
+CodeShield & output & Semgrep+regex & yes (rules) & threshold & n/r & n/r \\
+LlamaFirewall (combined) & I/CoT/O & 3-layer spatial & partial & joint & 1.75\% & n/r \\
+\midrule
+
+% ─── Plan-time ───────────────────────────────────────────────────────────────
+AgentSpec & plan & rule DSL & yes & all-pass & >10\% blocked & n/r \\
+DRIFT & plan & rule+isolator & partial & sequential & n/r & n/r \\
+\midrule
+
+% ─── Tool-call-time ───────────────────────────────────────────────────────────
+Task Shield & tool-call & LLM alignment & no & threshold & 22\%$\dagger$ & n/r \\
+ShieldAgent & tool-call & rule circuits & yes (docs) & probabilistic & n/r & 90.1\% \\
+PSG-Agent & tool-call & 4-component & partial & cross-turn accum. & n/r & n/r \\
+OpenClaw PRISM & tool-call & middleware checkpts & partial & sequential & n/r & n/r \\
+\textbf{Kavach (ours)} & \textbf{tool-call} & \textbf{embed. corpus} & \textbf{yes (corpus)} & \textbf{asymmetric} & \textbf{[TBD]} & \textbf{[TBD]} \\
+\midrule
+
+% ─── Information-flow ─────────────────────────────────────────────────────────
+CaMeL & IFC & dual-LLM + taint & no & provable & 23\% (sec) & n/r \\
+FIDES & IFC & label propagation & no & provable & n/r & n/r \\
+RTBAS & IFC & saliency screener & no & threshold & 2\% loss only & n/r \\
+AGrail & adaptive & LLM + memory & yes (memory) & cooperative & 3.8\%--5\% & n/r \\
+\midrule
+
+% ─── Drift detection ──────────────────────────────────────────────────────────
+TaskTracker & session & activation delta & no & binary & n/r & n/r \\
+DeepContext & session & RNN over embeds & no & binary & n/r & n/r \\
+Trajectory Guard & trajectory & Siamese RAE & no & score & n/r & n/r \\
+\midrule
+
+% ─── Commercial baseline ──────────────────────────────────────────────────────
+DKnownAI Guard & mixed & ensemble & partial & threshold & n/r & 96.5\% \\
+Lakera Guard & input & classifier & no & threshold & n/r & n/r \\
+AWS Bedrock & input & content filter & no & threshold & n/r & n/r \\
+
+\bottomrule
+\end{tabular}
+
+\medskip
+\noindent\small
+\textbf{Asymmetric verdict} (Kavach): any single minister returning BLOCK vetoes
+the call unconditionally; COMPASS drift escalates unless a minister blocks first.
+No score averaging. See Definition~3 and Claim~1 in \S\ref{sec:temporal-spatial}.
+\textbf{Corpus extensibility} (Kavach): new attack patterns are added as natural-language
+descriptions, re-embedded into ChromaDB without retraining any model component.
+\end{table*}

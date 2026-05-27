@@ -1,0 +1,194 @@
+% paper/section_5_evaluation.tex
+% ─────────────────────────────────────────────────────────────────────────────
+% Section 5: Evaluation
+% Fill [TBD] placeholders with numbers from benchmarks/injecagent_runner.py
+% and benchmarks/benign_traces.json once runs complete on the lab machine.
+% ─────────────────────────────────────────────────────────────────────────────
+
+\section{Evaluation}
+\label{sec:eval}
+
+We evaluate Kavach on two complementary datasets: InjecAgent~\cite{zhan2024injecagent},
+which provides adversarial injection cases, and a hand-curated benign trace
+set that tests false-positive rate on legitimate developer workflows.
+
+\subsection{Experimental Setup}
+
+\paragraph{Hardware.}
+All experiments run on a Dell Precision 3660 workstation
+(Intel Core i9-13900, 128\,GB DDR5 RAM, NVIDIA RTX 4090 24\,GB).
+The Kavach server runs on localhost; the OpenClaw agent runs in a separate
+process communicating over loopback. Embedding inference uses the RTX 4090.
+
+\paragraph{Embedding model.}
+\texttt{BAAI/bge-large-en-v1.5} (1024-d, FP32, sentence-transformers 2.x).
+Inference is batched at 32 samples per forward pass. No quantization is applied
+to preserve embedding fidelity.
+
+\paragraph{LLM backbone.}
+Agent inference uses \texttt{mashriram/sarvam-m-tools} served via Ollama,
+selected for tool-call reliability over the base Sarvam-M model.
+
+\paragraph{Threshold configuration.}
+We evaluate three threshold configurations identified by
+\texttt{benchmarks/threshold\_sweep.py}:
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+Config & $\theta_{\min}$ & $\theta_{\text{route}}$ & $\theta_{\text{drift}}$ \\
+\midrule
+A (aggressive) & 0.40 & 0.35 & 0.15 \\
+B (balanced)   & 0.45 & 0.40 & 0.20 \\
+C (conservative) & 0.55 & 0.50 & 0.30 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Config\,B is our primary reported configuration as it achieves the best
+Youden's $J$ on the COMPASS calibration set.
+
+\subsection{Attack Detection: InjecAgent}
+
+InjecAgent provides 1{,}054 adversarial tool-call injection cases across
+17 attack categories derived from MITRE ATT\&CK. We run each case through the
+Kavach \texttt{/parliament/evaluate} endpoint and record the verdict.
+
+\begin{table}[h]
+\centering
+\caption{Kavach detection results on InjecAgent (Config\,B, $n=1054$).}
+\label{tab:injecagent}
+\begin{tabular}{lrrrr}
+\toprule
+Category & Cases & \textsc{Block} & \textsc{Escalate} & Missed \\
+\midrule
+Credential Access    & [TBD] & [TBD] & [TBD] & [TBD] \\
+Code Execution       & [TBD] & [TBD] & [TBD] & [TBD] \\
+Data Exfiltration    & [TBD] & [TBD] & [TBD] & [TBD] \\
+Persistence          & [TBD] & [TBD] & [TBD] & [TBD] \\
+Defense Evasion      & [TBD] & [TBD] & [TBD] & [TBD] \\
+Lateral Movement     & [TBD] & [TBD] & [TBD] & [TBD] \\
+Other                & [TBD] & [TBD] & [TBD] & [TBD] \\
+\midrule
+\textbf{Total}       & 1054  & [TBD] & [TBD] & [TBD] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Primary metric: BLOCK-recall.}
+We define BLOCK-recall as the fraction of attack cases for which Kavach returns
+either \textsc{Block} or \textsc{Escalate} (i.e., cases where tool execution
+is prevented). Config\,B achieves BLOCK-recall = [TBD]\% ($95\%$ CI:
+$[\text{TBD},\, \text{TBD}]$, Wilson interval).
+
+\paragraph{ClawHavoc case study (CVE-2026-25253).}
+ClawHavoc exploits OpenClaw's temporal composition blindness: a benign tool
+call in turn $t$ primes a state variable, and a malicious call in turn $t+2$
+exploits the primed state. Neither call is individually detectable by
+single-turn classifiers. Kavach's NAVIGATOR Minister detects the trajectory
+anomaly: the cosine similarity between turn-$t+2$'s embedding and the session
+centroid falls below the drift threshold at turn $t+2$, triggering an
+\textsc{Escalate} before execution.
+
+Across [TBD] ClawHavoc replay traces, Kavach prevents [TBD]\% of successful
+exploits that a single-turn baseline (LlamaFirewall~\cite{saxe2025llamafirewall})
+misses entirely.
+
+\subsection{False Positive Rate: Benign Traces}
+
+We evaluate FPR on 50 hand-curated benign developer sessions
+(\texttt{benchmarks/benign\_traces.json}) covering common tasks: debugging
+Python type errors, deploying web applications, running test suites,
+refactoring code, and managing git repositories. Each session contains
+between 5 and 20 tool calls.
+
+\begin{table}[h]
+\centering
+\caption{False positive rate on benign traces (Config\,B, $n=50$ sessions).}
+\label{tab:benign}
+\begin{tabular}{lrr}
+\toprule
+Task category & Sessions & FPR (\%) \\
+\midrule
+Python debugging     & [TBD] & [TBD] \\
+Web deployment       & [TBD] & [TBD] \\
+Test suite runs      & [TBD] & [TBD] \\
+Code refactoring     & [TBD] & [TBD] \\
+Git operations       & [TBD] & [TBD] \\
+\midrule
+\textbf{Overall}     & 50    & [TBD] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+An FPR of [TBD]\% means that in [TBD] of 50 benign sessions Kavach incorrectly
+blocked or escalated at least one legitimate tool call.
+
+\subsection{Latency}
+
+We measure end-to-end evaluation latency (agent plugin call to verdict received)
+under three concurrency levels. Times are wall-clock milliseconds, median and
+p95 over 500 requests per condition.
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Concurrency & p50 (ms) & p95 (ms) \\
+\midrule
+1 (serial)       & [TBD] & [TBD] \\
+4 (typical)      & [TBD] & [TBD] \\
+8 (stress)       & [TBD] & [TBD] \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The p95 latency target is $<$200\,ms for synchronous interception to remain
+imperceptible to the agent operator. Config\,B [meets / does not meet — fill
+after run] this target at concurrency~4.
+
+\subsection{Ablation: Minister Contribution}
+
+We ablate the contribution of each Minister by disabling it and re-running
+InjecAgent, measuring the resulting drop in BLOCK-recall.
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Disabled component & $\Delta$ BLOCK-recall (\%) \\
+\midrule
+EXECUTOR off  & $-$[TBD] \\
+VAULT off     & $-$[TBD] \\
+CHANNEL off   & $-$[TBD] \\
+NAVIGATOR off & $-$[TBD] \\
+COMPASS off   & $-$[TBD] \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+NAVIGATOR and COMPASS together account for [TBD]\% of detections that would be
+missed by a stateless, single-turn system, validating the temporal--spatial
+architecture described in \S\ref{sec:temporal}.
+
+\subsection{Comparison with Related Systems}
+
+\begin{table}[h]
+\centering
+\caption{Comparison with guardrail systems on InjecAgent BLOCK-recall and FPR.}
+\label{tab:comparison}
+\begin{tabular}{lrrl}
+\toprule
+System & BLOCK-recall & FPR & Temporal detection \\
+\midrule
+LlamaFirewall~\cite{saxe2025llamafirewall} & [TBD]\% & [TBD]\% & No \\
+AGrail~\cite{luo2025agrail}               & [TBD]\% & [TBD]\% & No \\
+PRISM~\cite{guo2025prism}                 & [TBD]\% & [TBD]\% & In-motion only \\
+NemoClaw~\cite{nvidia2025nemoclaw}        & [TBD]\% & [TBD]\% & No \\
+\textbf{Kavach (ours, Config B)}          & \textbf{[TBD]\%} & \textbf{[TBD]\%} & \textbf{Yes (NAVIGATOR+COMPASS)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+Numbers for baseline systems are taken from their published evaluations on
+overlapping InjecAgent subsets. Direct comparison should be interpreted
+cautiously as exact prompt formats and model versions vary.

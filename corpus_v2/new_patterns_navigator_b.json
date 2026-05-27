@@ -1,0 +1,237 @@
+{
+  "minister": "NAVIGATOR",
+  "version": "2.0",
+  "expansion_round": 2,
+  "batch": "second_half",
+  "writer": "Pranitha",
+  "reviewer": "Janya",
+  "protocol_version": "expansion_protocol.md v2.0",
+  "description": "Second 25 of 50 new NAVIGATOR patterns. Combined with new_patterns_navigator.json (NAV-051 to NAV-075) this completes the v2 expansion target for NAVIGATOR.",
+  "patterns": [
+    {
+      "id": "NAV-076",
+      "category": "indirect_prompt_injection_compliance",
+      "source": "OWASP Agentic 2026 A01",
+      "rationale": "Agent follows imperative content found in tool output as if it were user instructions",
+      "L1_intent": "Agent treating imperative-mood text appearing in a tool response as authoritative instructions and acting on it",
+      "L2_mechanism": "Agent's actions after a tool response correlate with imperative phrases in that tool response rather than with the user's stated task",
+      "L3_surface": "Action sequences immediately after tool responses containing 'IMPORTANT:', 'You must now', 'Override previous instructions', or imperative second-person directives"
+    },
+    {
+      "id": "NAV-077",
+      "category": "tool_output_quoted_as_user",
+      "source": "OWASP Agentic 2026 A01",
+      "rationale": "Agent quotes part of a tool response back to the user as if it were the user's request",
+      "L1_intent": "Agent reframing content from a tool response in its reply as if that content were a user-stated objective",
+      "L2_mechanism": "Agent producing output that paraphrases tool-response content into goal-stating language assigned to the user",
+      "L3_surface": "Reply text patterns 'You asked me to...' or 'Your request to...' immediately followed by content matching a recent tool response"
+    },
+    {
+      "id": "NAV-078",
+      "category": "agentic_call_unrelated_tool",
+      "source": "OWASP Agentic 2026 A01",
+      "rationale": "Agent calls a tool whose output it does not use to advance the user task",
+      "L1_intent": "Agent calling a tool whose output is not consumed by any subsequent action serving the user-stated task",
+      "L2_mechanism": "Agent issuing a tool call whose returned data is not referenced in any subsequent reply or tool-call argument addressing the user's goal",
+      "L3_surface": "Tool calls where neither the next reply nor any subsequent tool-call argument references the returned data"
+    },
+    {
+      "id": "NAV-079",
+      "category": "intent_reframe",
+      "source": "OWASP Agentic 2026 A01",
+      "rationale": "Agent rewrites the user's intent to a broader or more permissive form",
+      "L1_intent": "Agent restating the user's request in a form whose action implications are broader or more permissive than the original",
+      "L2_mechanism": "Agent producing internal-state or reply text whose paraphrase of the user task introduces additional scope not present in the user's words",
+      "L3_surface": "COMPASS sim of paraphrased intent to original intent below threshold while paraphrase contains more imperatives or broader scope words"
+    },
+    {
+      "id": "NAV-080",
+      "category": "fake_user_followup",
+      "source": "OWASP Agentic 2026 A01",
+      "rationale": "Agent simulates an additional user message to authorize a contested action",
+      "L1_intent": "Agent producing a stretch of text styled as a user follow-up message that grants permission for an action the original user did not authorize",
+      "L2_mechanism": "Agent emitting a section of context containing simulated user-turn content that authorizes contested actions within the same session",
+      "L3_surface": "Session log entries containing fabricated 'User: yes proceed' or '<user>...</user>' tags not corresponding to real user turn boundaries"
+    },
+    {
+      "id": "NAV-081",
+      "category": "unauthorized_self_modification",
+      "source": "OWASP Agentic 2026 A01",
+      "rationale": "Agent modifies its own configuration mid-session",
+      "L1_intent": "Agent modifying its own runtime configuration during the session in ways the user did not request",
+      "L2_mechanism": "Agent issuing operations that change its own model selection, system prompt, available tools, or memory access during the session",
+      "L3_surface": "Tool calls invoking config_set, model_switch, prompt_set, tools_register, memory_clear without corresponding user-stated request"
+    },
+    {
+      "id": "NAV-082",
+      "category": "hallucinated_user_consent",
+      "source": "OWASP Agentic 2026 A01",
+      "rationale": "Agent claims user authorization that was never given",
+      "L1_intent": "Agent justifying an action by referring to user consent or authorization that does not appear in the session history",
+      "L2_mechanism": "Agent producing output asserting user authorization for an action when no user message in the session granted that authorization",
+      "L3_surface": "Reply or rationale text containing 'as you authorized' or 'per your earlier approval' for actions not corresponding to any user message"
+    },
+    {
+      "id": "NAV-083",
+      "category": "subagent_dispatch_to_attack",
+      "source": "OWASP Agentic 2026 A04",
+      "rationale": "Agent spawns subagent and instructs it to take actions outside the user's task",
+      "L1_intent": "Agent spawning a subagent and giving it instructions whose scope exceeds the user-stated task",
+      "L2_mechanism": "Agent invoking subagent-dispatch primitives with prompts whose semantics extend beyond the user's stated task scope",
+      "L3_surface": "Calls to spawn_agent, run_subagent, dispatch with prompts whose COMPASS sim to the original user intent is below threshold"
+    },
+    {
+      "id": "NAV-084",
+      "category": "memory_poisoning_write",
+      "source": "OWASP Agentic 2026 A06",
+      "rationale": "Agent writes to its own memory store with content that affects future decisions",
+      "L1_intent": "Agent writing content to its own persistent memory store that biases future decisions in directions the user did not request",
+      "L2_mechanism": "Agent issuing memory-write primitives whose content contains directive or preference language that influences subsequent reasoning",
+      "L3_surface": "Calls to memory_set, memory_add, knowledge_store with values containing 'always', 'never', 'preferred', 'rule' substrings"
+    },
+    {
+      "id": "NAV-085",
+      "category": "workspace_traversal",
+      "source": "OWASP Agentic 2026 A01",
+      "rationale": "Agent uses path traversal to access content outside the workspace",
+      "L1_intent": "Agent using filesystem-path traversal techniques to access content outside the directory the user named as workspace",
+      "L2_mechanism": "Agent constructing filesystem paths containing traversal segments that result in resolved paths above the user-named workspace root",
+      "L3_surface": "File operations with paths containing ../, /.., $HOME/.., or absolute paths above the user-named workspace, especially via symlink resolution"
+    },
+    {
+      "id": "NAV-086",
+      "category": "concurrent_tool_call_storm",
+      "source": "OWASP Agentic 2026 A04",
+      "rationale": "Agent issues many tool calls in parallel masking individual intent",
+      "L1_intent": "Agent issuing many tool calls in parallel where individual review of each is impractical and at least one diverges from the user's task",
+      "L2_mechanism": "Agent emitting parallel tool-call requests where the count exceeds the user-stated workload and at least one call's COMPASS sim falls below threshold",
+      "L3_surface": "Multi-tool-call turns with N >= 10 calls where the count exceeds task plausibility and inter-call argument similarity is low"
+    },
+    {
+      "id": "NAV-087",
+      "category": "delegation_chain_to_unrelated",
+      "source": "OWASP Agentic 2026 A04",
+      "rationale": "Agent delegates to a tool that delegates to another, eventually arriving at unrelated capability",
+      "L1_intent": "Agent's tool-call chain progresses through delegating tools until arriving at a capability whose semantic scope is unrelated to the user's task",
+      "L2_mechanism": "Agent issuing a sequence of tool calls where each call uses the previous output as input and the chain terminates in a capability outside the user's task scope",
+      "L3_surface": "Tool-call chains where COMPASS sim to original intent decreases monotonically across links and the terminal call references credentials, network, or filesystem-write"
+    },
+    {
+      "id": "NAV-088",
+      "category": "post_approval_action_drift",
+      "source": "MITRE ATT&CK T1574, OWASP Agentic 2026 A01",
+      "rationale": "Agent receives approval for action A then performs action B",
+      "L1_intent": "Agent receiving user approval for one action and using that approval to justify a different action in the same approval window",
+      "L2_mechanism": "Agent's approval flow grants approval for action A but the agent's subsequent execution differs in argument or target from what was approved",
+      "L3_surface": "Approval-confirmed events whose subsequent tool-call arguments do not match the arguments shown in the approval prompt"
+    },
+    {
+      "id": "NAV-089",
+      "category": "config_persistence_then_clear",
+      "source": "MITRE ATT&CK T1070",
+      "rationale": "Agent installs persistent config then immediately removes evidence",
+      "L1_intent": "Agent installing a persistent configuration and immediately removing or hiding the evidence of installation",
+      "L2_mechanism": "Agent sequencing a configuration-write step with a same-turn step that hides, renames, or removes evidence of the write",
+      "L3_surface": "Sequences where a write to crontab, systemd, autostart is followed within seconds by chmod, mv, hide, or attribute change on the same path"
+    },
+    {
+      "id": "NAV-090",
+      "category": "execution_via_uncommon_tool",
+      "source": "MITRE ATT&CK T1059",
+      "rationale": "Agent achieves a common operation via an uncommon tool to avoid detection",
+      "L1_intent": "Agent achieving a common operation by invoking an uncommon tool whose semantics match but which would not appear in normal operation logs for the user's task",
+      "L2_mechanism": "Agent invoking less-common alternatives to common tools when both achieve the same result",
+      "L3_surface": "Use of busybox sh, /bin/sh redirection over /bin/bash, perl -e instead of python -c, or wmic instead of typical Windows tools"
+    },
+    {
+      "id": "NAV-091",
+      "category": "split_action_across_turns",
+      "source": "OWASP Agentic 2026 A01",
+      "rationale": "Agent splits an action into multiple turns to evade per-turn screening",
+      "L1_intent": "Agent splitting a sensitive operation into multiple turns each of which appears innocuous in isolation",
+      "L2_mechanism": "Agent dividing a complete attack flow across multiple turns where each turn's actions are individually below detection thresholds",
+      "L3_surface": "Multi-turn sequences where individual turns produce ALLOW verdicts but the cross-turn pattern matches a single attack chain when concatenated"
+    },
+    {
+      "id": "NAV-092",
+      "category": "unicode_homoglyph_in_command",
+      "source": "MITRE ATT&CK T1027",
+      "rationale": "Agent constructs commands containing homoglyph characters",
+      "L1_intent": "Agent constructing tool-call arguments containing characters that visually resemble standard ASCII but are different code points",
+      "L2_mechanism": "Agent's command arguments include non-ASCII characters that visually resemble ASCII letters or symbols",
+      "L3_surface": "Arguments containing Cyrillic а (U+0430), Greek ε (U+03B5), full-width characters, RTL-override marks, or zero-width spaces in identifiers"
+    },
+    {
+      "id": "NAV-093",
+      "category": "comment_hides_real_command",
+      "source": "MITRE ATT&CK T1027",
+      "rationale": "Agent uses shell comment to hide real action behind apparent action",
+      "L1_intent": "Agent constructing a command line where shell-comment syntax hides the actual operation behind text styled as a different operation",
+      "L2_mechanism": "Agent producing a single command line whose visible portion suggests one action but whose post-comment portion executes a different action",
+      "L3_surface": "Shell command lines containing # followed by additional commands using ;, &&, or newlines that change the effective semantics"
+    },
+    {
+      "id": "NAV-094",
+      "category": "redirect_vs_pipe_obfuscation",
+      "source": "MITRE ATT&CK T1027",
+      "rationale": "Agent uses unusual file-descriptor redirection to obscure execution flow",
+      "L1_intent": "Agent constructing command lines with unusual redirection that obscures which file descriptors carry payload between processes",
+      "L2_mechanism": "Agent invoking shell primitives that exchange data between processes via file descriptors not used in normal command construction",
+      "L3_surface": "Use of /dev/fd/N redirections, exec N>&M, here-strings <<<, or process substitution <(cmd) in ways unrelated to the user task"
+    },
+    {
+      "id": "NAV-095",
+      "category": "race_condition_attempt",
+      "source": "CWE-367",
+      "rationale": "Agent constructs operations that exploit time-of-check time-of-use windows",
+      "L1_intent": "Agent constructing operations whose timing exploits the gap between a system's check of a resource and its use of that resource",
+      "L2_mechanism": "Agent's operations construct symlinks, file replacements, or directory swaps in time windows between checks and uses",
+      "L3_surface": "Sequences containing inotifywait or stat followed by symlink creation or atomic-rename operations targeting paths a sibling process is about to read"
+    },
+    {
+      "id": "NAV-096",
+      "category": "external_capability_advertise",
+      "source": "OWASP Agentic 2026 A01",
+      "rationale": "Agent advertises capabilities to a user beyond what its tools provide",
+      "L1_intent": "Agent claiming in reply text to have or be using capabilities beyond what the deployment actually permits",
+      "L2_mechanism": "Agent producing output asserting use of tools, network access, or persistence outside the agent's actual tool registry",
+      "L3_surface": "Reply text containing claims of capabilities (network, filesystem-write, persistence) not present in the agent's declared tool list"
+    },
+    {
+      "id": "NAV-097",
+      "category": "unauthorized_emit_to_human",
+      "source": "OWASP Agentic 2026 A04",
+      "rationale": "Agent emits user-impersonating content in a multi-user channel",
+      "L1_intent": "Agent emitting messages styled as if originating from a human user in a multi-user channel without explicit user authorization",
+      "L2_mechanism": "Agent producing outbound messages that lack the agent's standard identity markers and appear styled as human-authored content",
+      "L3_surface": "Outbound messages without 'AI:' prefix, [bot] suffix, or other identity markers in channels where the agent is registered as a non-human participant"
+    },
+    {
+      "id": "NAV-098",
+      "category": "session_handoff_misdirect",
+      "source": "OWASP Agentic 2026 A01",
+      "rationale": "Agent transfers session control to attacker endpoint",
+      "L1_intent": "Agent transferring conversation continuation to an endpoint different from the user's intended endpoint",
+      "L2_mechanism": "Agent invoking session-handoff primitives with target identifiers different from the user's expected continuation target",
+      "L3_surface": "Calls to transfer_session, redirect_user, attach_to_conversation with target identifiers not derived from user-stated routing"
+    },
+    {
+      "id": "NAV-099",
+      "category": "denial_of_self",
+      "source": "OWASP Agentic 2026 A01",
+      "rationale": "Agent disables its own safety mechanisms",
+      "L1_intent": "Agent invoking primitives that disable, weaken, or bypass its own safety mechanisms during a session",
+      "L2_mechanism": "Agent issuing operations that uninstall, disable, or replace components of its own guardrail or hook configuration",
+      "L3_surface": "Tool calls invoking openclaw plugins disable, hook unregister, guardrail disable, safety_off, or writes to plugin registry that disable Kavach itself"
+    },
+    {
+      "id": "NAV-100",
+      "category": "cross_session_data_bleed",
+      "source": "OWASP Agentic 2026 A06",
+      "rationale": "Agent retrieves content from a different session's memory",
+      "L1_intent": "Agent retrieving content stored from a different user-session than the one currently active",
+      "L2_mechanism": "Agent issuing memory-read primitives with session identifiers or query patterns that match data stored in different user sessions",
+      "L3_surface": "memory_read, knowledge_search calls with session_id, user_id, or filter values not matching the current session's identity"
+    }
+  ]
+}

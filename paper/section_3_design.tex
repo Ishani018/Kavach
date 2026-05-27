@@ -1,0 +1,171 @@
+% paper/section_3_design.tex
+% ─────────────────────────────────────────────────────────────────────────────
+% Section 3: Kavach Architecture
+% Slot into skeleton.tex where \section{Kavach Architecture} appears.
+% Numbers marked [TBD] are filled in from benchmark workstream D output.
+% ─────────────────────────────────────────────────────────────────────────────
+
+\section{Kavach Architecture}
+\label{sec:design}
+
+\subsection{Overview}
+
+Kavach is a runtime guardrail that interposes between an LLM agent orchestrator
+and its tool-execution layer. Every tool call proposed by the agent is
+intercepted, evaluated by a Parliament of domain-bound Ministers, and sentenced
+by a deterministic Speaker before any side-effecting action is permitted to
+execute. Figure~\ref{fig:architecture} shows the end-to-end request path.
+
+The system exposes a single HTTP endpoint \texttt{POST /parliament/evaluate}
+that the OpenClaw plugin (\S\ref{sec:plugin}) calls synchronously in the
+\texttt{pre\_tool\_call} hook. The endpoint returns a JSON verdict
+\texttt{\{decision, confidence, ministers\_fired, compass\_score,
+drift\_delta\}} within the configured latency budget.
+
+\subsection{Core Components}
+
+\paragraph{Ledger.}
+An append-only SQLite journal (\texttt{kavach\_parliament.db}) records every
+evaluation request and its verdict. Each row captures:
+\texttt{session\_id}, \texttt{turn}, \texttt{tool\_name}, \texttt{action\_embedding}
+(1024-d float blob), \texttt{verdict}, and \texttt{timestamp\_utc}.
+The Ledger is the single source of truth for session state; no in-memory
+session object exists, making the server horizontally stateless between
+requests. Session risk score is recomputed from the Ledger at each call via
+a lightweight SQL aggregate, adding $<$2\,ms overhead.
+
+\paragraph{Semantic Router.}
+On each evaluation request the proposed action text is embedded with
+\texttt{BAAI/bge-large-en-v1.5} (1024-d, cosine similarity). The resulting
+vector is compared against five pre-computed domain centroids stored in
+\texttt{kavach\_router\_config.json}. Ministers whose centroid cosine similarity
+exceeds $\theta_{\text{route}} = 0.40$ are activated; COMPASS always runs
+regardless of routing similarity.
+
+The router replaces the stage-bound dispatcher used in early prototypes
+(OpenClaw stages Init$\to$Input$\to$Inference$\to$Decision$\to$Execution).
+Ministers are \emph{domain-bound}, not stage-bound: EXECUTOR fires on any
+action resembling code execution regardless of which pipeline stage proposed it.
+This is the key architectural departure from OpenClaw's native trust model
+and from contemporaneous work such as NemoClaw~\cite{nvidia2025nemoclaw}, which
+enforces a single boundary at the pipeline entry point.
+
+\paragraph{Ministers.}
+Each activated Minister runs a two-tier scan:
+
+\begin{enumerate}
+  \item \textbf{Syntactic tier (L1).} Regex and exact-match rules over the
+        raw action string. Matches produce an \texttt{L1\_hit} flag and a
+        severity label. High-severity L1 hits short-circuit to \textsc{Block}
+        without invoking the semantic tier.
+  \item \textbf{Semantic tier (L2/L3).} The action embedding is compared via
+        cosine distance against every pattern in the Minister's ChromaDB
+        collection. A hit is declared when
+        $\cos(\mathbf{a}, \mathbf{p}) \geq \theta_{\min}$ where
+        $\theta_{\min} = 0.45$ (Config\,B; see \S\ref{sec:eval}).
+        The hit is labelled with the matching pattern's L1/L2/L3 descriptors
+        for the verdict log.
+\end{enumerate}
+
+The four domain-bound Ministers and their attack-surface coverage:
+
+\begin{itemize}
+  \item \textbf{EXECUTOR} — code execution, process injection, persistence
+        mechanisms, container escape (100 patterns; MITRE ATT\&CK T1059,
+        T1055, T1053, T1611 and sub-techniques).
+  \item \textbf{VAULT} — credential access, secret file reads, metadata service
+        queries, platform keychain enumeration (100 patterns; T1552, T1528,
+        T1555 and sub-techniques).
+  \item \textbf{CHANNEL} — data exfiltration via any outbound channel: HTTP/S,
+        DNS, SMTP, cloud storage, git push, covert channels (100 patterns;
+        T1048, T1567, T1102 and sub-techniques).
+  \item \textbf{NAVIGATOR} — session trajectory anomalies: post-task
+        persistence, scope widening, recon sequences, anti-forensic actions
+        (100 patterns; OWASP Agentic Top 10 2026 A01, T1083, T1082, T1070).
+\end{itemize}
+
+\paragraph{COMPASS.}
+The Calibrated Oracle for Mission-Pattern Alignment and Session Semantics
+evaluates \emph{intent alignment} rather than attack-pattern similarity. It
+maintains a \emph{session centroid} — an exponential moving average of action
+embeddings weighted by turn recency — and measures cosine drift between the
+centroid and the seeded user-intent vector (extracted from the first
+non-system turn of the session).
+
+\begin{equation}
+  \delta_{\text{drift}}(t) =
+    1 - \cos\!\left(\bar{\mathbf{c}}_t,\, \mathbf{u}\right)
+  \label{eq:drift}
+\end{equation}
+
+where $\bar{\mathbf{c}}_t$ is the turn-$t$ session centroid and $\mathbf{u}$ is
+the user-intent embedding. When $\delta_{\text{drift}} > \theta_{\text{drift}}$
+the call is escalated regardless of individual minister verdicts.
+
+The COMPASS calibration set (\texttt{kavach\_corpus\_v1.json}, key
+\texttt{COMPASS}) contains 100 labelled pairs — 50 \textsc{aligned} and 50
+\textsc{hijacked} — covering 25 distinct user-intent scenarios each paired with
+both a legitimate and an attack-injected proposed action. Youden's $J$
+statistic is used to select $\theta_{\text{drift}}$ via
+\texttt{compass\_calibrator.py}.
+
+\paragraph{Speaker.}
+The Speaker is a deterministic finite function — no learned parameters — that
+maps the set of Minister verdicts and COMPASS output to a single sentence:
+
+\begin{equation}
+V = \text{Speaker}(\{v_m\}_{m \in M_{\text{active}}},\, \delta_{\text{drift}},\, r_{\text{session}})
+\end{equation}
+
+The decision table (five cases, applied in priority order):
+\begin{enumerate}
+  \item Any Minister returns \textsc{Block} $\Rightarrow$ \textsc{Block}.
+  \item $\delta_{\text{drift}} > \theta_{\text{drift}}$ $\Rightarrow$ \textsc{Escalate}.
+  \item Session risk $r_{\text{session}} > r_{\text{max}}$ $\Rightarrow$ \textsc{Escalate}.
+  \item Any Minister returns \textsc{Grey} $\Rightarrow$ \textsc{Escalate}.
+  \item All Ministers return \textsc{Allow} $\Rightarrow$ \textsc{Allow}.
+\end{enumerate}
+
+\subsection{OpenClaw Plugin}
+\label{sec:plugin}
+
+The Kavach plugin (\texttt{openclaw-plugin-kavach.ts}) implements the
+OpenClaw plugin interface:
+
+\begin{itemize}
+  \item \textbf{\texttt{pre\_tool\_call}}: synchronously calls
+        \texttt{/parliament/evaluate} before the agent executes a tool.
+        On \textsc{Block} or \textsc{Escalate}, the plugin throws
+        \texttt{KavachBlockError} or \texttt{KavachEscalateError}, preventing
+        tool execution.
+  \item \textbf{\texttt{on\_tool\_error}}: increments the circuit-breaker
+        failure counter. After \texttt{kavachCircuitBreakerThreshold}
+        consecutive Kavach server errors the plugin enters \emph{open-circuit}
+        mode: all tool calls are blocked and an operator alert is raised.
+\end{itemize}
+
+The plugin is configured via \texttt{openclaw.plugin.json} and requires only
+\texttt{KAVACH\_URL} (default: \texttt{http://localhost:8000}) and
+\texttt{SESSION\_ID} to be present in the OpenClaw runtime environment.
+
+\subsection{Design Decisions and Trade-offs}
+
+\paragraph{Ministers are domain-bound, not stage-bound.}
+OpenClaw's five-stage pipeline (Init$\to$Execution) provides natural hooks but
+creates stage-specific blind spots: an attack that appears in the Inference
+stage looks different from the same attack in the Decision stage, requiring
+per-stage classifiers. By binding Ministers to attack \emph{domains} we achieve
+consistent coverage across all stages with a single collection per domain.
+
+\paragraph{Append-only Ledger, no session objects.}
+Storing session state in an append-only log rather than an in-memory object
+prevents an attacker from clearing session state via a crafted tool call.
+The immutability guarantee is enforced at the database level
+(\texttt{kavach\_parliament.db} opened read-write only by the server; no
+\texttt{DELETE} or \texttt{UPDATE} statements are issued).
+
+\paragraph{Synchronous evaluation on the hot path.}
+Kavach evaluates in the \texttt{pre\_tool\_call} hook synchronously.
+Asynchronous evaluation would reduce latency but allow a race between the
+verdict and execution; we accept the latency cost to maintain the security
+guarantee that \emph{no tool executes before a verdict is issued}.
