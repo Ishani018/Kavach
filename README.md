@@ -38,10 +38,40 @@ Most agent guardrails enforce at input time (what the user typed) or output time
 
 ---
 
+## Quickstart (Dell Precision lab machine)
+
+```bash
+chmod +x kavach_boot.sh
+./kavach_boot.sh
+```
+
+This single script does everything in order:
+
+1. **Finds your local OpenClaw install** and patches two documented bugs (`#5513`, `#5943`) that prevent the `before_tool_call` hook from firing — without this fix, Kavach can detect attacks but cannot stop them before execution
+2. **Runs vitest regression tests** to confirm the patch applied correctly — if these fail, the script stops before anything else runs
+3. **Loads the attack pattern corpus** into ChromaDB and calibrates the COMPASS drift threshold
+4. **Starts the Parliament server** on `localhost:8088` and waits for the health check
+5. **Fires a live attack payload** through the full stack so you can see a real BLOCK verdict immediately
+
+After the script finishes, Kavach is intercepting live tool calls. Any tool an OpenClaw agent tries to run passes through the Parliament first — if a minister votes BLOCK, the tool never executes.
+
+```bash
+# Subsequent runs (corpus + patch already done):
+./kavach_boot.sh --skip-patch --skip-corpus
+
+# Just start the server, no setup:
+./kavach_boot.sh --demo-only
+```
+
+---
+
 ## Repository structure
 
 ```
 kavach/
+├── kavach_boot.sh               # ONE-SHOT SETUP — run this first on the Dell
+├── run_all.sh                   # Python-only startup (no OpenClaw patching)
+│
 ├── parliament/                  # Python FastAPI parliament service
 │   ├── server.py                # Main service — FastAPI on port 8088
 │   ├── ministers.py             # ChromaDB cosine query per minister
@@ -58,7 +88,6 @@ kavach/
 ├── corpus_v2/                   # Attack-pattern corpus (v2, blind-written)
 │   ├── expansion_protocol.md    # THE RULES for writing patterns (read before adding)
 │   ├── new_patterns_executor.json   # 50 EXECUTOR patterns (MITRE T1059, T1546, etc.)
-│   ├── new_patterns_executor.json   # Janya's batch
 │   ├── new_patterns_vault.json      # 25 VAULT patterns (MITRE T1552, T1555, etc.)
 │   ├── new_patterns_vault_b.json    # Pranitha's second batch
 │   ├── new_patterns_channel.json    # CHANNEL patterns (MITRE T1041, T1567, etc.)
@@ -72,7 +101,7 @@ kavach/
 │   ├── threshold_sweep.py       # Sweeps thresholds 0.30→0.85, plots ROC, derives Youden's J
 │   └── benign_traces.py         # Generates 50 benign agent sessions for FPR check
 │
-├── openclaw_pr/                 # Upstream OpenClaw PRs (file these first)
+├── openclaw_pr/                 # Upstream OpenClaw PRs
 │   ├── PR1_hooks_fix.md         # Full patch spec for bugs #5513 + #5943
 │   ├── PR1_test_5513.ts         # vitest regression for #5513 (hook snapshot bug)
 │   └── PR1_test_5943.ts         # vitest regression for #5943 (before_tool_call not wired)
@@ -91,7 +120,12 @@ kavach/
 │   └── PUBLISHING_TO_GITHUB.md  # GitHub setup instructions
 │
 ├── compass_calibrator.py        # Calibrates COMPASS threshold using Youden's J
+├── corpus_loader.py             # Loads corpus JSONs into ChromaDB collections
+├── kavach_monitor.py            # Post-hoc monitor (tails logs, fires parliament after-the-fact)
+├── kavach_send_attack.py        # Manual attack sender for demo/testing
+├── local_integration_test.py    # Integration test without OpenClaw
 ├── requirements.txt             # Python dependencies
+├── kavach_router_config.json    # Router routing descriptions per minister
 ├── MASTER_PLAN.md               # 4-week sprint plan with workstream owners
 ├── REPRODUCIBILITY.md           # Step-by-step reproducibility checklist
 └── LICENSE                      # MIT
@@ -105,24 +139,25 @@ kavach/
 |---|---|---|
 | Parliament service (server.py) | ✅ Complete | Runs on port 8088, all endpoints working |
 | Speaker logic (speaker.py) | ✅ Complete | All 5 cases, 13 unit tests pass |
-| Minister logic (ministers.py) | ✅ Complete | BGE cosine query against ChromaDB |
+| Minister logic (ministers.py) | ✅ Complete | BGE cosine query against ChromaDB, dual-corpus support |
+| OpenClaw plugin (TS) | ✅ Complete | before_tool_call + message_sending, circuit breaker, fail-closed |
+| PR-1 patch spec + vitest tests | ✅ Complete | `openclaw_pr/` — kavach_boot.sh applies this automatically |
+| kavach_boot.sh | ✅ Complete | One-shot setup on Dell — patches OpenClaw, loads corpus, fires demo |
 | Browser embedding lab | ✅ Complete | Do not modify — locked |
 | Paper §1, §2, §4, related work | ✅ Complete | Submission-ready prose |
-| OpenClaw plugin (TS) | ✅ Written | Blocked until PR-1 lands upstream |
-| PR-1 spec + vitest tests | ✅ Written | **Not yet filed upstream — Parv's task** |
 | EXECUTOR corpus patterns | ✅ 50 patterns | Written by Janya per blind protocol |
 | VAULT corpus patterns | ✅ 25 patterns | Written by Pranitha (25 more needed) |
 | CHANNEL corpus patterns | ⚠️ In progress | Check corpus_v2/ for current count |
 | NAVIGATOR corpus patterns | ⚠️ In progress | Check corpus_v2/ for current count |
-| ChromaDB loaded | ❌ Not done | Need to run corpus_loader.py after patterns complete |
+| ChromaDB loaded | ❌ Not done | kavach_boot.sh handles this |
 | Benign FPR check | ❌ Not done | Must pass (<5%) before any benchmark |
 | InjecAgent benchmark | ❌ Not done | Needs FPR check first |
 | Threshold calibration | ❌ Not done | config.yaml has placeholders |
-| End-to-end OpenClaw test | ❌ Blocked | Blocked on PR-1 |
+| End-to-end OpenClaw interception | ❌ Not done | kavach_boot.sh enables this — run it |
 
 ---
 
-## Setup
+## Setup (manual, if not using kavach_boot.sh)
 
 ### Prerequisites
 
@@ -133,7 +168,7 @@ python --version
 # Node 22+ (for OpenClaw plugin)
 node --version
 
-# OpenClaw installed and running
+# OpenClaw installed
 openclaw --version
 ```
 
@@ -148,9 +183,16 @@ pip install -r requirements.txt
 pip install -r requirements.txt --break-system-packages
 ```
 
-### Load the corpus into ChromaDB
+### Patch OpenClaw (required — bugs #5513 and #5943)
 
-**Do this after all corpus v2 patterns are written and merged.**
+See `openclaw_pr/PR1_hooks_fix.md` for the full patch spec. The three files to edit are:
+- `src/plugins/hook-runner.ts` — lazy getter fix (#5513)
+- `src/plugins/initialize-runner.ts` — drop eager snapshot (#5513)
+- `src/agents/pi-embedded-runner/run/attempt.ts` — wire before_tool_call (#5943)
+
+**Or just run `./kavach_boot.sh` — it does this automatically.**
+
+### Load the corpus into ChromaDB
 
 ```bash
 # Merge the _b files into main corpus files first
@@ -192,34 +234,32 @@ All 13 tests must pass. If any fail, the speaker logic has drifted and InjecAgen
 
 ---
 
-## The OpenClaw hook bugs (why the plugin isn't live yet)
+## The OpenClaw hook bugs (why patching is required)
 
 OpenClaw has two bugs that cause `before_tool_call` to silently do nothing:
 
 - **#5513** — `initializeGlobalHookRunner()` snapshots the plugin registry *before* plugins finish registering. Hooks registered during that window are invisible to the runner.
 - **#5943** — `before_tool_call` is defined in `src/plugins/hooks.ts` but `executeToolCalls()` in `src/agents/pi-embedded-runner/run/attempt.ts` never calls it.
 
-The full patch spec with TypeScript diffs and vitest regression tests is in `openclaw_pr/PR1_hooks_fix.md`. Until this PR lands (or is monkey-patched), the plugin registers but intercepts nothing.
-
-**Parv's job:** File this PR upstream. The vitest tests are already written — `PR1_test_5513.ts` and `PR1_test_5943.ts`.
+The full patch spec with TypeScript diffs and vitest regression tests is in `openclaw_pr/PR1_hooks_fix.md`. `kavach_boot.sh` applies this patch automatically and verifies it with the vitest regression tests before proceeding.
 
 ---
 
 ## The step-by-step path to a working demo
 
 ```
-Step 1  [Parv]     File PR-1 upstream OR apply monkey-patch locally
-Step 2  [Janya]    Complete CHANNEL + NAVIGATOR corpus patterns (blind protocol)
-Step 2  [Pranitha] Complete second VAULT batch (25 more patterns)
-Step 3  [All]      Run merge_corpus.py, then corpus_loader.py --rebuild
-Step 4  [All]      python parliament/smoke_test.py → all 7 checks pass
-Step 5  [All]      Run benchmarks/benign_traces.py → FPR must be < 5%
-                   If FPR ≥ 5%, prune patterns and rerun. Do NOT skip this.
-Step 6  [Janya]    Run benchmarks/injecagent_runner.py (1,054 test cases)
-Step 7  [Janya]    Run benchmarks/threshold_sweep.py → optimal thresholds → update config.yaml
-Step 8  [Ishani]   Numbers go into paper/skeleton.tex §5 and related_work_table.tex
-Step 9  [Parv]     End-to-end test: OpenClaw + Kavach plugin + ClawHavoc attack → tool blocked
-Step 10 [All]      Submit to MASEC@NeurIPS 2026 (CFP expected Sept 2026)
+Step 1  [Parv+Ishani] Run ./kavach_boot.sh on the Dell → full end-to-end interception working
+Step 2  [Janya]       Complete CHANNEL + NAVIGATOR corpus patterns (blind protocol)
+Step 2  [Pranitha]    Complete second VAULT batch (25 more patterns)
+Step 3  [All]         Run merge_corpus.py, then corpus_loader.py --rebuild
+Step 4  [All]         python parliament/smoke_test.py → all 7 checks pass
+Step 5  [All]         Run benchmarks/benign_traces.py → FPR must be < 5%
+                      If FPR ≥ 5%, prune patterns and rerun. Do NOT skip this.
+Step 6  [Janya]       Run benchmarks/injecagent_runner.py (1,054 test cases)
+Step 7  [Janya]       Run benchmarks/threshold_sweep.py → optimal thresholds → update config.yaml
+Step 8  [Ishani]      Numbers go into paper/skeleton.tex §5 and related_work_table.tex
+Step 9  [Ishani]      Write paper §3 (architecture) and §7 (limitations)
+Step 10 [All]         Submit to MASEC@NeurIPS 2026 (CFP expected Sept 2026)
 ```
 
 ---
