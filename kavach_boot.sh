@@ -305,8 +305,17 @@ else
        [[ -n "$(ls -A "$KAVACH_DIR/parliament/.chroma_kavach" 2>/dev/null)" ]]; then
         warn "ChromaDB cache exists. Skipping corpus load (use --skip-corpus to always skip, or delete parliament/.chroma_kavach to force rebuild)."
     else
-        info "Loading corpus into ChromaDB (first run: ~3-5 min for BGE download + embedding)..."
-        python3 "$KAVACH_DIR/corpus_loader.py" --rebuild
+        info "Merging v1 + v2 corpus patterns..."
+        python3 "$KAVACH_DIR/corpus_v2/merge_corpus.py" \
+            --v1 "$KAVACH_DIR/kavach_corpus_v1.json" \
+            --new-dir "$KAVACH_DIR/corpus_v2/" \
+            --output "$KAVACH_DIR/corpus_v2/kavach_corpus_v2.json"
+        ok "Corpus merged → corpus_v2/kavach_corpus_v2.json"
+
+        info "Loading merged corpus into ChromaDB (first run: ~3-5 min for BGE download + embedding)..."
+        python3 "$KAVACH_DIR/corpus_loader.py" \
+            --corpus "$KAVACH_DIR/corpus_v2/kavach_corpus_v2.json" \
+            --rebuild
         ok "Corpus loaded into ChromaDB."
 
         info "Running COMPASS threshold calibration..."
