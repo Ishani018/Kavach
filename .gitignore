@@ -1,0 +1,31 @@
+# ChromaDB
+parliament/.chroma_kavach/
+
+# Logs and runtime files
+parliament/server.log
+parliament/server.pid
+parliament/kavach_parliament.db
+
+# Benchmark results (generated, not source)
+benchmarks/results_v1/*.csv
+benchmarks/results_v1/*.json
+benchmarks/results_v1/*.log
+benchmarks/results_v1/*.png
+benchmarks/results_v1/benign/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+plugin/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+temp_readme.txt
