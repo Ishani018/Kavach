@@ -701,6 +701,8 @@ All four thresholds are placeholders. Replace with `threshold_sweep.py` output a
 
 ## 9. Who Owns What
 
+See [TEAM.md](TEAM.md) — review and edit directly as a team. If your name is wrong or missing on something, edit TEAM.md directly and commit.
+
 | Component | Primary Owner | Reviewer |
 |---|---|---|
 | `parliament/server.py` | Ishani | Parv |
@@ -712,13 +714,17 @@ All four thresholds are placeholders. Replace with `threshold_sweep.py` output a
 | `corpus_v2/new_patterns_executor.json` | Janya | Pranitha |
 | `corpus_v2/new_patterns_channel*.json` | Janya | Pranitha |
 | `corpus_v2/new_patterns_navigator*.json` | Janya | Pranitha |
+| `corpus_v2/expansion_protocol.md` | Janya | All |
+| `corpus_v2/merge_corpus.py` | Janya | Ishani |
 | `corpus_v2/new_patterns_vault*.json` | Pranitha | Janya |
+| `kavach_corpus_technical.json` | Pranitha | Janya |
 | `benchmarks/injecagent_runner.py` | Janya | Ishani |
-| `benchmarks/benign_traces.py` | Janya | Ishani |
-| `benchmarks/threshold_sweep.py` | Janya | Ishani |
-| `kavach_boot.sh` | Ishani+Parv | All |
+| `benchmarks/benign_traces.py` | Pranitha | Janya |
+| `benchmarks/threshold_sweep.py` | Janya | Pranitha |
+| `compass_calibrator.py` | Pranitha | Ishani |
+| `kavach_boot.sh` | Ishani + Parv | All |
 | `paper/section_3_design.tex` | Ishani | All |
-| `paper/section_5_evaluation.tex` | Ishani | All |
+| `paper/section_5_evaluation.tex` | Janya + Pranitha | Ishani |
 
 ---
 
