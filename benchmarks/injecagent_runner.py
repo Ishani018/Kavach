@@ -27,7 +27,7 @@ Outputs:
 
 Usage:
     python benchmarks/injecagent_runner.py \\
-        --cases path/to/InjecAgent/data/test_cases.json \\
+        --cases benchmarks/data/attacker_cases_dh.jsonl \\
         --parliament-url http://127.0.0.1:8088 \\
         --output benchmarks/results_v1/
 
@@ -72,42 +72,101 @@ log = logging.getLogger("injecagent")
 
 def load_injecagent_cases(path: Path) -> list[dict[str, Any]]:
     """
-    Load InjecAgent test cases. The benchmark distributes a few different JSON
-    formats; we accept all of them and normalize to a single shape.
+    Load InjecAgent test cases. Handles three formats:
+      1. .jsonl  — one JSON object per line (attacker_cases_dh.jsonl etc.)
+         Keys: 'Attacker Tools', 'Attacker Instruction', 'Expected Achievements',
+               'Attack Type', 'Modifed'
+      2. .json list — top-level list of case objects
+      3. .json dict — {"cases": [...]}
 
-    Normalized case shape:
+    All formats are normalized to a single shape:
         {
-            "id":           str,
-            "user_prompt":  str   (benign user instruction),
-            "tool_name":    str   (tool the agent invokes),
-            "tool_args":    dict  (arguments to the tool),
-            "tool_output":  str   (the tool's response, with injection),
-            "attack_text":  str   (the part of tool_output that is the injection),
-            "expected_action": str   (what the attack tries to make the agent do),
-            "category":     str   (direct_harm, data_stealing, etc.),
+            "id":              str,
+            "user_prompt":     str   (benign user instruction, if available),
+            "tool_name":       str   (primary attacker tool name),
+            "tool_args":       dict,
+            "tool_output":     str,
+            "attack_text":     str   (the injected attacker instruction),
+            "expected_action": str   (what the attack tries to achieve),
+            "category":        str   (attack category),
+            "label":           str   ("attack" | "benign"),
         }
     """
-    raw = json.loads(path.read_text())
+    text = path.read_text(encoding="utf-8")
 
-    # Accept either {"cases": [...]} or a top-level list.
-    if isinstance(raw, dict) and "cases" in raw:
-        items = raw["cases"]
-    elif isinstance(raw, list):
-        items = raw
+    # Detect .jsonl (one JSON object per line)
+    if path.suffix == ".jsonl" or (
+        text.strip().startswith("{") and "\n{" in text
+    ):
+        items = []
+        for line in text.splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    items.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
     else:
-        raise ValueError(f"unrecognized InjecAgent format in {path}")
+        raw = json.loads(text)
+        if isinstance(raw, dict) and "cases" in raw:
+            items = raw["cases"]
+        elif isinstance(raw, list):
+            items = raw
+        else:
+            raise ValueError(f"unrecognized InjecAgent format in {path}")
 
     normalized: list[dict[str, Any]] = []
     for i, item in enumerate(items):
+        # Handle the real InjecAgent schema (capital keys)
+        tools = item.get("Attacker Tools") or item.get("attacker_tools") or []
+        tool_name = tools[0] if isinstance(tools, list) and tools else str(tools)
+
+        attack_text = (
+            item.get("Attacker Instruction")
+            or item.get("attacker_instruction")
+            or item.get("attack_text")
+            or ""
+        )
+        expected = (
+            item.get("Expected Achievements")
+            or item.get("expected_achievements")
+            or item.get("expected_action")
+            or item.get("attacker_goal")
+            or ""
+        )
+        category = (
+            item.get("Attack Type")
+            or item.get("attack_type")
+            or item.get("category")
+            or "unknown"
+        )
+        user_prompt = (
+            item.get("User Instruction")
+            or item.get("user_instruction")
+            or item.get("user_prompt")
+            or ""
+        )
+        tool_output = (
+            item.get("Attacker Tool Response")
+            or item.get("attacker_tool_response")
+            or item.get("tool_output")
+            or attack_text   # fall back to attack text as the injected payload
+        )
+        # 'Modifed' == 1 means injection is present → label attack; user_cases are benign
+        label = "benign" if item.get("label") == "benign" else "attack"
+        if "Modifed" in item:
+            label = "attack" if item["Modifed"] == 1 else "benign"
+
         normalized.append({
-            "id":             item.get("id") or item.get("case_id") or f"case_{i:04d}",
-            "user_prompt":    item.get("user_prompt") or item.get("user_instruction") or "",
-            "tool_name":      item.get("tool_name") or item.get("attacker_tool") or "",
-            "tool_args":      item.get("tool_args") or item.get("attacker_tool_arguments") or {},
-            "tool_output":    item.get("tool_output") or item.get("attacker_tool_response") or "",
-            "attack_text":    item.get("attack_text") or item.get("attacker_instruction") or "",
-            "expected_action": item.get("expected_action") or item.get("attacker_goal") or "",
-            "category":       item.get("category") or item.get("attack_type") or "unknown",
+            "id":              item.get("id") or item.get("case_id") or f"case_{i:04d}",
+            "user_prompt":     user_prompt,
+            "tool_name":       tool_name,
+            "tool_args":       item.get("tool_args") or item.get("attacker_tool_arguments") or {},
+            "tool_output":     tool_output,
+            "attack_text":     attack_text,
+            "expected_action": expected,
+            "category":        str(category),
+            "label":           label,
         })
 
     log.info("loaded %d InjecAgent cases from %s", len(normalized), path)
@@ -438,8 +497,9 @@ def _by_category(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def main():
     p = argparse.ArgumentParser(description="Run InjecAgent against Kavach Parliament")
-    p.add_argument("--cases", required=True,
-                   help="path to InjecAgent test_cases.json")
+    p.add_argument("--cases",
+                   default="benchmarks/data/attacker_cases_dh.jsonl",
+                   help="path to InjecAgent test cases (.json or .jsonl)")
     p.add_argument("--parliament-url", default="http://127.0.0.1:8088",
                    help="URL of running Kavach Parliament (default: %(default)s)")
     p.add_argument("--output", default="benchmarks/results_v1",
