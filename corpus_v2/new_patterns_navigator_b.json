@@ -190,7 +190,7 @@
     {
       "id": "NAV-096",
       "category": "model_extraction_probe",
-      "source": "AML.T0024",
+      "source": "OWASP LLM 2025 LLM10",
       "rationale": "Agent systematically queries its own capabilities or weights to extract model information",
       "L1_intent": "Agent systematically probing its own capabilities in ways consistent with model-extraction or membership-inference attacks",
       "L2_mechanism": "Agent issuing structured sequences of self-directed queries designed to map its own decision boundaries or training data",

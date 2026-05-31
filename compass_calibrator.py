@@ -111,7 +111,8 @@ def calibrate(corpus_path: Path, model_name: str) -> dict:
 
         if label.lower() in ("aligned", "on_task", "ontask", "true", "1"):
             aligned_sims.append(sim)
-        elif label.lower() in ("drifted", "off_task", "offtask", "false", "0"):
+        elif label.lower() in ("drifted", "off_task", "offtask", "hijacked",
+                               "drift", "misaligned", "false", "0"):
             drifted_sims.append(sim)
         else:
             log.warning("skipping pair %d: unknown label %r", i, label)

@@ -13,6 +13,15 @@ benchmarks/results_v1/*.log
 benchmarks/results_v1/*.png
 benchmarks/results_v1/benign/
 
+# Generated corpus + reports
+corpus_v2/kavach_corpus_v2.json
+corpus_v2/merge_report.json
+corpus_v2/rejects.json
+
+# Calibration outputs
+compass_calibration.json
+compass_histogram.png
+
 # Python
 __pycache__/
 *.pyc
