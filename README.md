@@ -527,7 +527,7 @@ Full rules in `corpus_v2/expansion_protocol.md`. Non-negotiable ones:
 1. **Write L1 before L2 before L3. Never reverse.**
 2. **L1 must pass the tomorrow test** — if an attacker uses a new tool tomorrow, L1 must still catch the intent. No tool names in L1.
 3. **Source from MITRE ATT&CK or OWASP Agentic 2026 only.** Include technique ID in `source` field.
-4. **Never look at InjecAgent test cases while writing.** It is the held-out benchmark. Patterns written from test cases produce meaningless F1 numbers.
+4. **Never look at InjecAgent test cases while writing.** It is the held-out benchmark.
 5. **Never look at ClawHavoc transcripts while writing.** Same reason.
 
 ---
@@ -541,8 +541,6 @@ OpenClaw has two bugs that make `before_tool_call` a silent no-op. Without fixin
 #### Bug #5513 — Stale registry snapshot
 
 **Files:** `src/plugins/hook-runner.ts`, `src/plugins/initialize-runner.ts`
-
-`initializeGlobalHookRunner()` snapshots the plugin registry before plugins finish registering. Kavach's handlers, registered after the snapshot, are invisible.
 
 ```typescript
 // BEFORE (broken) — snapshot immediately stale:
@@ -561,7 +559,7 @@ private get hooks(): TypedHookRegistry {
 
 **File:** `src/agents/pi-embedded-runner/run/attempt.ts`
 
-`executeToolCalls()` never calls `before_tool_call`. The hook exists in type definitions but the execution loop goes straight from "resolve tool" to "execute tool". The fix injects the hook dispatch before the execute call, with full BLOCK and requireApproval handling. See `openclaw_pr/PR1_hooks_fix.md` for the exact TypeScript diff.
+`executeToolCalls()` never calls `before_tool_call`. The hook exists in type definitions but the execution loop goes straight from "resolve tool" to "execute tool". The fix injects the hook dispatch before the execute call. See `openclaw_pr/PR1_hooks_fix.md` for the exact diff.
 
 ---
 
@@ -572,23 +570,22 @@ private get hooks(): TypedHookRegistry {
 ```bash
 git clone https://github.com/Ishani018/Kavach.git
 cd Kavach
+python predownload_model.py          # cache BGE model FIRST
 chmod +x kavach_boot.sh
 ./kavach_boot.sh
 ```
 
 Subsequent runs:
 ```bash
-./kavach_boot.sh --skip-patch --skip-corpus   # corpus and patch already done
-./kavach_boot.sh --demo-only                  # just start the server
+./kavach_boot.sh --skip-patch --skip-corpus
+./kavach_boot.sh --demo-only
 ```
 
 ### Manual setup
 
 ```bash
-# 1. Install Python deps
 pip install -r requirements.txt --break-system-packages
 
-# 2. Merge corpus and load ChromaDB
 python corpus_v2/merge_corpus.py \
     --v1 kavach_corpus_v1.json \
     --new-dir corpus_v2/ \
@@ -598,16 +595,14 @@ python corpus_loader.py \
     --corpus corpus_v2/kavach_corpus_v2.json \
     --rebuild
 
-# 3. Start parliament
 python -m uvicorn parliament.server:app --host 127.0.0.1 --port 8088
 
-# 4. Verify
 curl http://127.0.0.1:8088/health
 ```
 
 ### Connecting to OpenClaw
 
-After patching OpenClaw (kavach_boot.sh does this automatically):
+See `docs/OPENCLAW_INTEGRATION.md` for the full guide. Short version:
 
 ```bash
 cd plugin && npm install && npm run build
@@ -633,7 +628,7 @@ curl -X POST http://127.0.0.1:8088/hook/seed_intent \
 python parliament/smoke_test.py --url http://127.0.0.1:8088
 ```
 
-7 checks must all pass. If any fail, do not proceed. The benchmark numbers will be wrong.
+7 checks must all pass. If any fail, do not proceed.
 
 ### Step 2: Benign FPR gate
 
@@ -643,10 +638,23 @@ python benchmarks/benign_traces.py \
     --output benchmarks/results_v1/benign/
 ```
 
-50 hand-written benign sessions. **FPR must be below 5%.** If not, read `blocked_actions.txt`, prune those patterns, rebuild ChromaDB, rerun.
+**FPR must be below 5%.** If not, read `blocked_actions.txt`, prune patterns, rebuild ChromaDB, rerun.
 
-### Step 3: InjecAgent
+### Step 3: InjecAgent — full 1,054-case benchmark
 
+```bash
+python benchmarks/injecagent_runner.py \
+    --full \
+    --cases benchmarks/data/attacker_cases_dh.jsonl \
+    --parliament-url http://127.0.0.1:8088 \
+    --output benchmarks/results_v1/ \
+    --concurrency 4
+```
+
+`--full` synthesizes all 1,054 cases (17 user × 30 DH + 17 user × 32 DS).
+`--concurrency 4` parallelises the ~2,100 parliament calls — use this on the Dell.
+
+Quick smoke run (62 attacker instructions, no synthesis):
 ```bash
 python benchmarks/injecagent_runner.py \
     --cases benchmarks/data/attacker_cases_dh.jsonl \
@@ -654,19 +662,18 @@ python benchmarks/injecagent_runner.py \
     --output benchmarks/results_v1/
 ```
 
-1,054 direct-harm test cases. InjecAgent schema fields: `Attacker Instruction`, `Attacker Tools`, `Expected Achievements`, `Attack Type`.
-
 Outputs: `results.csv`, `summary.json` (F1, precision, recall, FPR, latency percentiles), `errors.log`.
-
-Also run with `attacker_cases_ds.jsonl` for deferred-success recall.
 
 ### Step 4: Threshold calibration
 
 ```bash
-python benchmarks/threshold_sweep.py
+python benchmarks/threshold_sweep.py \
+    --input benchmarks/results_v1/results.csv \
+    --output benchmarks/results_v1/sweep/
 ```
 
-Sweeps block threshold 0.30→0.85, plots ROC per minister, derives Youden's J optimal thresholds. Updates `parliament/config.yaml`.
+Sweeps 0.30→0.85, plots ROC per minister, derives Youden's J optimal thresholds.
+Update `parliament/config.yaml` with the output, restart parliament, rerun Step 3.
 
 ---
 
@@ -677,7 +684,7 @@ Sweeps block threshold 0.30→0.85, plots ROC per minister, derives Youden's J o
 ```yaml
 embed_model: BAAI/bge-base-en-v1.5
 # Must match model used by corpus_loader.py at index time.
-# Changing this requires full ChromaDB rebuild.
+# Changing requires full ChromaDB rebuild.
 
 query_prefix: "Represent this sentence for searching relevant passages: "
 # BGE asymmetric query prefix. Applied to queries only, never to corpus docs.
@@ -695,11 +702,13 @@ host: 127.0.0.1
 port: 8088
 ```
 
-All four thresholds are placeholders. Replace with `threshold_sweep.py` output after InjecAgent run.
+All four thresholds are placeholders. Replace with `threshold_sweep.py` output.
 
 ---
 
 ## 9. Who Owns What
+
+See [TEAM.md](TEAM.md) — review and edit directly as a team.
 
 | Component | Primary Owner | Reviewer |
 |---|---|---|
@@ -712,13 +721,17 @@ All four thresholds are placeholders. Replace with `threshold_sweep.py` output a
 | `corpus_v2/new_patterns_executor.json` | Janya | Pranitha |
 | `corpus_v2/new_patterns_channel*.json` | Janya | Pranitha |
 | `corpus_v2/new_patterns_navigator*.json` | Janya | Pranitha |
+| `corpus_v2/expansion_protocol.md` | Janya | All |
+| `corpus_v2/merge_corpus.py` | Janya | Ishani |
 | `corpus_v2/new_patterns_vault*.json` | Pranitha | Janya |
+| `kavach_corpus_technical.json` | Pranitha | Janya |
 | `benchmarks/injecagent_runner.py` | Janya | Ishani |
-| `benchmarks/benign_traces.py` | Janya | Ishani |
-| `benchmarks/threshold_sweep.py` | Janya | Ishani |
-| `kavach_boot.sh` | Ishani+Parv | All |
+| `benchmarks/benign_traces.py` | Pranitha | Janya |
+| `benchmarks/threshold_sweep.py` | Janya | Pranitha |
+| `compass_calibrator.py` | Pranitha | Ishani |
+| `kavach_boot.sh` | Ishani + Parv | All |
 | `paper/section_3_design.tex` | Ishani | All |
-| `paper/section_5_evaluation.tex` | Ishani | All |
+| `paper/section_5_evaluation.tex` | Janya + Pranitha | Ishani |
 
 ---
 
@@ -732,28 +745,18 @@ All four thresholds are placeholders. Replace with `threshold_sweep.py` output a
 [DONE] ✅  PR-1 patch spec + vitest tests — complete
 [DONE] ✅  kavach_boot.sh — one-shot setup script
 [DONE] ✅  InjecAgent data — benchmarks/data/
-[DONE] ✅  Corpus — ~175 patterns across all four ministers
+[DONE] ✅  Corpus — ~175 patterns across all four ministers (v1 has full 400)
 [DONE] ✅  Paper §1, §2, §4, §6 — submission-ready
 
-[NEXT]  ⬜  Step 1  Run ./kavach_boot.sh on the Dell
-                    Confirms end-to-end interception before anything else
-
-[NEXT]  ⬜  Step 2  python parliament/smoke_test.py → all 7 checks pass
-
-[NEXT]  ⬜  Step 3  python benchmarks/benign_traces.py → FPR < 5%
-                    If ≥ 5%: read blocked_actions.txt, prune corpus, rebuild, rerun
-
-[NEXT]  ⬜  Step 4  python benchmarks/injecagent_runner.py → F1/recall/FPR numbers
-
-[NEXT]  ⬜  Step 5  python benchmarks/threshold_sweep.py → calibrate config.yaml
-
-[NEXT]  ⬜  Step 6  Numbers into paper §5 and related_work_table.tex
-
-[NEXT]  ⬜  Step 7  Write paper §3 (architecture) — Ishani
-                    Write paper §7 (limitations) — Ishani
-                    Write paper §8 (future work) — All
-
-[NEXT]  ⬜  Step 8  Submit MASEC@NeurIPS 2026 (deadline ~Sept 2026)
+[NEXT]  ⬜  Step 1  python predownload_model.py (do this first on the Dell)
+[NEXT]  ⬜  Step 2  ./kavach_boot.sh → end-to-end interception confirmed
+[NEXT]  ⬜  Step 3  python parliament/smoke_test.py → all 7 checks pass
+[NEXT]  ⬜  Step 4  python benchmarks/benign_traces.py → FPR < 5%
+[NEXT]  ⬜  Step 5  python benchmarks/injecagent_runner.py --full → real numbers
+[NEXT]  ⬜  Step 6  python benchmarks/threshold_sweep.py → calibrate config.yaml
+[NEXT]  ⬜  Step 7  Numbers into paper §5 and related_work_table.tex
+[NEXT]  ⬜  Step 8  Write §3 (architecture), §7 (limitations), §8 (future work)
+[NEXT]  ⬜  Step 9  Submit MASEC@NeurIPS 2026 (deadline ~Sept 2026)
 ```
 
 ---
@@ -762,7 +765,6 @@ All four thresholds are placeholders. Replace with `threshold_sweep.py` output a
 
 ```
 START SESSION     POST /hook/seed_intent  {"text": user_goal, "session_id": id}
-
 EVERY TOOL CALL   POST /hook/parliament   {"text": "tool:X args:{...}", "session_id": id}
                   ← BLOCK    tool blocked, never runs
                   ← ESCALATE user must approve
@@ -775,8 +777,9 @@ CHECK DRIFT       POST /hook/check_drift  {"text": action, "session_id": id}
 STOP SERVER       kill $(cat parliament/server.pid)
 REBUILD CORPUS    python corpus_loader.py --corpus corpus_v2/kavach_corpus_v2.json --rebuild
 RUN SMOKE TEST    python parliament/smoke_test.py
-RUN BENCHMARKS    python benchmarks/benign_traces.py  (FPR gate first)
-                  python benchmarks/injecagent_runner.py --cases benchmarks/data/attacker_cases_dh.jsonl
+RUN BENCHMARKS    python benchmarks/benign_traces.py
+                  python benchmarks/injecagent_runner.py --full --concurrency 4 \
+                    --cases benchmarks/data/attacker_cases_dh.jsonl
 ```
 
 ---
