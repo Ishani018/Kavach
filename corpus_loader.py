@@ -339,7 +339,7 @@ def main() -> None:
         print("[loader] WARN corpus missing COMPASS.pairs, skipping calibration set")
 
     # Load technical precision corpus (supplementary; OK if absent).
-    total += load_technical_corpus(client, embedder)
+    #total += load_technical_corpus(client, embedder)
 
     print(f"\n[loader] indexed {total} documents across {len(collections)} collections")
     print(f"[loader] persisted to {args.chroma.resolve()}")

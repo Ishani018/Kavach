@@ -36,7 +36,7 @@ compass_collection: COMPASS
 # Current values are placeholders carried from the browser lab.
 # ───────────────────────────────────────────────────────────────────
 thresholds:
-  block:         0.65   # ≥ this → minister BLOCKs
+  block:         0.55   # ≥ this → minister BLOCKs
   grey:          0.50   # ≥ this and < block → minister ESCALATEs
   compass_drift: 0.40   # < this → COMPASS drift detected
   router_min:    0.40   # ≥ this → minister activated for this query
