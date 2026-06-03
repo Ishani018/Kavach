@@ -258,8 +258,63 @@ async function onMessageSending(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Session intent seeding — fix for issue #9
+//
+// before_agent_run is not a typed/verified event in OpenClaw 2026.4.15 embedded
+// mode and silently never fires. Instead we seed intent on the FIRST
+// before_tool_call per session, extracted from e.conversationHistory. This is
+// robust regardless of which lifecycle hooks OpenClaw exposes.
+//
+// seededSessions tracks which sessions have already had their intent seeded so
+// we don't re-embed on every call (embedding is expensive, ~800ms cold).
+// ──────────────────────────────────────────────────────────────────────────────
+
+const seededSessions = new Set<string>();
+
+function extractUserIntent(e: BeforeToolCallEvent): string | null {
+  // Walk the conversation history backwards to find the most recent user message.
+  // This is the intent the user expressed that triggered this agent session.
+  const history = (e as any).conversationHistory as Array<{role: string; content: string}> | undefined;
+  if (!history || history.length === 0) return null;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === "user" && history[i].content?.trim()) {
+      return history[i].content.trim();
+    }
+  }
+  return null;
+}
+
+async function maybeSeedIntent(cfg: KavachConfig, e: BeforeToolCallEvent): Promise<void> {
+  const sessionId = e.sessionId ?? "default";
+  if (seededSessions.has(sessionId)) return;  // already seeded
+
+  const intentText = extractUserIntent(e);
+  if (!intentText) return;  // no user message available yet — will retry next call
+
+  // Mark seeded optimistically so concurrent first-calls don't double-seed.
+  seededSessions.add(sessionId);
+
+  try {
+    await callParliament(
+      cfg,
+      "seed_intent",
+      { text: intentText, session_id: sessionId },
+      cfg.replyTimeoutMs,
+    );
+    api_logger_ref?.info(`[kavach] seeded intent for session ${sessionId} (${intentText.slice(0, 60)}...)`);
+  } catch {
+    // Non-blocking — if seeding fails, COMPASS degrades gracefully (compass_sim: null).
+    // Will retry on the next tool call since we only un-mark on success.
+    seededSessions.delete(sessionId);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Plugin entry point
 // ──────────────────────────────────────────────────────────────────────────────
+
+// Module-level logger ref so maybeSeedIntent can log without passing api everywhere.
+let api_logger_ref: OpenClawPluginApi["logger"] | null = null;
 
 export default function register(api: OpenClawPluginApi) {
   const cfg: KavachConfig = {
@@ -267,28 +322,23 @@ export default function register(api: OpenClawPluginApi) {
     ...(api.config as Partial<KavachConfig>),
   };
 
+  api_logger_ref = api.logger;
+
   api.logger.info(
     `[kavach] registering hooks → parliament at ${cfg.parliamentUrl}`,
   );
 
-  api.on("before_tool_call", async (e) => onBeforeToolCall(cfg, e));
-  api.on("message_sending",  async (e) => onMessageSending(cfg, e));
-
-  // Optional: seed user intent on conversation start so COMPASS has a vector
-  // to compare tool calls against. Wired to before_agent_run when available.
-  api.on("before_agent_run", async (e) => {
-    if (e.userMessage) {
-      await callParliament(
-        cfg,
-        "seed_intent",
-        { text: e.userMessage, session_id: e.sessionId },
-        cfg.replyTimeoutMs,
-      );
-    }
-    return {};
+  api.on("before_tool_call", async (e) => {
+    // Seed user intent on first call of each session (fix for issue #9).
+    // Runs non-blocking before the parliament call so COMPASS has a vector.
+    await maybeSeedIntent(cfg, e);
+    return onBeforeToolCall(cfg, e);
   });
+
+  api.on("message_sending", async (e) => onMessageSending(cfg, e));
 
   api.on("plugin_shutdown", async () => {
     api.logger.info("[kavach] shutting down");
+    seededSessions.clear();
   });
 }
