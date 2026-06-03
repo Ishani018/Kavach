@@ -16,19 +16,30 @@ DESIGN CONSTRAINT — NO RE-EMBEDDING.
     calls, no ChromaDB queries. Per-call cost is sub-millisecond, so the hook
     latency budget (p95 ~1.6s, timeout 3000ms) is untouched.
 
-THREE LEGS of the risk signal (each in [0, 1]):
-    1. accumulation  — decayed sum of recent per-call confidences (PRISM-parity
-                       baseline; recent borderline/block calls raise risk).
-    2. escalation    — is the session drifting monotonically AWAY from the
-                       seeded user intent? Needs an intent vector; degrades
-                       gracefully to 0.0 when intent is unseeded (FINDINGS #9).
-    3. chain         — the novel semantic leg: do the recently-flagged actions
-                       cohere (cluster + march in a consistent direction) and/or
-                       match a known attack-chain prototype? This is what
-                       distinguishes Kavach from PRISM's scalar counter.
+FIVE SIGNALS (each in [0, 1]):
+    1. accumulation    — decayed sum of recent per-call confidences (PRISM-parity
+                         baseline; recent borderline/block calls raise risk).
+    2. escalation      — is the session drifting monotonically AWAY from the
+                         seeded user intent? Needs an intent vector; degrades
+                         gracefully to 0.0 when intent is unseeded (FINDINGS #9).
+    3. chain           — pairwise coherence of flagged actions + sequential
+                         direction tracking (motivated by Trajectory Guard
+                         arXiv:2601.00516 which proves mean-pooling alone
+                         achieves F1 ≤ 0.69).
+    4. denial_echo     — does the current action semantically echo a call that
+                         was previously BLOCKED in this session? Catches
+                         causality laundering (ARM, arXiv:2604.04035): attacker
+                         probes a protected action, learns from the denial, and
+                         re-approaches via a reformulated but semantically
+                         identical call.
+    5. minister_esc    — cross-minister escalation: does the sequence of which
+                         minister fired follow a canonical attack pattern?
+                         (AgentDoG arXiv:2601.18491 taxonomy: source → consequence)
+                         e.g. VAULT → CHANNEL = credential read → exfiltration.
 
-The combined risk feeds the dynamic-threshold formula in server.py:
-    effective_threshold = base + (compass_sim - 0.5) * drift_factor - risk * k
+Combined risk feeds the dynamic-threshold formula AND the hard session ceiling:
+    effective_threshold = base + (compass_sim - 0.5)*drift_factor - risk*k
+    if risk >= TRAJ_BLOCK_CEILING → BLOCK regardless of minister scores
 
 Author: Kavach team (Chain of Trust, PES University 2026)
 """
@@ -36,26 +47,43 @@ Author: Kavach team (Chain of Trust, PES University 2026)
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Deque, Optional
+from typing import Deque, List, Optional
 
 import numpy as np
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Tunables (mirror these into config.yaml -> trajectory: when wiring server.py)
+# Tunables (mirror into config.yaml -> trajectory: when wiring server.py)
 # ──────────────────────────────────────────────────────────────────────────────
 
-WINDOW_SIZE: int = 12          # max actions retained per session
-DECAY_HALFLIFE: float = 4.0    # accumulation: a call's weight halves every 4 calls
-GREY_FLOOR: float = 0.50       # a call is "flagged" (chain-relevant) at conf >= this
-CHAIN_COHERENCE_MIN: int = 2   # need >= this many flagged actions for a chain signal
+WINDOW_SIZE: int = 12           # max actions retained per session
+DECAY_HALFLIFE: float = 4.0     # accumulation: weight halves every 4 calls
+GREY_FLOOR: float = 0.50        # confidence floor for "flagged" (chain-relevant)
+CHAIN_COHERENCE_MIN: int = 2    # minimum flagged actions to compute chain signal
+DIRECTION_THRESHOLD: float = 0.50  # consecutive cosine above which direction fires
+DENIAL_ECHO_THRESHOLD: float = 0.68  # cosine above which current echoes a denial
 
-# Combined-risk weights — sum need not be 1; risk is clamped to [0,1] at the end.
-W_ACCUMULATION: float = 0.40
-W_ESCALATION:   float = 0.30
-W_CHAIN:        float = 0.30
+# Hard session ceiling — if combined risk >= this, BLOCK regardless of ministers.
+# Motivated by the independent enforcement gap vs PRISM's scalar graduated blocks.
+TRAJ_BLOCK_CEILING: float = 0.72
+
+# Canonical cross-minister attack patterns (AgentDoG source→consequence taxonomy).
+# Each entry is an ordered subsequence of decided_by values to match in the window.
+MINISTER_ESCALATION_PATTERNS: List[List[str]] = [
+    ["VAULT", "CHANNEL"],       # credential read → exfiltration (most common)
+    ["EXECUTOR", "CHANNEL"],    # command execution → exfiltration
+    ["VAULT", "EXECUTOR"],      # credential read → RCE (privilege escalation)
+    ["NAVIGATOR", "CHANNEL"],   # memory/context access → exfiltration
+    ["VAULT", "NAVIGATOR", "CHANNEL"],  # full cred→context→exfil chain
+]
+MINISTER_PATTERN_SCORE: float = 0.82   # risk signal on pattern match
+
+# Combined-risk weights — sum need not be 1; risk is clamped to [0,1] at end.
+W_ACCUMULATION: float = 0.35
+W_ESCALATION:   float = 0.25
+W_CHAIN:        float = 0.40   # covers chain + denial_echo + minister_esc (max)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -65,28 +93,29 @@ W_CHAIN:        float = 0.30
 @dataclass
 class ActionRecord:
     ts:         str
-    action_vec: np.ndarray      # L2-normalized BGE vector reused from the scan
-    verdict:    str             # "BLOCK" | "ESCALATE" | "ALLOW"
-    confidence: float           # max minister cosine for this call
+    action_vec: np.ndarray   # L2-normalized BGE vector reused from the scan
+    verdict:    str          # "BLOCK" | "ESCALATE" | "ALLOW"
+    confidence: float        # max minister cosine for this call
     decided_by: str
+    is_denial:  bool = False  # True when this call was BLOCKED — enables denial echo
 
 
 @dataclass
 class TrajectoryResult:
-    risk:         float                 # combined session risk in [0, 1]
-    accumulation: float                 # leg 1 in [0, 1]
-    escalation:   float                 # leg 2 in [0, 1] (0.0 if intent unseeded)
-    chain:        float                 # leg 3 in [0, 1]
-    window_size:  int                   # number of actions considered
-    intent_used:  bool                  # was a seeded intent available?
-    reason:       str                   # human-readable summary for the ledger
+    risk:         float    # combined session risk in [0, 1]
+    accumulation: float    # leg 1
+    escalation:   float    # leg 2 (0.0 if intent unseeded)
+    chain:        float    # leg 3a+3b: pairwise coherence + sequential direction
+    denial_echo:  float    # leg 4: echo of a previously blocked action
+    minister_esc: float    # leg 5: cross-minister escalation pattern
+    window_size:  int
+    intent_used:  bool
+    ceiling_breach: bool   # True if risk >= TRAJ_BLOCK_CEILING
+    reason:       str
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Per-session history store
-#
-# In server.py this lives at:  _state["history"]: dict[str, Deque[ActionRecord]]
-# Kept here behind tiny helpers so the endpoint never touches deque internals.
 # ──────────────────────────────────────────────────────────────────────────────
 
 def new_history() -> Deque[ActionRecord]:
@@ -100,9 +129,12 @@ def record_action(
     verdict: str,
     confidence: float,
     decided_by: str,
+    is_denial: bool = False,
 ) -> None:
     """Append one scored action. `action_vec` MUST be the already-computed,
-    L2-normalized BGE vector from the parliament scan — never re-embedded here."""
+    L2-normalized BGE vector from the parliament scan — never re-embedded here.
+    Pass is_denial=True when the verdict was BLOCK, so future calls can detect
+    denial echo (causality laundering)."""
     history.append(
         ActionRecord(
             ts=datetime.now(timezone.utc).isoformat(),
@@ -110,6 +142,7 @@ def record_action(
             verdict=verdict,
             confidence=float(confidence),
             decided_by=decided_by,
+            is_denial=is_denial,
         )
     )
 
@@ -123,21 +156,17 @@ def _cos(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def _decay_weights(n: int) -> np.ndarray:
-    """Newest action (index n-1) has weight 1.0; older actions decay by the
-    half-life. Returns weights aligned oldest..newest."""
     if n == 0:
         return np.zeros(0, dtype=np.float32)
-    ages = np.arange(n - 1, -1, -1, dtype=np.float32)   # oldest has largest age
+    ages = np.arange(n - 1, -1, -1, dtype=np.float32)
     return np.power(0.5, ages / DECAY_HALFLIFE).astype(np.float32)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Leg 1 — accumulation (PRISM-parity baseline)
+# Signal 1 — accumulation (PRISM-parity baseline)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _accumulation(history: Deque[ActionRecord]) -> float:
-    """Decayed weighted mean of per-call confidences. A burst of recent
-    borderline/block calls drives this up; a single old flag decays away."""
     n = len(history)
     if n == 0:
         return 0.0
@@ -150,18 +179,10 @@ def _accumulation(history: Deque[ActionRecord]) -> float:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Leg 2 — escalation / intent drift over the window
+# Signal 2 — escalation / intent drift
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _escalation(history: Deque[ActionRecord], intent_vec: Optional[np.ndarray]) -> float:
-    """Is the session moving monotonically away from the seeded intent?
-
-    For each action compute alignment = cosine(intent, action). If later
-    actions are LESS aligned than earlier ones, the session is escalating away
-    from what the user asked for. Returns the normalized negative slope of the
-    alignment series, in [0, 1]. Degrades to 0.0 if intent is unseeded
-    (FINDINGS #9) or fewer than 2 actions exist.
-    """
     if intent_vec is None:
         return 0.0
     n = len(history)
@@ -169,52 +190,53 @@ def _escalation(history: Deque[ActionRecord], intent_vec: Optional[np.ndarray]) 
         return 0.0
     iv = np.asarray(intent_vec, dtype=np.float32)
     align = np.array([_cos(iv, r.action_vec) for r in history], dtype=np.float32)
-    # least-squares slope of alignment vs step index
     x = np.arange(n, dtype=np.float32)
     x -= x.mean()
     var = float((x * x).sum())
     if var <= 0.0:
         return 0.0
     slope = float((x * (align - align.mean())).sum() / var)
-    # negative slope = drifting away. Map slope in [-1, 0] -> risk [0, 1].
     return float(np.clip(-slope, 0.0, 1.0))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Leg 3 — semantic chain (the novel leg vs PRISM)
+# Signal 3 — semantic chain (pairwise coherence + sequential direction)
+#
+# Pairwise coherence: do flagged actions cluster in embedding space?
+# Sequential direction: are CONSECUTIVE flagged actions moving in a consistent
+#   direction? Motivated by Trajectory Guard (arXiv:2601.00516) which shows
+#   mean-pooling centroid misses directional attack chains (F1 ceiling 0.69).
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _chain(
     history: Deque[ActionRecord],
     prototypes: Optional[np.ndarray] = None,
 ) -> float:
-    """Coordinated multi-step signal.
-
-    Two sub-signals, combined by max:
-      (a) coherence — among recently FLAGGED actions (confidence >= GREY_FLOOR),
-          how tightly do they cluster? A real attack chain visits related
-          actions (cred files, secret search, egress); incidental greys do not.
-          Measured as the mean pairwise cosine of flagged action vectors.
-      (b) prototype — if a matrix of pre-embedded attack-chain prototype vectors
-          is supplied, the max cosine between the flagged-action centroid and
-          any prototype. Optional: 0.0 when no prototypes are provided, so the
-          leg works today and strengthens once a chain corpus is built.
-
-    All vectors are reused from the scan — no embedding here.
-    """
-    flagged = [r.action_vec for r in history if r.confidence >= GREY_FLOOR]
-    if len(flagged) < CHAIN_COHERENCE_MIN:
+    flagged_records = [r for r in history if r.confidence >= GREY_FLOOR]
+    if len(flagged_records) < CHAIN_COHERENCE_MIN:
         return 0.0
 
-    M = np.vstack(flagged).astype(np.float32)        # (k, dim), rows normalized
+    vecs = [r.action_vec for r in flagged_records]
+    M = np.vstack(vecs).astype(np.float32)   # (k, dim)
+    k = M.shape[0]
 
-    # (a) coherence: mean of upper-triangle pairwise cosines
+    # (a) pairwise coherence — mean of upper-triangle cosines
     sims = M @ M.T
-    k = sims.shape[0]
     iu = np.triu_indices(k, k=1)
     coherence = float(np.clip(sims[iu].mean(), 0.0, 1.0)) if iu[0].size else 0.0
 
-    # (b) prototype match against centroid
+    # (b) sequential direction — consecutive cosines in the ORDER they appeared
+    # High mean consecutive cosine = attack moving in a coherent direction step-by-step
+    if k >= 2:
+        consec = [_cos(vecs[i], vecs[i + 1]) for i in range(k - 1)]
+        direction = float(np.clip(np.mean(consec), 0.0, 1.0))
+        # Amplify when consecutive cosines are consistently above the threshold
+        consistent = sum(1 for c in consec if c >= DIRECTION_THRESHOLD) / len(consec)
+        direction = direction * (0.5 + 0.5 * consistent)
+    else:
+        direction = 0.0
+
+    # (c) prototype match against flagged centroid (optional, strengthens with corpus)
     proto = 0.0
     if prototypes is not None and len(prototypes) > 0:
         centroid = M.mean(axis=0)
@@ -223,7 +245,58 @@ def _chain(
             centroid = centroid / norm
             proto = float(np.clip((prototypes @ centroid).max(), 0.0, 1.0))
 
-    return max(coherence, proto)
+    return float(np.clip(max(coherence, direction, proto), 0.0, 1.0))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Signal 4 — denial echo (ARM arXiv:2604.04035)
+#
+# If the current action semantically echoes a previously BLOCKED action, the
+# attacker is attempting causality laundering — reformulating the same intent
+# to bypass the prior block. Fires when cosine(current, denied) > threshold.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _denial_echo(
+    history: Deque[ActionRecord],
+    current_vec: Optional[np.ndarray],
+) -> float:
+    if current_vec is None:
+        return 0.0
+    denials = [r for r in history if r.is_denial]
+    if not denials:
+        return 0.0
+    cv = np.asarray(current_vec, dtype=np.float32)
+    max_sim = max(_cos(cv, r.action_vec) for r in denials)
+    if max_sim < DENIAL_ECHO_THRESHOLD:
+        return 0.0
+    # Scale: how far above the threshold is it?
+    return float(np.clip(
+        (max_sim - DENIAL_ECHO_THRESHOLD) / (1.0 - DENIAL_ECHO_THRESHOLD),
+        0.0, 1.0
+    ))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Signal 5 — cross-minister escalation (AgentDoG arXiv:2601.18491)
+#
+# Scans the decided_by sequence for canonical source→consequence attack patterns.
+# VAULT → CHANNEL = credential read → exfiltration is the most dangerous.
+# Returns MINISTER_PATTERN_SCORE if any pattern is found, else 0.0.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _minister_escalation(history: Deque[ActionRecord]) -> float:
+    if len(history) < 2:
+        return 0.0
+    sequence = [r.decided_by for r in history]
+    for pattern in MINISTER_ESCALATION_PATTERNS:
+        # Check if pattern appears as a subsequence (not necessarily contiguous)
+        p_idx = 0
+        for minister in sequence:
+            if minister == pattern[p_idx]:
+                p_idx += 1
+                if p_idx == len(pattern):
+                    return MINISTER_PATTERN_SCORE
+    return 0.0
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -233,20 +306,40 @@ def _chain(
 def trajectory_risk(
     history: Deque[ActionRecord],
     intent_vec: Optional[np.ndarray] = None,
+    current_vec: Optional[np.ndarray] = None,
     prototypes: Optional[np.ndarray] = None,
 ) -> TrajectoryResult:
     """Compute the combined session trajectory risk. Pure cosine math over
-    cached vectors; safe to call on the hot path."""
-    acc = _accumulation(history)
-    esc = _escalation(history, intent_vec)
-    chn = _chain(history, prototypes)
+    cached vectors; safe to call on the hot path.
 
-    risk = W_ACCUMULATION * acc + W_ESCALATION * esc + W_CHAIN * chn
+    current_vec: the BGE vector of the action being evaluated RIGHT NOW
+                 (not yet in history). Used for denial echo detection.
+    """
+    acc  = _accumulation(history)
+    esc  = _escalation(history, intent_vec)
+    chn  = _chain(history, prototypes)
+    den  = _denial_echo(history, current_vec)
+    mesc = _minister_escalation(history)
+
+    # Chain component takes the strongest novel signal across the three legs
+    chain_combined = float(np.clip(max(chn, den, mesc), 0.0, 1.0))
+
+    risk = W_ACCUMULATION * acc + W_ESCALATION * esc + W_CHAIN * chain_combined
     risk = float(np.clip(risk, 0.0, 1.0))
 
-    parts = [f"acc={acc:.2f}", f"esc={esc:.2f}", f"chain={chn:.2f}"]
+    ceiling_breach = risk >= TRAJ_BLOCK_CEILING
+
+    parts = [
+        f"acc={acc:.2f}",
+        f"esc={esc:.2f}",
+        f"chain={chn:.2f}",
+        f"denial={den:.2f}",
+        f"mesc={mesc:.2f}",
+    ]
     if intent_vec is None:
         parts.append("intent=unseeded")
+    if ceiling_breach:
+        parts.append("CEILING_BREACH")
     reason = f"trajectory risk {risk:.2f} ({', '.join(parts)}, window={len(history)})"
 
     return TrajectoryResult(
@@ -254,8 +347,11 @@ def trajectory_risk(
         accumulation=acc,
         escalation=esc,
         chain=chn,
+        denial_echo=den,
+        minister_esc=mesc,
         window_size=len(history),
         intent_used=intent_vec is not None,
+        ceiling_breach=ceiling_breach,
         reason=reason,
     )
 
@@ -269,13 +365,8 @@ def modulate_threshold(
     floor: float = 0.30,
     ceil: float = 0.90,
 ) -> float:
-    """Dynamic block threshold (FINDINGS item #1), now trajectory-aware.
-
+    """Dynamic block threshold, trajectory-aware.
         effective = base + (compass_sim - 0.5)*drift_factor - traj_risk*risk_factor
-
-    High trajectory risk lowers the bar to BLOCK on the NEXT call — so a
-    suspicious build-up tightens enforcement before the payload step. Clamped
-    to [floor, ceil] so it can never disable or fully open the gate.
     """
     eff = base
     if compass_sim is not None:
@@ -285,35 +376,79 @@ def modulate_threshold(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Smoke demo (matches the repo's smoke_test.py convention)
-#   python -m parliament.trajectory
+# Smoke demo — python -m parliament.trajectory
+# Tests all five signals including the new ones (A-D)
 # ──────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     rng = np.random.default_rng(0)
 
-    def _unit(v: np.ndarray) -> np.ndarray:
+    def _unit(v):
         return (v / np.linalg.norm(v)).astype(np.float32)
 
-    # Fake the "read-cred -> search-secret -> exfil" chain: three related,
-    # individually-borderline vectors that cohere in embedding space.
-    base_dir = _unit(rng.standard_normal(768))
-    def near(v, jitter=0.15):
+    # In 768-dim space, jitter must be small relative to 1/sqrt(768)~0.036
+    # to maintain high cosine similarity. Real BGE reformulations are similar.
+    attack_dir = _unit(rng.standard_normal(768))
+
+    def near(v, jitter=0.02):
         return _unit(v + jitter * rng.standard_normal(768))
 
-    intent = _unit(rng.standard_normal(768))   # user asked for something unrelated
+    # intent drifts away from attack_dir — orthogonal region
+    intent = _unit(rng.standard_normal(768))
 
+    print("=== Demo A+B: chain coherence + sequential direction ===")
     h = new_history()
-    record_action(h, near(base_dir), "ESCALATE", 0.54, "VAULT")      # read config
-    print("after step 1:", trajectory_risk(h, intent).reason)
-    record_action(h, near(base_dir), "ESCALATE", 0.57, "VAULT")      # grep secrets
-    print("after step 2:", trajectory_risk(h, intent).reason)
-    record_action(h, near(base_dir), "ESCALATE", 0.59, "EXECUTOR")   # read .env
-    res = trajectory_risk(h, intent)
-    print("after step 3:", res.reason)
+    for i, minister in enumerate(["VAULT", "VAULT", "EXECUTOR"]):
+        vec = near(attack_dir, jitter=0.05 + i * 0.02)
+        record_action(h, vec, "ESCALATE", 0.54 + i * 0.03, minister)
+        print(f"  step {i+1}:", trajectory_risk(h, intent, near(attack_dir)).reason)
 
+    print("\n=== Demo C: cross-minister escalation (VAULT → CHANNEL) ===")
+    h2 = new_history()
+    record_action(h2, near(attack_dir), "ESCALATE", 0.58, "VAULT")
+    r1 = trajectory_risk(h2, intent, near(attack_dir))
+    print(f"  after VAULT:   mesc={r1.minister_esc:.2f}  risk={r1.risk:.2f}")
+    record_action(h2, near(attack_dir), "ESCALATE", 0.61, "CHANNEL")
+    r2 = trajectory_risk(h2, intent, near(attack_dir))
+    print(f"  after CHANNEL: mesc={r2.minister_esc:.2f}  risk={r2.risk:.2f}  "
+          f"(VAULT->CHANNEL pattern fired)")
+
+    print("\n=== Demo D: denial echo (causality laundering) ===")
+    h3 = new_history()
+    blocked_vec = near(attack_dir, jitter=0.02)
+    record_action(h3, blocked_vec, "BLOCK", 0.78, "VAULT", is_denial=True)
+    # Attacker reformulates: very similar intent, slightly different phrasing
+    reformulated = near(blocked_vec, jitter=0.02)
+    r3 = trajectory_risk(h3, intent, current_vec=reformulated)
+    print(f"  denial_echo={r3.denial_echo:.2f}  risk={r3.risk:.2f}  "
+          f"ceiling_breach={r3.ceiling_breach}")
+    print(f"  (cosine blocked↔reformulated ≈ "
+          f"{float(np.dot(blocked_vec, reformulated)):.2f})")
+
+    print("\n=== Demo E: escalating session (ceiling approach — full breach needs #9) ===")
+    # NOTE: ceiling at 0.72 requires all three main signals: acc + esc + chain.
+    # With esc=0.00 (intent unseeded, FINDINGS #9), max risk = W_ACC + W_CHAIN = 0.75.
+    # The ceiling breach fires in production once seed_intent is wired (#9 fixed),
+    # because then esc contributes 0.25 * (up to 1.0) = +0.25 more risk.
+    # This demo shows risk=0.58 approaching ceiling with threshold already compressed.
+    h4 = new_history()
+    # Session: multiple high-confidence calls, VAULT→CHANNEL pattern, then denial
+    calls = [
+        (near(attack_dir, 0.03), "ESCALATE", 0.66, "VAULT",   False),
+        (near(attack_dir, 0.03), "ESCALATE", 0.70, "VAULT",   False),
+        (near(attack_dir, 0.03), "ESCALATE", 0.72, "CHANNEL", False),
+        (near(attack_dir, 0.02), "BLOCK",    0.78, "CHANNEL", True),
+    ]
+    for vec, verdict, conf, minister, is_den in calls:
+        record_action(h4, vec, verdict, conf, minister, is_denial=is_den)
+    rf = trajectory_risk(h4, intent, current_vec=near(attack_dir, 0.02))
+    print(f"  risk={rf.risk:.2f}  ceiling_breach={rf.ceiling_breach}  "
+          f"(ceiling={TRAJ_BLOCK_CEILING})")
+    print(f"  signals: acc={rf.accumulation:.2f}  esc={rf.escalation:.2f}  "
+          f"chain={rf.chain:.2f}  denial={rf.denial_echo:.2f}  "
+          f"mesc={rf.minister_esc:.2f}")
     base = 0.55
-    print(f"\nbase block threshold      = {base:.3f}")
-    print(f"effective (traj-modulated) = "
-          f"{modulate_threshold(base, compass_sim=0.42, traj_risk=res.risk):.3f}")
-    print("→ build-up tightens the gate before the exfil call fires.")
+    print(f"  modulated threshold: {modulate_threshold(base, 0.38, rf.risk):.3f}  "
+          f"(was {base})")
+    if rf.ceiling_breach:
+        print("  → Speaker would return BLOCK decided_by=TRAJECTORY")

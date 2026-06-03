@@ -1,3 +1,78 @@
+# Kavach Lab Findings — June 3, 2026
+
+## Context-aware trajectory monitor (v2) + roadmap lock-in
+
+### What changed from v1
+
+Trajectory monitor v1 (June 2) computed risk from accumulation + pairwise centroid chain.
+Trajectory Guard (arXiv:2601.00516) explicitly benchmarks mean-pooling centroid at F1≤0.69.
+v2 replaces/extends with four grounded additions:
+
+**A. Denial echo (ARM arXiv:2604.04035):** When Kavach BLOCKs a call, the action vector is
+flagged `is_denial=True` in the session deque. On every subsequent call, `denial_echo` checks
+cosine similarity between the current action and any denied action. Similarity > 0.68 escalates
+risk — catching causality laundering where the attacker reformulates a blocked intent.
+
+**B. Sequential direction (Trajectory Guard arXiv:2601.00516):** Consecutive pairwise cosines
+over flagged actions in ORDER, replacing centroid mean-pooling. If each step cosines ≥ 0.50
+with the next, that's a directional attack chain (vs random benign greys which scatter).
+Addresses the F1≤0.69 ceiling Trajectory Guard identifies for centroid approaches.
+
+**C. Cross-minister escalation (AgentDoG arXiv:2601.18491):** Scans the `decided_by` sequence
+in the deque for canonical attack patterns: VAULT→CHANNEL (credential→exfil, most dangerous),
+EXECUTOR→CHANNEL (RCE→exfil), VAULT→EXECUTOR (cred→RCE), NAVIGATOR→CHANNEL. Pattern match
+returns score 0.82 regardless of individual call scores. Fires at step 3 of the staged attack
+(window size 3, VAULT→VAULT→EXECUTOR → VAULT→EXECUTOR subsequence match).
+
+**D. Hard ceiling in speaker.py:** If `traj_risk >= 0.72`, speaker.py Case 0 fires before
+the minister cases — returns BLOCK with `decided_by="TRAJECTORY"`. This is what makes Kavach
+a session enforcer, not just a threshold-nudger. Honest limitation: ceiling requires all three
+main signals together (acc + chain + esc). With esc=0.00 (intent unseeded, #9 not fixed),
+max achievable risk without extreme values is ~0.65. Full ceiling breach needs #9.
+
+### Smoke demo outputs (numpy cosine math, seed=0, reproducible)
+
+```
+Demo A+B: risk climbs 0.19 → 0.31 → 0.53 (chain + sequential direction fires at step 2)
+Demo C:   mesc=0.00 after VAULT, jumps to 0.82 after CHANNEL (VAULT→CHANNEL pattern)
+Demo D:   denial_echo=0.60, cosine blocked↔reformulated=0.87 (causality laundering caught)
+Demo E:   risk=0.58 approaching ceiling=0.72, threshold compressed 0.55→0.451
+```
+
+### Key architecture finding from research sweep
+
+Kavach's position in the 2026 field:
+
+| System | ASR | Latency | What Kavach beats it on |
+|---|---|---|---|
+| OpenClaw PRISM | 4.5% recall | ~15.8s p95 | **Latency** (Kavach p95=1.65s) |
+| AgentArmor v2 | 3% | 20.89s avg | **Latency** |
+| LlamaFirewall | 1.75% | 19ms (PromptGuard only) | **Session context** (LlamaFirewall is per-call) |
+| ZEDD | >93% acc | — | **Agent/tool-call scope** (ZEDD is not agent-specific) |
+
+Kavach's wedge: semantic BGE detection + session enforcement + sub-second latency + OpenClaw-native.
+
+### What #9 blocking means for the paper
+
+COMPASS session seeding is broken in live sessions (`compass_sim: null`). This means:
+- Escalation leg (esc) = 0.00 in all live benchmarks until #9 is fixed
+- Ceiling (0.72) is very hard to breach without esc contributing 0.25 × (up to 1.0)
+- InjecAgent and AgentDojo runs will not show the full ceiling behavior
+
+Fix #9 before running AgentDojo. It is a plugin change (~ 15 lines in plugin/openclaw-plugin-kavach.ts).
+See ROADMAP.md Phase 1.2 for exact code.
+
+### Files Changed Today
+
+| File | Change |
+|---|---|
+| `parliament/trajectory.py` | v2: denial echo (A), sequential direction (B), cross-minister escalation (C), updated TrajectoryResult, fixed smoke demo |
+| `parliament/speaker.py` | hard ceiling Case 0 (D): traj_risk >= TRAJ_BLOCK_CEILING → BLOCK decided_by=TRAJECTORY |
+| `parliament/server.py` | wire current_vec into trajectory_risk, traj_risk into combine_verdicts, is_denial into record_action |
+| `ROADMAP.md` | NEW — full strategic roadmap, phase plan, PR map, AISec 2026 submission guide |
+| `DELL_BENCHMARK_RUNBOOK.md` | NEW — Parv's complete Dell guide (trajectory test, InjecAgent, AgentDojo) |
+| `MASTER_PLAN.md` | trajectory.py added to Workstream B, §7 limitation updated |
+
 # Kavach Lab Findings — June 2, 2026
 
 ## Trajectory Monitor — feasibility + design lock-in

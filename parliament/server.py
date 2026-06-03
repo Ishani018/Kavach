@@ -469,7 +469,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # Step 0b: trajectory risk from PRIOR calls in this session (current call
     # not yet appended). Pure cosine math over cached vectors — no embed.
     hist = _state["history"][req.session_id]
-    traj_res = traj.trajectory_risk(hist, intent_vec=_state["intents"].get(req.session_id))
+    traj_res = traj.trajectory_risk(hist, intent_vec=_state["intents"].get(req.session_id), current_vec=action_vec)
 
     # Step 0c: modulate this call's block threshold by COMPASS + trajectory.
     # A suspicious build-up lowers the bar to BLOCK on this call.
@@ -520,6 +520,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         compass_drift=drift,
         compass_sim=compass_sim,
         thresholds=call_thresholds,
+        traj_risk=traj_res.risk,
     )
 
     # Step 4b: record THIS action into the session trajectory (reuses the
@@ -530,6 +531,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         verdict=speaker_v.verdict,
         confidence=speaker_v.confidence,
         decided_by=speaker_v.decided_by,
+        is_denial=(speaker_v.verdict == "BLOCK"),
     )
 
     latency_ms = (time.perf_counter() - t0) * 1000.0

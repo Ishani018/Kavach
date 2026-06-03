@@ -34,6 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .ministers import MinisterScan
+from .trajectory import TRAJ_BLOCK_CEILING
 
 
 @dataclass
@@ -52,15 +53,17 @@ def combine_verdicts(
     compass_drift: bool,
     compass_sim: float,
     thresholds: dict,
+    traj_risk: float = 0.0,
 ) -> SpeakerVerdict:
     """
-    Combine minister scans + COMPASS drift signal into a final verdict.
+    Combine minister scans + COMPASS drift + trajectory risk into a final verdict.
 
     Args:
       minister_results: scans from every activated minister
       compass_drift:    True if cosine(intent, action) < compass_drift threshold
       compass_sim:      the actual cosine value
       thresholds:       dict with block, grey, compass_drift keys
+      traj_risk:        combined session trajectory risk from trajectory.py
     """
     block_threshold = thresholds["block"]
     grey_threshold  = thresholds["grey"]
@@ -70,6 +73,28 @@ def combine_verdicts(
     blocks    = [r for r in minister_results if r.verdict == "BLOCK"]
     escalates = [r for r in minister_results if r.verdict == "ESCALATE"]
     allows    = [r for r in minister_results if r.verdict == "ALLOW"]
+
+    # ── Case 0: trajectory ceiling breach → session-level BLOCK ───────────
+    # Fires when accumulated session risk crosses TRAJ_BLOCK_CEILING regardless
+    # of whether any individual minister voted BLOCK. This is what makes Kavach
+    # a live session monitor, not just a per-call guard. Catches causality
+    # laundering (ARM arXiv:2604.04035) and cross-minister escalation patterns
+    # (AgentDoG arXiv:2601.18491) that individually-benign calls build up to.
+    if traj_risk >= TRAJ_BLOCK_CEILING:
+        return SpeakerVerdict(
+            verdict="BLOCK",
+            decided_by="TRAJECTORY",
+            confidence=round(traj_risk, 4),
+            reason=(
+                f"session trajectory risk {traj_risk:.3f} >= ceiling "
+                f"{TRAJ_BLOCK_CEILING:.2f} — multi-step attack pattern detected "
+                f"across session window (denial echo / minister escalation / "
+                f"semantic chain coherence)"
+            ),
+            blocks=len(blocks),
+            escalates=len(escalates),
+            allows=len(allows),
+        )
 
     # ── Case 1: any minister at BLOCK ─────────────────────────────────────
     if blocks:
