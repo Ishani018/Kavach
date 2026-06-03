@@ -36,10 +36,25 @@ compass_collection: COMPASS
 # Current values are placeholders carried from the browser lab.
 # ───────────────────────────────────────────────────────────────────
 thresholds:
-  block:         0.55   # ≥ this → minister BLOCKs
+  block:         0.55   # base block — overridden per minister by per_minister below
   grey:          0.50   # ≥ this and < block → minister ESCALATEs
   compass_drift: 0.40   # < this → COMPASS drift detected
   router_min:    0.40   # ≥ this → minister activated for this query
+
+  # Per-minister block thresholds from threshold_sweep.py Youden's J output.
+  # These override the base block value for each minister individually.
+  # Trajectory modulation (from traj_risk) is applied ON TOP of these values.
+  #
+  # Sweep results (InjecAgent, threshold=Youden J optimal):
+  #   EXECUTOR: TPR 0.903, FPR 0.471 @ 0.55 — keep low, strongest minister
+  #   VAULT:    TPR 0.839, FPR 0.706 @ 0.55 — corpus too broad, raise to cut FPR
+  #   CHANNEL:  TPR 0.516, FPR 0.235 @ 0.60
+  #   NAVIGATOR:TPR 0.371, FPR 0.294 @ 0.60
+  per_minister:
+    EXECUTOR:  0.55
+    VAULT:     0.75    # raised from 0.55 — FPR was 70.6%, corpus needs quality pass (#7)
+    CHANNEL:   0.60
+    NAVIGATOR: 0.60
 
 # ───────────────────────────────────────────────────────────────────
 # Server bind. Default 127.0.0.1:8088 — the OpenClaw plugin's default

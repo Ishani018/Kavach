@@ -181,6 +181,31 @@ def _route(text: str) -> list[str]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Per-minister threshold helper (issue #3)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _get_minister_thresholds(minister: str, call_thresholds: dict) -> dict:
+    """Return per-minister thresholds with trajectory/COMPASS modulation applied.
+
+    The base block value comes from config per_minister (if set), falling back
+    to the global block. The modulation delta already baked into call_thresholds
+    (trajectory risk + COMPASS drift adjustment) is preserved by computing the
+    delta and applying it to the per-minister base.
+    """
+    per = CFG["thresholds"].get("per_minister", {})
+    if minister not in per:
+        return call_thresholds  # no override — use the already-modulated base
+
+    minister_base  = float(per[minister])
+    global_base    = float(CFG["thresholds"]["block"])
+    modulated_base = float(call_thresholds["block"])
+    delta          = modulated_base - global_base  # trajectory + COMPASS adjustment
+
+    effective_block = float(np.clip(minister_base + delta, 0.30, 0.90))
+    return {**call_thresholds, "block": effective_block}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # COMPASS drift — cosine between session intent vector and proposed action
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -506,7 +531,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
             *([_state["tech_collections"][minister]]
               if _state["tech_collections"].get(minister) else []),
             _embed_query,
-            call_thresholds,
+            _get_minister_thresholds(minister, call_thresholds),
             10,
             action_vec,
         )
