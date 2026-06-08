@@ -52,6 +52,7 @@ The browser lab proves the logic. Now make it a service the plugin can call.
 - `parliament/ministers.py`
 - `parliament/speaker.py`
 - `parliament/config.yaml`
+- `parliament/trajectory.py` — session trajectory monitor (multi-step attack detection). Rolling-window risk over cached action vectors (accumulation + escalation + semantic chain); modulates the per-call block threshold. No re-embedding: action embedded once and shared across COMPASS + ministers + trajectory. *[Added June 2 — see FINDINGS.md. Escalation leg gated on the seed_intent fix (#9).]*
 
 ### Workstream C — Kill the overfitting problem (Janya + Pranitha)
 The current corpus was written while staring at ClawHavoc. The system is doing sophisticated keyword matching, not semantic understanding. Fix this before any benchmark run, or the numbers are meaningless.
@@ -94,7 +95,7 @@ Once interception is wired and the corpus is honest, run the benchmark.
 - §4 The temporal-vs-spatial defense-in-depth distinction — formal claim, theorem statement, why this is novel vs LlamaFirewall
 - §5 Evaluation — InjecAgent results, COMPASS calibration, FPR on benign traces, latency budget
 - §6 Related work — differentiation paragraphs vs DeepContext, TraceSafe, LlamaFirewall, AgentSpec, AGrail, ShieldAgent, CaMeL, FIDES, RTBAS, Conseca, Task Shield
-- §7 Limitations — the overfitting story (honest), single-vector cosine ceiling per Trajectory Guard, no AgentDojo yet
+- §7 Limitations — the overfitting story (honest), single-vector cosine ceiling per Trajectory Guard *(partially addressed by the June-2 trajectory monitor — multi-step semantic chains now scored across the session window, not just per call)*, no AgentDojo yet
 - §8 Future work — CORTEX activation probes, SUPPLY minister, federated corpus, MCP-Security spec
 
 ---

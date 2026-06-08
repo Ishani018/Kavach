@@ -56,11 +56,13 @@ from sentence_transformers import SentenceTransformer
 try:
     from .ministers import MinisterScan, run_minister, run_minister_dual
     from .speaker import SpeakerVerdict, combine_verdicts
+    from . import trajectory as traj
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from parliament.ministers import MinisterScan, run_minister, run_minister_dual
     from parliament.speaker import SpeakerVerdict, combine_verdicts
+    from parliament import trajectory as traj
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration loading
@@ -108,6 +110,8 @@ CFG = _load_config()
 # Global state — model, chroma client, router, session intent vectors, ledger
 # ──────────────────────────────────────────────────────────────────────────────
 
+from collections import defaultdict
+
 _state: dict[str, Any] = {
     "model":      None,
     "chroma":     None,
@@ -115,6 +119,7 @@ _state: dict[str, Any] = {
     "tech_collections": {},  # minister name → chroma Collection (technical precision corpus)
     "router":     None,
     "intents":    {},    # session_id → np.ndarray (BGE vector of user intent)
+    "history":    defaultdict(traj.new_history),  # session_id → deque[ActionRecord]
 }
 
 
@@ -176,15 +181,46 @@ def _route(text: str) -> list[str]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Per-minister threshold helper (issue #3)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _get_minister_thresholds(minister: str, call_thresholds: dict) -> dict:
+    """Return per-minister thresholds with trajectory/COMPASS modulation applied.
+
+    The base block value comes from config per_minister (if set), falling back
+    to the global block. The modulation delta already baked into call_thresholds
+    (trajectory risk + COMPASS drift adjustment) is preserved by computing the
+    delta and applying it to the per-minister base.
+    """
+    per = CFG["thresholds"].get("per_minister", {})
+    if minister not in per:
+        return call_thresholds  # no override — use the already-modulated base
+
+    minister_base  = float(per[minister])
+    global_base    = float(CFG["thresholds"]["block"])
+    modulated_base = float(call_thresholds["block"])
+    delta          = modulated_base - global_base  # trajectory + COMPASS adjustment
+
+    effective_block = float(np.clip(minister_base + delta, 0.30, 0.90))
+    return {**call_thresholds, "block": effective_block}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # COMPASS drift — cosine between session intent vector and proposed action
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _compass_drift(session_id: str, action_text: str) -> tuple[bool, float]:
-    """Return (drift_detected, similarity). If no intent stored, returns (False, 1.0)."""
+def _compass_drift(session_id: str, action_text: str,
+                   action_vec: np.ndarray | None = None) -> tuple[bool, float]:
+    """Return (drift_detected, similarity). If no intent stored, returns (False, 1.0).
+
+    `action_vec`: optional precomputed BGE vector for `action_text` (embed-once
+    path). When None, embeds internally (legacy behaviour).
+    """
     intent_vec = _state["intents"].get(session_id)
     if intent_vec is None:
         return (False, 1.0)
-    action_vec = _embed_query(action_text)
+    if action_vec is None:
+        action_vec = _embed_query(action_text)
     sim = _cosine(intent_vec, action_vec)
     drift = sim < CFG["thresholds"]["compass_drift"]
     return (drift, sim)
@@ -210,9 +246,14 @@ def _init_db() -> None:
             reason          TEXT,
             ministers_json  TEXT,
             compass_sim     REAL,
+            traj_risk       REAL,
             latency_ms      REAL
         )
     """)
+    # Migrate pre-trajectory DBs: add traj_risk if the table predates it.
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(votes)")}
+    if "traj_risk" not in cols:
+        conn.execute("ALTER TABLE votes ADD COLUMN traj_risk REAL")
     conn.commit()
     conn.close()
 
@@ -229,14 +270,15 @@ def _log_vote(
     ministers: dict,
     compass_sim: float | None,
     latency_ms: float,
+    traj_risk: float | None = None,
 ) -> None:
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
         """INSERT INTO votes
            (ts, session_id, correlation_id, stage, input_text, verdict,
             decided_by, confidence, reason, ministers_json, compass_sim,
-            latency_ms)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            traj_risk, latency_ms)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             datetime.now(timezone.utc).isoformat(),
             session_id,
@@ -249,6 +291,7 @@ def _log_vote(
             reason[:500],
             json.dumps(ministers),
             compass_sim,
+            traj_risk,
             latency_ms,
         ),
     )
@@ -383,6 +426,7 @@ class ParliamentResponse(BaseModel):
     ministers:      dict[str, MinisterResult]
     pattern:        str
     compass_sim:    float | None
+    traj_risk:      float | None = None
     activated:      list[str]
     correlation_id: str
     latency_ms:     float
@@ -443,13 +487,39 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     t0 = time.perf_counter()
     correlation_id = req.context.get("correlation_id") or str(uuid.uuid4())
 
-    # Step 1: COMPASS drift (if intent is seeded for this session).
-    drift, compass_sim = _compass_drift(req.session_id, req.text)
+    # Step 0: embed the action ONCE. Shared across COMPASS, ministers, and the
+    # trajectory deque — replaces up to 9 redundant embeds of the same text.
+    action_vec = _embed_query(req.text)
+
+    # Step 0b: trajectory risk from PRIOR calls in this session (current call
+    # not yet appended). Pure cosine math over cached vectors — no embed.
+    hist = _state["history"][req.session_id]
+    traj_res = traj.trajectory_risk(hist, intent_vec=_state["intents"].get(req.session_id), current_vec=action_vec)
+
+    # Step 0c: modulate this call's block threshold by COMPASS + trajectory.
+    # A suspicious build-up lowers the bar to BLOCK on this call.
+    call_thresholds = dict(CFG["thresholds"])
+    call_thresholds["block"] = traj.modulate_threshold(
+        base=CFG["thresholds"]["block"],
+        compass_sim=None,  # filled after COMPASS below
+        traj_risk=traj_res.risk,
+    )
+
+    # Step 1: COMPASS drift (reuses action_vec, no re-embed).
+    drift, compass_sim = _compass_drift(req.session_id, req.text, action_vec)
+
+    # Recompute the modulated threshold now that compass_sim is known.
+    call_thresholds["block"] = traj.modulate_threshold(
+        base=CFG["thresholds"]["block"],
+        compass_sim=compass_sim if _state["intents"].get(req.session_id) is not None else None,
+        traj_risk=traj_res.risk,
+    )
 
     # Step 2: Router selects ministers.
     activated = _route(req.text)
 
-    # Step 3: Run activated ministers in parallel.
+    # Step 3: Run activated ministers in parallel (sharing action_vec + the
+    # trajectory-modulated thresholds for this call).
     loop = asyncio.get_event_loop()
     minister_tasks = [
         loop.run_in_executor(
@@ -461,18 +531,32 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
             *([_state["tech_collections"][minister]]
               if _state["tech_collections"].get(minister) else []),
             _embed_query,
-            CFG["thresholds"],
+            _get_minister_thresholds(minister, call_thresholds),
+            10,
+            action_vec,
         )
         for minister in activated
     ]
     minister_results: list[MinisterScan] = await asyncio.gather(*minister_tasks)
 
-    # Step 4: Speaker combines verdicts.
+    # Step 4: Speaker combines verdicts (under the modulated thresholds).
     speaker_v: SpeakerVerdict = combine_verdicts(
         minister_results,
         compass_drift=drift,
         compass_sim=compass_sim,
-        thresholds=CFG["thresholds"],
+        thresholds=call_thresholds,
+        traj_risk=traj_res.risk,
+    )
+
+    # Step 4b: record THIS action into the session trajectory (reuses the
+    # vector; appended after scoring so risk reflects only prior calls).
+    traj.record_action(
+        hist,
+        action_vec=action_vec,
+        verdict=speaker_v.verdict,
+        confidence=speaker_v.confidence,
+        decided_by=speaker_v.decided_by,
+        is_denial=(speaker_v.verdict == "BLOCK"),
     )
 
     latency_ms = (time.perf_counter() - t0) * 1000.0
@@ -513,6 +597,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         },
         compass_sim=compass_sim,
         latency_ms=latency_ms,
+        traj_risk=round(traj_res.risk, 4),
     )
 
     return ParliamentResponse(
@@ -525,6 +610,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         ministers=minister_dict,
         pattern=pattern,
         compass_sim=compass_sim if drift or _state["intents"].get(req.session_id) is not None else None,
+        traj_risk=round(traj_res.risk, 4),
         activated=activated,
         correlation_id=correlation_id,
         latency_ms=round(latency_ms, 2),
@@ -538,7 +624,7 @@ async def ledger(limit: int = 100) -> dict[str, Any]:
     rows = conn.execute(
         """SELECT ts, session_id, correlation_id, stage, input_text, verdict,
                   decided_by, confidence, reason, ministers_json, compass_sim,
-                  latency_ms
+                  traj_risk, latency_ms
            FROM votes ORDER BY id DESC LIMIT ?""",
         (limit,),
     ).fetchall()
@@ -557,7 +643,8 @@ async def ledger(limit: int = 100) -> dict[str, Any]:
             "reason":         r[8],
             "ministers":      json.loads(r[9]) if r[9] else {},
             "compass_sim":    r[10],
-            "latency_ms":     r[11],
+            "traj_risk":      r[11],
+            "latency_ms":     r[12],
         }
         for r in rows
     ]

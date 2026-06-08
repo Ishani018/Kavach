@@ -50,6 +50,7 @@ def run_minister(
     embed_fn: Callable[[str], np.ndarray],
     thresholds: dict,
     top_k: int = 10,
+    query_vec: np.ndarray | None = None,
 ) -> MinisterScan:
     """
     Query the minister's collection with the embedded text. Return the highest-
@@ -58,8 +59,13 @@ def run_minister(
     `collection` is a chromadb.Collection. `embed_fn` is the query-side
     embedder that applies the BGE prefix and L2-normalizes. `thresholds` has
     keys "block" and "grey".
+
+    `query_vec`: optional precomputed BGE query vector for `text`. When the
+    caller has already embedded the action (embed-once path in server.py),
+    pass it here to skip the redundant embed. Falls back to embed_fn(text)
+    when None, so existing callers are unaffected.
     """
-    query_vec = embed_fn(text)
+    query_vec = embed_fn(text) if query_vec is None else query_vec
     q_list = query_vec.tolist()
 
     res = collection.query(
@@ -120,15 +126,20 @@ def run_minister_dual(
     embed_fn,
     thresholds: dict,
     top_k: int = 10,
+    query_vec: np.ndarray | None = None,
 ) -> MinisterScan:
     """Query v1 semantic corpus AND technical precision corpus; return the
     higher-confidence result. Improves recall without raising FPR: v1 catches
     novel intent-level attacks; technical corpus catches exact tool patterns.
     The higher-confidence result is returned; matched_id is tagged ':tech' when
     the technical corpus wins so logs reveal which layer fired.
+
+    `query_vec`: optional precomputed vector for `text`, shared across both
+    corpus scans (embed-once path). When None, each scan embeds independently
+    (legacy behaviour).
     """
-    r1   = run_minister(minister, text, collection_v1,   embed_fn, thresholds, top_k)
-    rT   = run_minister(minister, text, collection_tech, embed_fn, thresholds, top_k)
+    r1   = run_minister(minister, text, collection_v1,   embed_fn, thresholds, top_k, query_vec)
+    rT   = run_minister(minister, text, collection_tech, embed_fn, thresholds, top_k, query_vec)
     if rT.confidence > r1.confidence:
         return MinisterScan(
             minister=rT.minister,
