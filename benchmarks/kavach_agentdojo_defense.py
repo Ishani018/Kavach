@@ -1,0 +1,255 @@
+"""
+benchmarks/kavach_agentdojo_defense.py
+=======================================
+
+AgentDojo custom defense adapter for the Kavach parliament.
+
+USAGE
+-----
+Make sure the Kavach parliament is running first:
+    ./kavach_boot.sh --skip-patch
+
+Then run AgentDojo with the Kavach defense:
+
+    # Workspace suite (start here — smallest, ~30 min with a 27B local model)
+    python -m agentdojo.scripts.benchmark \\
+        -s workspace \\
+        --model ollama_chat/gemma4:27b \\
+        --defense KavachDefense \\
+        --module-to-load benchmarks.kavach_agentdojo_defense \\
+        --attack important_instructions \\
+        --max-workers 2 \\
+        2>&1 | tee benchmarks/results_v2/agentdojo_workspace.log
+
+    # Baseline (no defense) — run this first so you have the comparison point
+    python -m agentdojo.scripts.benchmark \\
+        -s workspace \\
+        --model ollama_chat/gemma4:27b \\
+        --attack important_instructions \\
+        --max-workers 2 \\
+        2>&1 | tee benchmarks/results_v2/agentdojo_baseline.log
+
+    # Full suite (run overnight)
+    for suite in workspace-plus banking travel slack; do
+        python -m agentdojo.scripts.benchmark \\
+            -s $suite \\
+            --model ollama_chat/gemma4:27b \\
+            --defense KavachDefense \\
+            --module-to-load benchmarks.kavach_agentdojo_defense \\
+            --attack important_instructions \\
+            --max-workers 2 \\
+            2>&1 | tee -a benchmarks/results_v2/agentdojo_full.log
+    done
+
+ENVIRONMENT
+-----------
+KAVACH_URL      Parliament base URL (default: http://127.0.0.1:8088)
+KAVACH_SESSION  Session ID prefix for AgentDojo runs (default: agentdojo)
+KAVACH_TIMEOUT  Per-call timeout in seconds (default: 10)
+
+INSTALL
+-------
+    pip install agentdojo --break-system-packages
+    pip install inspect-ai --break-system-packages
+    pip install inspect_evals --break-system-packages
+
+VERIFY GEMMA TOOL-CALLING (required before AgentDojo will work)
+-------
+    python - << 'EOF'
+    import requests, json
+    resp = requests.post("http://localhost:11434/v1/chat/completions", json={
+        "model": "gemma4:27b",
+        "messages": [{"role": "user", "content": "Use the calculator tool to compute 2+2."}],
+        "tools": [{"type":"function","function":{"name":"calculator","description":"Calculate","parameters":{"type":"object","properties":{"expr":{"type":"string"}}}}}]
+    })
+    choice = resp.json()["choices"][0]
+    print("finish_reason:", choice["finish_reason"])
+    print("tool_calls OK:", bool(choice["message"].get("tool_calls")))
+    EOF
+
+If finish_reason is "stop" (not "tool_calls"), switch to:
+    --model ollama_chat/qwen2.5:32b
+and note which model you used in PARV_RESULTS.md.
+
+METRICS (what to report)
+-------
+From the AgentDojo summary at the end of each run:
+  - Benign utility        (baseline target: ~47.73%)
+  - Utility under attack  
+  - Attack success rate   (ASR) (baseline: 17.63%, our target: ≤5%)
+
+All four go into benchmarks/results_v2/PARV_RESULTS.md.
+"""
+
+from __future__ import annotations
+
+import os
+import time
+import logging
+from typing import Any
+
+import requests
+
+log = logging.getLogger(__name__)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Config from environment
+# ──────────────────────────────────────────────────────────────────────────────
+
+KAVACH_URL     = os.environ.get("KAVACH_URL", "http://127.0.0.1:8088")
+KAVACH_SESSION = os.environ.get("KAVACH_SESSION", "agentdojo")
+KAVACH_TIMEOUT = float(os.environ.get("KAVACH_TIMEOUT", "10"))
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Defense class
+# ──────────────────────────────────────────────────────────────────────────────
+
+try:
+    from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
+    from agentdojo.types import ChatMessage
+
+    class KavachDefense(BasePipelineElement):
+        """Wraps the Kavach parliament as an AgentDojo defense.
+
+        Intercepts each tool call before execution via the parliament endpoint.
+        If parliament returns BLOCK or traj_risk >= ceiling, the tool call is
+        suppressed and a safe refusal message is returned to the agent instead.
+
+        Fail-open: if the parliament is unreachable, the tool call is allowed
+        through (same as the plugin's reply fail-mode). This prevents Kavach
+        downtime from breaking AgentDojo benchmark runs entirely.
+        """
+
+        name = "KavachDefense"
+
+        def __init__(self) -> None:
+            self._call_count  = 0
+            self._block_count = 0
+            self._traj_blocks = 0
+
+        def query(
+            self,
+            query: str,
+            runtime: Any,
+            env: Any,
+            messages: list[ChatMessage],
+            tools: list,
+            **kwargs: Any,
+        ) -> tuple[str, list[ChatMessage]]:
+            """Called by AgentDojo before each tool-call step."""
+            self._call_count += 1
+            tool_text = self._format_tool_call(query, messages)
+            session_id = f"{KAVACH_SESSION}-{id(env)}"
+
+            try:
+                resp = requests.post(
+                    f"{KAVACH_URL}/hook/parliament",
+                    json={
+                        "text":       tool_text,
+                        "session_id": session_id,
+                        "context":    {"source": "agentdojo", "call_n": self._call_count},
+                    },
+                    timeout=KAVACH_TIMEOUT,
+                )
+                result    = resp.json()
+                verdict   = result.get("verdict", "ALLOW")
+                traj_risk = result.get("traj_risk") or 0.0
+                decided   = result.get("speaker", {}).get("decided_by", "UNKNOWN")
+                reason    = result.get("speaker", {}).get("reason", "")
+
+                if verdict == "BLOCK":
+                    self._block_count += 1
+                    if decided == "TRAJECTORY":
+                        self._traj_blocks += 1
+                    log.info(
+                        "[KavachDefense] BLOCK call=%d decided_by=%s traj_risk=%.3f reason=%s",
+                        self._call_count, decided, traj_risk, reason[:80],
+                    )
+                    refusal = (
+                        f"[KAVACH BLOCK — decided_by={decided}, traj_risk={traj_risk:.3f}] "
+                        f"This action was blocked by the Kavach security monitor. "
+                        f"Reason: {reason[:120]}"
+                    )
+                    return refusal, messages
+
+                log.debug(
+                    "[KavachDefense] %s call=%d traj_risk=%.3f",
+                    verdict, self._call_count, traj_risk,
+                )
+
+            except requests.exceptions.Timeout:
+                log.warning("[KavachDefense] parliament timeout — failing open")
+            except Exception as exc:
+                log.warning("[KavachDefense] parliament unreachable: %s — failing open", exc)
+
+            # ALLOW or fail-open: pass through
+            return query, messages
+
+        def _format_tool_call(self, query: str, messages: list[ChatMessage]) -> str:
+            """Format the pending tool call as a parliament-scorable string."""
+            # Walk the message list backwards to find the most recent tool call
+            for msg in reversed(messages):
+                if not isinstance(msg, dict):
+                    continue
+                if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                    tc   = msg["tool_calls"][0]
+                    name = tc.get("function", {}).get("name", "unknown")
+                    args = tc.get("function", {}).get("arguments", "{}")
+                    return f"tool:{name} args:{args}"
+            return query
+
+        def summary(self) -> dict[str, int]:
+            """Return block summary for logging at end of benchmark run."""
+            return {
+                "total_calls":   self._call_count,
+                "blocks":        self._block_count,
+                "traj_blocks":   self._traj_blocks,
+                "allows":        self._call_count - self._block_count,
+            }
+
+except ImportError:
+    # AgentDojo not installed — provide a helpful error rather than a silent failure
+    class KavachDefense:  # type: ignore[no-redef]
+        name = "KavachDefense"
+
+        def __init__(self) -> None:
+            raise ImportError(
+                "AgentDojo is not installed. Run:\n"
+                "  pip install agentdojo --break-system-packages\n"
+                "  pip install inspect-ai --break-system-packages"
+            )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Smoke test — python benchmarks/kavach_agentdojo_defense.py
+# Verifies the parliament is reachable and the defense class instantiates.
+# ──────────────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import sys
+
+    print(f"Kavach parliament URL: {KAVACH_URL}")
+
+    # Health check
+    try:
+        r = requests.get(f"{KAVACH_URL}/health", timeout=5)
+        print(f"Parliament health: {r.json()}")
+    except Exception as e:
+        print(f"Parliament unreachable: {e}")
+        print("Make sure ./kavach_boot.sh --skip-patch has been run first.")
+        sys.exit(1)
+
+    # Quick parliament call
+    t0 = time.perf_counter()
+    r = requests.post(
+        f"{KAVACH_URL}/hook/parliament",
+        json={"text": 'tool:read args:{"path":"/etc/passwd"}', "session_id": "smoke-test"},
+        timeout=10,
+    )
+    latency = (time.perf_counter() - t0) * 1000
+    result  = r.json()
+    print(f"Test call verdict:  {result.get('verdict')}")
+    print(f"Test call traj_risk:{result.get('traj_risk')}")
+    print(f"Test call latency:  {latency:.0f}ms")
+    print(f"\nKavachDefense ready. Register with AgentDojo via:")
+    print(f"  --defense KavachDefense --module-to-load benchmarks.kavach_agentdojo_defense")
