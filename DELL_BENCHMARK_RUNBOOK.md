@@ -1,6 +1,26 @@
 # Dell Benchmark Runbook — Parv
 ### Everything you need to run on the Dell. Top to bottom. No gaps.
 
+---
+
+## 🔴 ADDENDUM — June 10, 2026 (read BEFORE the rest; overrides where it conflicts)
+
+**1. Branch change.** Trajectory is now merged — **use `main`** for Steps 1–3, not `ishani/trajectory-monitor`. For the InjecAgent re-run (Step 4) use **`ishani/hybrid-retrieval`** — it is rebased onto main and carries the FPR fix (hybrid BM25+dense with a calibrated lexical gate). Both branches were force-pushed after a rebase; do a fresh `git fetch --all` and if your local copies diverge, `git checkout -B ishani/hybrid-retrieval origin/ishani/hybrid-retrieval` rather than pulling.
+
+**2. New dependency for the hybrid run:** `pip install rank-bm25`. Without it the server silently falls back to dense-only (check `GET /health` → `retrieval_mode: "hybrid"` before benchmarking; `"dense"` means the install didn't take).
+
+**3. New sweep knob.** `KAVACH_BM25_GATE_FLOOR` (default 0.65) controls the lexical-gate discount. After the main InjecAgent run at the default, if time allows, repeat at 0.50 and 0.80 — that's the ablation table for paper §4.
+
+**4. The dump format changed** (`kavach_eval/HANDOFF_SCHEMA.md`): `minister_votes[].vote` may now be `ESCALATE` (grey zone) — include it, don't fold it into ALLOW. Also add per line when available: `compass_sim`, `compass_drift`, `traj_risk`. These let Ishani replay the *real* Speaker offline, including the trajectory ceiling.
+
+**5. COMMIT THE RAW OUTPUTS.** This is now a hard requirement, not a nicety: the June 1 numbers (98.4% recall, 2.1% benign FPR) have **no raw artifacts in the repo** and cannot be cited until re-run with outputs committed to `benchmarks/results_v2/`. Every run in this book ends with `git add benchmarks/results_v2/... && git commit && git push`.
+
+**6. New verification step.** After any live session, hit `GET /ledger/verify` — it should return `{"intact": true, ...}`. The ledger is now hash-chained; this output (screenshot or JSON) goes in PARV_RESULTS.md as the tamper-evidence artifact.
+
+**7. The adaptive-attack eval was rewritten** (`kavach_eval/adaptive_attack.py` v3). You don't run it — your only job is the `minister_runs.jsonl` dump per the updated schema; Ishani runs all Speaker variants offline. The old v2 numbers (veto 11.6% / Bayesian 1.1%) are invalid — don't quote them anywhere.
+
+---
+
 **Hardware:** Dell Precision 3660 · i9-13900 · 128GB RAM · RTX 4090
 **Model:** Gemma 4 27B via Ollama
 **OpenClaw:** 2026.4.15 (041266a)

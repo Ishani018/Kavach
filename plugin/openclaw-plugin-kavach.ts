@@ -43,7 +43,7 @@ import type {
 
 interface KavachConfig {
   parliamentUrl: string;       // http://127.0.0.1:8088
-  toolCallTimeoutMs: number;   // 250ms — fail-closed on timeout
+  toolCallTimeoutMs: number;   // default 3000ms (was 250ms pre-fix) — fail-closed on timeout
   replyTimeoutMs: number;      // 500ms — fail-open on timeout
   toolCallFailMode: "deny" | "allow";
   replyFailMode: "deny" | "allow";

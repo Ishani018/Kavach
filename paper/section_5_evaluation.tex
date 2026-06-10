@@ -144,9 +144,12 @@ Concurrency & p50 (ms) & p95 (ms) \\
 \end{tabular}
 \end{center}
 
-The p95 latency target is $<$200\,ms for synchronous interception to remain
-imperceptible to the agent operator. Config\,B [meets / does not meet — fill
-after run] this target at concurrency~4.
+Measured single-request latency on the deployment hardware is
+826\,ms p50 / 1649\,ms p95 (embed-once path, GPU-resident BGE). While not
+imperceptible, this is an order of magnitude below lifecycle-instrumenting
+scanners (PRISM $\approx$15.8\,s p95; AgentArmor $\approx$20.9\,s), and the
+plugin timeout (3000\,ms) fails \emph{closed}: a verdict that does not arrive
+in time blocks the call rather than allowing it.
 
 \subsection{Ablation: Minister Contribution}
 

@@ -49,7 +49,7 @@ AgentDojo: NOT RUN YET ← reviewers will ask about this first
 | MELON (GPT-4o) | **0.24%** | low | 2× passes | AgentDojo |
 | OpenClaw PRISM | ~4.5% (recall 0.955) | 13.9% | **~15.8s p95** | Own 80-case corpus |
 | Baseline (no defense) | 17.63% | — | — | AgentDojo |
-| **Kavach target** | **≤5%** | **≤5%** | **<1s p95** | **AgentDojo + InjecAgent** |
+| **Kavach target** | **≤5%** | **≤5%** | **measured: 1.65s p95 (target <1s)** | **AgentDojo + InjecAgent** |
 
 Kavach's wedge: **embedding-based semantic detection at a single pre-execution hook, 
 sub-second latency, OpenClaw-native, multi-step session enforcement** — vs 
@@ -431,7 +431,7 @@ If AgentDojo numbers aren't ready by July 10 (internal deadline to allow paper r
 The paper can claim:
 
 1. **Single-hook semantic interception:** 98.4% recall on InjecAgent (existing), ≤5% ASR on AgentDojo (needs Phase 2)
-2. **Sub-second latency:** p95 < 1s with embed-once refactor vs PRISM's ~15.8s (existing + benchmark confirms)
+2. **Low latency:** measured p50=826ms / p95=1649ms vs PRISM's ~15.8s p95 — an order of magnitude faster; sub-second p95 remains a TARGET (not yet measured post embed-once), claim only measured numbers in the paper
 3. **Session-level enforcement:** trajectory ceiling fires for multi-step attacks — denial echo catches causality laundering (ARM threat model), cross-minister escalation catches VAULT→CHANNEL chains (AgentDoG taxonomy)
 4. **Low FPR:** ≤5% after per-minister thresholds (needs Phase 1.3 + Phase 2.3)
 5. **OpenClaw-native:** the only semantic embedding-based monitor targeting OpenClaw's embedded-mode hook — distinct from PRISM (heuristic+LLM scanner), AgentWatcher (rule-based), and LlamaFirewall (not OpenClaw-specific)
