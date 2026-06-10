@@ -1,0 +1,51 @@
+% paper/section_7_limitations.tex
+% Limitations. Drawn from PAPER_NOTES_JUNE3 + the June 10 audit caveats.
+% Input under a \section{Limitations} declared in the skeleton.
+
+\paragraph{No head-to-head with ClawGuard on AgentDojo.} ClawGuard
+\cite{clawguard2026} achieves 0\% attack-success rate on AgentDojo under
+explicit user-authored rules, which Kavach does not currently match. Kavach's
+contribution is complementary --- semantic, embedding-based detection that
+requires no per-deployment rule authoring and extends across session
+trajectories --- but a fair evaluation should report both systems on the same
+benchmark. A direct comparison is left to future work pending completion of our
+AgentDojo run.
+
+\paragraph{Tamper-evident, not tamper-proof.} The hash-chained Ledger detects
+post-hoc edits to any recorded decision or its provenance, but an attacker with
+write access to the database can recompute the entire chain. Defeating that
+requires anchoring the chain head to an external append-only medium, which we do
+not implement.
+
+\paragraph{Provenance precision is partial.} Verdict provenance is precise only
+for corpus patterns that declare a source technique; the remainder resolve to a
+per-minister default. Coverage on the current corpus is therefore partial, and
+the audit trail records which basis was used. Raising precision requires tagging
+the full corpus, an incremental effort.
+
+\paragraph{Curated corpus.} The attack-pattern corpus is authored from published
+taxonomies; novel techniques absent from those taxonomies will not be matched.
+This is intrinsic to corpus-based semantic detection and motivates the live
+knowledge-base ingestion we sketch as future work.
+
+\paragraph{Single-vector similarity and the trajectory leg.} Per-call detection
+uses single-vector cosine similarity, which has known limits relative to
+sequence-aware detection; Trajectory Guard \cite{advani2026trajectoryguard}
+reports that mean-pooling centroid approaches cap at F1 $\leq 0.69$ on
+trajectory detection. Kavach's trajectory monitor uses lightweight context
+signals rather than a trained sequence model, and the session-risk ceiling
+requires intent seeding to reach full sensitivity. A learned, stage-aware
+trajectory model over the provenance stage axis (\S\ref{sec:provenance}) is the
+natural next step.
+
+\paragraph{Single backbone and runtime.} We evaluate with one agent backbone
+(Gemma\,4~27B) on OpenClaw in embedded mode, without MXC. Cross-model generality
+and a defense-in-depth evaluation inside an MXC sandbox --- the production
+configuration implied by the Build~2026 Microsoft/OpenClaw partnership --- are
+future work.
+
+\paragraph{Benchmark saturation.} InjecAgent and AgentDojo are increasingly
+saturated on frontier models, which compresses the headroom in which a monitor's
+benefit is visible. Multi-step staged attacks, which our trajectory monitor
+targets, are under-represented in current benchmarks and motivate a purpose-built
+scenario set --- itself designed to avoid contaminating the corpus.
