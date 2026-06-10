@@ -29,6 +29,7 @@ The speaker combines minister results into a final verdict (see speaker.py).
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from typing import Callable
@@ -106,6 +107,10 @@ def build_bm25_index(collection) -> dict | None:
 # ──────────────────────────────────────────────────────────────────────────────
 
 _RRF_K = 60  # Standard RRF constant (Robertson et al.)
+
+# Lexical-gate floor: multiplier applied to dense similarity when the query
+# shares no informative tokens with the matched attack pattern. Sweepable.
+_GATE_FLOOR = float(os.environ.get("KAVACH_BM25_GATE_FLOOR", "0.65"))
 
 
 def _rrf_fuse(
@@ -237,20 +242,30 @@ def run_minister_hybrid(
     - Actual attacks DO share both semantic intent AND lexical keywords
       (e.g. "curl | bash" matches both dense and BM25) → high RRF score.
 
-    RRF scores are in (0, 2/61] ≈ (0, 0.033]. They are NOT cosine similarities.
-    The thresholds in config.yaml are calibrated for cosine (0.55–0.725).
-    We apply a linear rescaling to map RRF scores onto the [0, 1] cosine range
-    so the same threshold config works without changes:
+    SCORING (v2 — calibration fix, June 2026 review):
+    The original branch rescaled the raw RRF score by its theoretical max.
+    That is a calibration bug: RRF is RANK-based, so for ANY query — benign
+    or attack — some document is rank ~1 in both lists and rescales to ≈1.0,
+    which would BLOCK nearly everything (FPR → 100%, worse than dense-only).
 
-        rescaled = rrf_score / rrf_max_possible × cosine_ceiling
+    v2 keeps RRF for SELECTION only (choosing the best candidate across both
+    retrievers) and computes confidence in calibrated cosine units:
 
-    where rrf_max_possible = 2/(_RRF_K+1) ≈ 0.0328 (perfect rank-1 in both)
-    and cosine_ceiling = 1.0 (max cosine similarity).
+        confidence = dense_sim(selected) × lexical_gate
 
-    This means a document ranked #1 by both retrievers gets rescaled ≈ 1.0,
-    and a document ranked #10 by both gets rescaled ≈ 0.087/(0.0328) × ... —
-    practically, documents that score well in only one retriever land around
-    0.3–0.5; documents scoring poorly in both land below 0.2.
+        lexical_gate = GATE_FLOOR                       if no lexical evidence
+                     = GATE_FLOOR + (1 − GATE_FLOOR) ×  otherwise
+                       (bm25(selected) / max_q bm25)
+
+    where max_q is the query's best BM25 score over the corpus. A benign
+    call like "read src/main.py" that sits semantically near "agent reading
+    credential files" (dense 0.72) but shares no attack keywords gets gated
+    to 0.72 × GATE_FLOOR ≈ 0.47 — below grey. A real attack ("curl | bash",
+    ".ssh/id_rsa") keeps lexical support, gate → 1, confidence ≈ dense sim.
+    Thresholds in config.yaml stay in cosine units, unchanged.
+
+    GATE_FLOOR (default 0.65, env KAVACH_BM25_GATE_FLOOR) is the explicit
+    FPR-vs-recall knob and should be swept in the paper's ablation.
 
     Falls back to dense-only if bm25_index is None.
     """
@@ -328,12 +343,26 @@ def run_minister_hybrid(
             retrieval_mode="hybrid",
         )
 
-    # ── Step 4: Rescale RRF score → [0, 1] cosine-comparable range ───────────
-    # Max possible RRF score (rank #1 in both lists): 2 / (k+1)
-    rrf_max = 2.0 / (_RRF_K + 1)
+    # ── Step 4: Confidence = dense cosine × BM25 lexical gate ────────────────
+    # RRF selected the best candidate; confidence stays in cosine units so the
+    # config.yaml thresholds remain calibrated. See docstring (v2 fix).
+    best_chroma_idx, _best_rrf_raw = fused[0]
 
-    best_chroma_idx, best_rrf_raw = fused[0]
-    best_rescaled = min(1.0, best_rrf_raw / rrf_max)
+    dense_sim_sel = similarities[best_chroma_idx]
+
+    sel_pos   = id_to_bm25_pos.get(chroma_ids[best_chroma_idx])
+    bm25_sel  = float(bm25_scores[sel_pos]) if sel_pos is not None else 0.0
+    bm25_qmax = float(np.max(bm25_scores)) if len(bm25_scores) else 0.0
+
+    if bm25_qmax <= 1e-9:
+        # Query shares no informative tokens with ANY attack pattern —
+        # zero lexical evidence; apply the full discount.
+        lexical_gate = _GATE_FLOOR
+    else:
+        lexical_gate = _GATE_FLOOR + (1.0 - _GATE_FLOOR) * min(
+            1.0, max(0.0, bm25_sel) / bm25_qmax)
+
+    best_rescaled = min(1.0, dense_sim_sel * lexical_gate)
 
     best_meta = metadatas[best_chroma_idx] or {}
     best_doc  = documents[best_chroma_idx]
