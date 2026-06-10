@@ -28,7 +28,7 @@ drift\_delta\}} within the configured latency budget.
 An append-only SQLite journal (\texttt{kavach\_parliament.db}) records every
 evaluation request and its verdict. Each row captures:
 \texttt{session\_id}, \texttt{turn}, \texttt{tool\_name}, \texttt{action\_embedding}
-(1024-d float blob), \texttt{verdict}, and \texttt{timestamp\_utc}.
+(768-d float blob), \texttt{verdict}, and \texttt{timestamp\_utc}.
 The Ledger is the single source of truth for session state; no in-memory
 session object exists, making the server horizontally stateless between
 requests. Session risk score is recomputed from the Ledger at each call via
@@ -36,7 +36,7 @@ a lightweight SQL aggregate, adding $<$2\,ms overhead.
 
 \paragraph{Semantic Router.}
 On each evaluation request the proposed action text is embedded with
-\texttt{BAAI/bge-large-en-v1.5} (1024-d, cosine similarity). The resulting
+\texttt{BAAI/bge-base-en-v1.5} (768-d, cosine similarity). The resulting
 vector is compared against five pre-computed domain centroids stored in
 \texttt{kavach\_router\_config.json}. Ministers whose centroid cosine similarity
 exceeds $\theta_{\text{route}} = 0.40$ are activated; COMPASS always runs
