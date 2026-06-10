@@ -58,12 +58,14 @@ try:
     from .ministers import MinisterScan, run_minister, run_minister_dual
     from .speaker import SpeakerVerdict, combine_verdicts
     from . import trajectory as traj
+    from . import provenance as prov
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from parliament.ministers import MinisterScan, run_minister, run_minister_dual
     from parliament.speaker import SpeakerVerdict, combine_verdicts
     from parliament import trajectory as traj
+    from parliament import provenance as prov
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration loading
@@ -249,6 +251,7 @@ def _init_db() -> None:
             compass_sim     REAL,
             traj_risk       REAL,
             latency_ms      REAL,
+            provenance_json TEXT,
             prev_hash       TEXT,
             entry_hash      TEXT
         )
@@ -261,6 +264,8 @@ def _init_db() -> None:
         conn.execute("ALTER TABLE votes ADD COLUMN prev_hash TEXT")
     if "entry_hash" not in cols:
         conn.execute("ALTER TABLE votes ADD COLUMN entry_hash TEXT")
+    if "provenance_json" not in cols:
+        conn.execute("ALTER TABLE votes ADD COLUMN provenance_json TEXT")
     conn.commit()
     conn.close()
 
@@ -286,7 +291,7 @@ def _entry_hash(prev_hash: str, row: dict) -> str:
         {k: row[k] for k in (
             "ts", "session_id", "correlation_id", "stage", "input_text",
             "verdict", "decided_by", "confidence", "reason", "ministers_json",
-            "compass_sim", "traj_risk", "latency_ms")},
+            "compass_sim", "traj_risk", "latency_ms", "provenance_json")},
         sort_keys=True, separators=(",", ":"), default=str,
     )
     return hashlib.sha256((prev_hash + canonical).encode("utf-8")).hexdigest()
@@ -311,6 +316,7 @@ def _log_vote(
     compass_sim: float | None,
     latency_ms: float,
     traj_risk: float | None = None,
+    provenance: dict | None = None,
 ) -> None:
     conn = sqlite3.connect(DB_PATH)
     row = {
@@ -327,6 +333,7 @@ def _log_vote(
         "compass_sim":    compass_sim,
         "traj_risk":      traj_risk,
         "latency_ms":     latency_ms,
+        "provenance_json": json.dumps(provenance, sort_keys=True) if provenance else None,
     }
     prev_hash  = _last_hash(conn)
     entry_hash = _entry_hash(prev_hash, row)
@@ -334,12 +341,12 @@ def _log_vote(
         """INSERT INTO votes
            (ts, session_id, correlation_id, stage, input_text, verdict,
             decided_by, confidence, reason, ministers_json, compass_sim,
-            traj_risk, latency_ms, prev_hash, entry_hash)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            traj_risk, latency_ms, provenance_json, prev_hash, entry_hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (*[row[k] for k in (
             "ts", "session_id", "correlation_id", "stage", "input_text",
             "verdict", "decided_by", "confidence", "reason", "ministers_json",
-            "compass_sim", "traj_risk", "latency_ms")], prev_hash, entry_hash),
+            "compass_sim", "traj_risk", "latency_ms", "provenance_json")], prev_hash, entry_hash),
     )
     conn.commit()
     conn.close()
@@ -471,6 +478,7 @@ class ParliamentResponse(BaseModel):
     speaker:        dict[str, Any]
     ministers:      dict[str, MinisterResult]
     pattern:        str
+    provenance:     dict[str, Any] | None = None
     compass_sim:    float | None
     traj_risk:      float | None = None
     activated:      list[str]
@@ -624,6 +632,22 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
               else "none")
     )
 
+    # Provenance: ground the deciding verdict in the cyber taxonomy
+    # (matched pattern → technique → tactic → kill-chain stage). The "winner"
+    # is the highest-confidence BLOCK minister, else the highest-confidence
+    # minister overall. Trajectory-ceiling blocks have no single minister
+    # source, so they record a session-trajectory provenance basis.
+    if minister_results:
+        blockers = [r for r in minister_results if r.verdict == "BLOCK"]
+        winner = max(blockers or minister_results, key=lambda r: r.confidence)
+        provenance = prov.resolve(winner.source, winner.minister)
+    else:
+        provenance = prov.resolve(None, "")
+    if speaker_v.decided_by == "TRAJECTORY":
+        # Session-level block: stage progression, not a single technique.
+        provenance.provenance_basis = "session-trajectory"
+    provenance_dict = provenance.to_dict()
+
     _log_vote(
         session_id=req.session_id,
         correlation_id=correlation_id,
@@ -644,6 +668,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         compass_sim=compass_sim,
         latency_ms=latency_ms,
         traj_risk=round(traj_res.risk, 4),
+        provenance=provenance_dict,
     )
 
     return ParliamentResponse(
@@ -655,6 +680,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         },
         ministers=minister_dict,
         pattern=pattern,
+        provenance=provenance_dict,
         compass_sim=compass_sim if drift or _state["intents"].get(req.session_id) is not None else None,
         traj_risk=round(traj_res.risk, 4),
         activated=activated,
@@ -675,7 +701,8 @@ async def verify_ledger() -> dict[str, Any]:
     rows = conn.execute(
         """SELECT id, ts, session_id, correlation_id, stage, input_text,
                   verdict, decided_by, confidence, reason, ministers_json,
-                  compass_sim, traj_risk, latency_ms, prev_hash, entry_hash
+                  compass_sim, traj_risk, latency_ms, provenance_json,
+                  prev_hash, entry_hash
            FROM votes ORDER BY id ASC""").fetchall()
     conn.close()
 
@@ -684,7 +711,7 @@ async def verify_ledger() -> dict[str, Any]:
     for r in rows:
         # Legacy rows written before the chain existed have NULL hashes; skip
         # them but reset the expected_prev so the chain resumes cleanly.
-        if r[15] is None:
+        if r[16] is None:
             expected_prev = GENESIS_HASH
             continue
         row = {
@@ -692,9 +719,9 @@ async def verify_ledger() -> dict[str, Any]:
             "stage": r[4], "input_text": r[5], "verdict": r[6],
             "decided_by": r[7], "confidence": r[8], "reason": r[9],
             "ministers_json": r[10], "compass_sim": r[11],
-            "traj_risk": r[12], "latency_ms": r[13],
+            "traj_risk": r[12], "latency_ms": r[13], "provenance_json": r[14],
         }
-        stored_prev, stored_entry = r[14], r[15]
+        stored_prev, stored_entry = r[15], r[16]
         recomputed = _entry_hash(stored_prev, row)
         if stored_prev != expected_prev or recomputed != stored_entry:
             return {
