@@ -56,7 +56,7 @@ def eval_coverage(corpus_dir: str) -> None:
             total += 1
             src = pat.get("source")
             p = prov.resolve(src, minister or "")
-            if p.provenance_basis == "pattern-tagged":
+            if p.provenance_basis.startswith("pattern-tagged"):
                 tagged += 1
             if p.technique_id not in ("UNMAPPED",) and p.tactic != "unknown":
                 resolved += 1

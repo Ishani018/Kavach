@@ -158,6 +158,27 @@ _MINISTER_DEFAULT: dict[str, str] = {
 
 # Matches "T1555.003", "AML.T0051", "AML.T0080.001" anywhere in a source string.
 _ID_RE = re.compile(r"\b(AML\.T\d{4}(?:\.\d{3})?|T\d{4}(?:\.\d{3})?)\b")
+# Secondary identifiers used in the corpus when no ATT&CK/ATLAS ID is present.
+_CWE_RE = re.compile(r"\bCWE-(\d+)\b")
+_OWASP_RE = re.compile(r"\bA0(\d)\b")  # OWASP Agentic 2026 A0x
+
+# CWE → (name, tactic, stage). Only the CWEs the corpus actually cites.
+_CWE: dict[str, tuple[str, str, str]] = {
+    "CWE-94":   ("Code Injection", "Execution", "execution"),
+    "CWE-88":   ("Argument Injection", "Execution", "execution"),
+    "CWE-611":  ("XML External Entity (XXE)", "Initial Access", "initial-access"),
+    "CWE-1336": ("Server-Side Template Injection", "Execution", "execution"),
+    "CWE-1333": ("Inefficient Regular Expression (ReDoS)", "Impact", "impact"),
+    "CWE-532":  ("Information Exposure Through Logs", "Collection", "collection"),
+}
+# OWASP Agentic 2026 top-level category → (name, tactic, stage).
+_OWASP: dict[str, tuple[str, str, str]] = {
+    "A01": ("Agent Authorization/Control Hijacking", "Privilege Escalation", "privilege-escalation"),
+    "A02": ("Agent Critical-System Interaction", "Execution", "execution"),
+    "A04": ("Agent Resource/Service Exhaustion", "Impact", "impact"),
+    "A05": ("Agent Cascading/Orchestration Failure", "Impact", "impact"),
+    "A09": ("Agent Untraceability/Repudiation", "Defense Evasion", "defense-evasion"),
+}
 
 
 def _resolve_id(tech_id: str, basis: str) -> Provenance:
@@ -203,6 +224,27 @@ def resolve(source: str | None, minister: str) -> Provenance:
         m = _ID_RE.search(source)
         if m:
             return _resolve_id(m.group(1), basis="pattern-tagged")
+        # No ATT&CK/ATLAS technique — try CWE, then OWASP-Agentic, before
+        # falling back to the minister default. These give real (if coarser)
+        # tactic/stage grounding rather than a generic default.
+        cm = _CWE_RE.search(source)
+        if cm and f"CWE-{cm.group(1)}" in _CWE:
+            name, tactic, stage = _CWE[f"CWE-{cm.group(1)}"]
+            return Provenance(
+                technique_id=f"CWE-{cm.group(1)}", technique_name=name,
+                tactic=tactic, stage=stage,
+                stage_index=STAGE_ORDER.index(stage) if stage in STAGE_ORDER else -1,
+                framework="CWE", framework_version="CWE List 4.x",
+                provenance_basis="pattern-tagged-cwe")
+        om = _OWASP_RE.search(source)
+        if om and f"A0{om.group(1)}" in _OWASP:
+            name, tactic, stage = _OWASP[f"A0{om.group(1)}"]
+            return Provenance(
+                technique_id=f"OWASP-A0{om.group(1)}", technique_name=name,
+                tactic=tactic, stage=stage,
+                stage_index=STAGE_ORDER.index(stage) if stage in STAGE_ORDER else -1,
+                framework="OWASP-Agentic", framework_version="OWASP Agentic 2026",
+                provenance_basis="pattern-tagged-owasp")
     default_id = _MINISTER_DEFAULT.get(minister)
     if default_id:
         return _resolve_id(default_id, basis="minister-default")
