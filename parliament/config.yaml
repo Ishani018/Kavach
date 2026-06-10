@@ -30,39 +30,12 @@ thresholds:
   compass_drift: 0.40   # < this → COMPASS drift detected
   router_min:    0.40   # >= this → minister activated for this query
 
-  # Per-minister optimal thresholds from Youden's J sweep (InjecAgent)
-  # These override the global block threshold for each minister.
-  per_minister:
-    EXECUTOR:  0.55
-    VAULT:     0.73    # raised from 0.55 — VAULT was 70.6% FPR
-    CHANNEL:   0.60
-    NAVIGATOR: 0.60
-
-  # Dynamic COMPASS-modulated thresholds (Issue #3)
-  # Formula: effective = base + drift_factor * (compass_sim - 0.5)
-  # Only active when user intent has been seeded via POST /hook/seed_intent
-  #
-  # drift_factor (alpha): how aggressively to modulate
-  #   0.0 = no modulation (static thresholds)
-  #   0.3 = default (recommended)
-  #   0.5 = aggressive modulation
-  drift_factor:  0.3
-
-  # clip_upper: max upward adjustment (0.0 = alignment NEVER loosens threshold)
-  # This is the anti-gaming constraint: an attacker who keeps actions
-  # superficially aligned with user intent cannot raise the threshold.
-  clip_upper:    0.0
-
-  # clip_lower: max downward adjustment (prevents threshold collapse)
-  clip_lower:   -0.15
-
   # Per-minister block thresholds from threshold_sweep.py Youden's J output.
-  # These override the base block value for each minister individually.
-  # Trajectory modulation (from traj_risk) is applied ON TOP of these values.
+  # These override the global block value for each minister individually.
   #
-  # Sweep results (InjecAgent, threshold=Youden J optimal):
+  # Sweep results (InjecAgent, threshold = Youden J optimal):
   #   EXECUTOR: TPR 0.903, FPR 0.471 @ 0.55 — keep low, strongest minister
-  #   VAULT:    TPR 0.839, FPR 0.706 @ 0.55 — corpus too broad, raise to cut FPR
+  #   VAULT:    TPR 0.839, FPR 0.706 @ 0.55 — corpus too broad, raised to cut FPR
   #   CHANNEL:  TPR 0.516, FPR 0.235 @ 0.60
   #   NAVIGATOR:TPR 0.371, FPR 0.294 @ 0.60
   per_minister:
@@ -70,6 +43,30 @@ thresholds:
     VAULT:     0.75    # raised from 0.55 — FPR was 70.6%, corpus needs quality pass (#7)
     CHANNEL:   0.60
     NAVIGATOR: 0.60
+
+  # ── Threshold modulation ownership (IMPORTANT — avoid double-modulation) ──
+  # Two modulators exist. They must NOT both adjust the same base:
+  #   1. server.py  → traj.modulate_threshold(): applies TRAJECTORY risk to the
+  #      per-call block value BEFORE calling the Speaker.
+  #   2. speaker.py → COMPASS drift_factor modulation (below): applies INTENT
+  #      drift inside combine_verdicts.
+  # To keep these orthogonal, server.py passes the per-minister base (not a
+  # re-modulated value) for COMPASS modulation. Set drift_factor: 0.0 to
+  # disable COMPASS modulation entirely and rely on trajectory only.
+  #
+  # Dynamic COMPASS-modulated thresholds (Issue #3)
+  # Formula: effective = base + drift_factor * (compass_sim - 0.5)
+  # Only active when user intent has been seeded (compass_sim < 1.0) AND #9 fixed.
+  #   drift_factor: 0.0 = static, 0.3 = default, 0.5 = aggressive
+  drift_factor:  0.3
+
+  # clip_upper: max upward adjustment (0.0 = alignment NEVER loosens threshold).
+  # Anti-gaming: an attacker keeping actions superficially aligned with intent
+  # cannot raise the threshold.
+  clip_upper:    0.0
+
+  # clip_lower: max downward adjustment (prevents threshold collapse on drift)
+  clip_lower:   -0.15
 
 # ───────────────────────────────────────────────────────────────────
 # Server bind
