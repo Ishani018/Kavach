@@ -31,6 +31,7 @@ Or directly:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import sqlite3
@@ -247,15 +248,54 @@ def _init_db() -> None:
             ministers_json  TEXT,
             compass_sim     REAL,
             traj_risk       REAL,
-            latency_ms      REAL
+            latency_ms      REAL,
+            prev_hash       TEXT,
+            entry_hash      TEXT
         )
     """)
-    # Migrate pre-trajectory DBs: add traj_risk if the table predates it.
+    # Migrate older DBs: add columns the table may predate.
     cols = {row[1] for row in conn.execute("PRAGMA table_info(votes)")}
     if "traj_risk" not in cols:
         conn.execute("ALTER TABLE votes ADD COLUMN traj_risk REAL")
+    if "prev_hash" not in cols:
+        conn.execute("ALTER TABLE votes ADD COLUMN prev_hash TEXT")
+    if "entry_hash" not in cols:
+        conn.execute("ALTER TABLE votes ADD COLUMN entry_hash TEXT")
     conn.commit()
     conn.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tamper-evident hash chain
+# ──────────────────────────────────────────────────────────────────────────────
+# Each ledger row stores entry_hash = SHA-256(prev_hash || canonical_row). Any
+# edit, deletion, or reordering of a historical row breaks every subsequent
+# entry_hash, so /ledger/verify detects tampering in O(n). This makes the
+# production SQLite ledger tamper-EVIDENT (not tamper-proof — an attacker with
+# write access can recompute the whole chain; defeating that needs an external
+# anchor, noted as future work). Matches the browser-lab hash chain so the two
+# are now consistent.
+
+GENESIS_HASH = "0" * 64
+
+
+def _entry_hash(prev_hash: str, row: dict) -> str:
+    """SHA-256 over the previous hash plus a canonical serialization of the
+    content-bearing fields (id/autoincrement excluded — it is not content)."""
+    canonical = json.dumps(
+        {k: row[k] for k in (
+            "ts", "session_id", "correlation_id", "stage", "input_text",
+            "verdict", "decided_by", "confidence", "reason", "ministers_json",
+            "compass_sim", "traj_risk", "latency_ms")},
+        sort_keys=True, separators=(",", ":"), default=str,
+    )
+    return hashlib.sha256((prev_hash + canonical).encode("utf-8")).hexdigest()
+
+
+def _last_hash(conn) -> str:
+    row = conn.execute(
+        "SELECT entry_hash FROM votes ORDER BY id DESC LIMIT 1").fetchone()
+    return row[0] if row and row[0] else GENESIS_HASH
 
 
 def _log_vote(
@@ -273,27 +313,33 @@ def _log_vote(
     traj_risk: float | None = None,
 ) -> None:
     conn = sqlite3.connect(DB_PATH)
+    row = {
+        "ts":             datetime.now(timezone.utc).isoformat(),
+        "session_id":     session_id,
+        "correlation_id": correlation_id,
+        "stage":          stage,
+        "input_text":     input_text[:500],
+        "verdict":        verdict,
+        "decided_by":     decided_by,
+        "confidence":     confidence,
+        "reason":         reason[:500],
+        "ministers_json": json.dumps(ministers),
+        "compass_sim":    compass_sim,
+        "traj_risk":      traj_risk,
+        "latency_ms":     latency_ms,
+    }
+    prev_hash  = _last_hash(conn)
+    entry_hash = _entry_hash(prev_hash, row)
     conn.execute(
         """INSERT INTO votes
            (ts, session_id, correlation_id, stage, input_text, verdict,
             decided_by, confidence, reason, ministers_json, compass_sim,
-            traj_risk, latency_ms)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            datetime.now(timezone.utc).isoformat(),
-            session_id,
-            correlation_id,
-            stage,
-            input_text[:500],
-            verdict,
-            decided_by,
-            confidence,
-            reason[:500],
-            json.dumps(ministers),
-            compass_sim,
-            traj_risk,
-            latency_ms,
-        ),
+            traj_risk, latency_ms, prev_hash, entry_hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (*[row[k] for k in (
+            "ts", "session_id", "correlation_id", "stage", "input_text",
+            "verdict", "decided_by", "confidence", "reason", "ministers_json",
+            "compass_sim", "traj_risk", "latency_ms")], prev_hash, entry_hash),
     )
     conn.commit()
     conn.close()
@@ -616,6 +662,54 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         latency_ms=round(latency_ms, 2),
         ts=ts,
     )
+
+
+@app.get("/ledger/verify")
+async def verify_ledger() -> dict[str, Any]:
+    """Re-walk the hash chain and report whether the ledger is intact.
+
+    Recomputes entry_hash for every row in id order from the stored prev_hash
+    and compares to the stored entry_hash. The first mismatch is the point of
+    tampering (an edited/deleted/reordered row). O(n), no model calls."""
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        """SELECT id, ts, session_id, correlation_id, stage, input_text,
+                  verdict, decided_by, confidence, reason, ministers_json,
+                  compass_sim, traj_risk, latency_ms, prev_hash, entry_hash
+           FROM votes ORDER BY id ASC""").fetchall()
+    conn.close()
+
+    expected_prev = GENESIS_HASH
+    checked = 0
+    for r in rows:
+        # Legacy rows written before the chain existed have NULL hashes; skip
+        # them but reset the expected_prev so the chain resumes cleanly.
+        if r[15] is None:
+            expected_prev = GENESIS_HASH
+            continue
+        row = {
+            "ts": r[1], "session_id": r[2], "correlation_id": r[3],
+            "stage": r[4], "input_text": r[5], "verdict": r[6],
+            "decided_by": r[7], "confidence": r[8], "reason": r[9],
+            "ministers_json": r[10], "compass_sim": r[11],
+            "traj_risk": r[12], "latency_ms": r[13],
+        }
+        stored_prev, stored_entry = r[14], r[15]
+        recomputed = _entry_hash(stored_prev, row)
+        if stored_prev != expected_prev or recomputed != stored_entry:
+            return {
+                "intact": False,
+                "entries_checked": checked,
+                "tampered_at_id": r[0],
+                "reason": ("prev_hash discontinuity"
+                           if stored_prev != expected_prev
+                           else "entry_hash mismatch — row content altered"),
+            }
+        expected_prev = stored_entry
+        checked += 1
+
+    return {"intact": True, "entries_checked": checked,
+            "head_hash": expected_prev}
 
 
 @app.get("/ledger/votes")
