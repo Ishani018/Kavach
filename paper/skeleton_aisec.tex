@@ -1,0 +1,202 @@
+% paper/skeleton_aisec.tex
+% ═══════════════════════════════════════════════════════════════════════════
+% Kavach — AISec 2026 submission skeleton (ACM CCS workshop, The Hague)
+% Deadline: July 24, 2026.  10pp ACM double-column, ANONYMIZED.
+%
+% Restructured June 10, 2026 per repo audit (KAVACH_SCRUTINY_AISEC_PLAN.md):
+%   - Spine: systems/measurement (the hook-gap finding + live interception +
+%     representation-mismatch + hybrid-retrieval fix).
+%   - §5: the aggregation frontier (veto vs Bayesian vs hybrid under adaptive
+%     corruption) — now testable against the REAL Speaker via adaptive_attack v3.
+%   - The old "temporal--spatial" section is DEMOTED to a short design
+%     principle (§3.5); the implementation does not enforce load-order, so the
+%     standalone formal section over-claimed and burned page budget.
+%
+% Numbers are [TBD] until Parv's Dell runs land (see DELL_BENCHMARK_RUNBOOK.md).
+% Replace \anonymise{} contents only in the camera-ready.
+% ═══════════════════════════════════════════════════════════════════════════
+
+\documentclass[sigconf,anonymous,review]{acmart}
+
+% AISec is non-archival-friendly; keep rights commands minimal for review.
+\settopmatter{printacmref=false}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\pagestyle{plain}
+
+\usepackage{booktabs}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+
+\newcommand{\anonymise}[1]{\textit{[anon]}}
+\newcommand{\TBD}{\textcolor{red}{[TBD]}}
+\usepackage{xcolor}
+
+\begin{document}
+
+\title{Kavach: Semantic Pre-Execution Interception for LLM Agent Runtimes}
+\subtitle{A Measurement, a Deployment, and the Aggregation Frontier}
+
+\author{\anonymise{Author One}}
+\affiliation{\institution{\anonymise{PES University}}\country{\anonymise{India}}}
+% NOTE: capstone mentor Prof. Rajesh Banginwar acknowledged in camera-ready only.
+
+\begin{abstract}
+We present Kavach, an OpenClaw-native runtime monitor that intercepts every
+agent tool call \emph{before execution}, scores its semantic intent against a
+curated corpus of attack-pattern descriptions across four specialized
+ministers (EXECUTOR / VAULT / CHANNEL / NAVIGATOR), and tracks session-level
+trajectory and intent drift. We make three contributions. First, a
+\emph{measurement}: we show that OpenClaw's gateway execution path exposes no
+pre-execution plugin hook, so no security plugin can intercept there, and we
+characterize where interception \emph{is} achievable (the embedded runner).
+Second, a \emph{deployment}: live interception on production hardware at
+\TBD\,ms p50, with a representation-mismatch analysis explaining why a corpus
+authored in tool-call syntax yields \TBD\% FPR on natural-language attacks, and
+a hybrid BM25+dense retrieval fix that recovers FPR to \TBD\%. Third, the
+\emph{aggregation frontier}: we show that score-based vote aggregation
+(including a Bayesian variant) is brittle to an adaptive attacker who corrupts
+individual ministers, while a pure-veto aggregator is robust but sacrifices
+benign utility; we quantify the FPR/robustness frontier and propose a tuned
+hybrid (Bayesian decision path with a veto floor). All artifacts are
+reproducible offline; the trajectory monitor and aggregator require no GPU.
+\end{abstract}
+
+\maketitle
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+\label{sec:intro}
+% - The harness, not the model, is the attack surface (CVE litany).
+% - Pre-execution interception is the right control point, but only works
+%   where the runtime exposes a hook — our measurement (§4.1) shows this is
+%   not free.
+% - Positioning vs MXC and ClawGuard (ready-to-paste text in
+%   paper/PAPER_NOTES_JUNE3.md §1). ClawGuard's authors explicitly call for
+%   "system-level semantic monitoring" — exactly Kavach's layer.
+%
+% Contributions (revised — three, all backed by repo artifacts):
+%   1. Measurement: the OpenClaw gateway pre-execution hook gap (§4.1).
+%   2. Deployment: live semantic interception + the representation-mismatch
+%      finding + the hybrid-retrieval FPR fix (§4.2–4.4).
+%   3. The aggregation frontier: veto vs Bayesian vs hybrid under adaptive
+%      minister corruption, measured on real minister-vote dumps (§5).
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Background}
+\label{sec:background}
+\subsection{Agent infrastructure attack surface}
+% tool calls / MCP / harness shift. Cite Liu, Hou, ETDI, STRIDE.
+\subsection{Where guardrails enforce}
+% prompt-time / CoT-time / tool-time / reply-time taxonomy.
+% Cite LlamaFirewall 2505.03574, AgentSpec, AGrail, ShieldAgent.
+\subsection{Closest prior art: ClawGuard and MXC}
+% ClawGuard 2604.11790 (rule-based, OpenClaw-native, 0% ASR AgentDojo under
+% rules, but no semantics, no session awareness). MXC (OS containment, not a
+% semantic monitor). Three complementary layers: MXC → ClawGuard → Kavach.
+% Ready-to-paste text in PAPER_NOTES_JUNE3.md §6.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Kavach Architecture}
+\label{sec:architecture}
+\subsection{Overview}
+% Pipeline: user msg → seed_intent → action → COMPASS drift → semantic router
+% → activated ministers (parallel) → Speaker → BLOCK/ESCALATE/ALLOW.
+\subsection{The four ministers}
+% Per-minister taxonomy table (MITRE/OWASP), corpus size, threshold.
+% Honest note: report per-minister TPR/FPR from the sweep (EXECUTOR strong,
+% NAVIGATOR weak on InjecAgent) and pre-empt the "why four?" question with the
+% ablation in §5; NAVIGATOR is a trajectory-class detector InjecAgent doesn't
+% exercise — show it firing in the native staged-attack test (§4).
+\subsection{COMPASS — intent-alignment oracle}
+% seed_intent stores the BGE vector of the user message; per-call
+% cosine(intent, action); drift threshold. Honest #9 caveat: live seeding.
+\subsection{Hybrid retrieval}
+% BM25 + dense fused with RRF for SELECTION; confidence = dense cosine ×
+% lexical gate (GATE_FLOOR knob). This is the representation-mismatch fix —
+% forward-reference §4.3. Cite RRF (Cormack et al.).
+\subsection{Speaker and the session monitor}
+% The deployed Speaker is a PURE VETO over minister verdicts (any BLOCK ≥
+% per-minister threshold → BLOCK), with a trajectory-ceiling case (Case 0)
+% that blocks on accumulated session risk independent of any single call.
+% Trajectory signals: denial echo (ARM), sequential direction (Trajectory
+% Guard), cross-minister escalation (AgentDoG), hard ceiling.
+% (Optional 1-paragraph design principle, NOT a full section: pre-execution
+% ordering — ministers authoritative before the tool runs. State it as a
+% design goal realized by the before_tool_call hook; do not over-formalize.)
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Deployment and Detection}
+\label{sec:eval}
+\subsection{The gateway hook gap (measurement)}
+\label{sec:hookgap}
+% THE headline systems finding. Embedded runner fires before_tool_call;
+% gateway/TUI path does not → no plugin can intercept pre-execution there.
+% Sentinel-file evidence. Generalize: pre-execution hook should be a mandatory
+% MAS primitive. This stands alone even if every benchmark slipped.
+\subsection{Live interception (deployment)}
+% Hardware (Dell Precision 3660, RTX 4090; Gemma\,4 27B via Ollama; BGE-base
+% 768-d). Live BLOCK logged to the tamper-evident ledger, ~820ms.
+% Latency: report p50/p95 MEASURED (826/1649 ms) — no "<1s" target as result.
+\subsection{Representation mismatch (the instructive negative result)}
+\label{sec:repmismatch}
+% Native tool-call format: \TBD\% FPR. Natural-language InjecAgent at the
+% recall-preserving threshold: \TBD\% FPR. Same recall, very different FPR —
+% the corpus is authored in tool-call syntax. This is a lesson-learned the
+% workshop values.
+\subsection{Hybrid retrieval recovers FPR}
+% Re-run with hybrid BM25+dense: FPR \TBD\% at recall \TBD\%. GATE_FLOOR
+% ablation table. Tie back to §3.4.
+\subsection{Detection results}
+% InjecAgent strict/loose recall + FPR (per-minister thresholds + hybrid).
+% Native benchmark (clean format). Tamper-evident ledger: /ledger/verify
+% detects historical edits (one sentence + appendix).
+\subsection{Cost}
+% Embeds/call: 1 (embed-once) vs up to 9 naive. Latency percentiles.
+% Compare qualitatively to PRISM (~15.8s) and AgentArmor (~20.9s) — NOT
+% cross-benchmark ASR ratios.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{The Aggregation Frontier}
+\label{sec:frontier}
+% The Pivot-B contribution, now testable against the REAL Speaker.
+\subsection{Adaptive attacker model}
+% Attacker corrupts K most-foolable ministers per attack action (forces
+% ALLOW@high-confidence). Measured on real minister-vote dumps
+% (adaptive_attack.py v3, HANDOFF_SCHEMA.md).
+\subsection{Veto vs Bayesian vs hybrid}
+% The deployed pure-veto Speaker: lowest ASR at every K, but clean FPR above
+% the 5% gate. Bayesian: passes FPR, collapses at K=2. Hybrid (Bayesian path +
+% veto floor at swept confidence): passes FPR AND tracks veto robustness.
+% Frontier table from --sweep-veto. THIS IS THE CONTRIBUTION: we characterize
+% the tension, we do not claim a single best aggregator.
+\subsection{Minister ablation}
+% 1..4 ministers, with/without COMPASS, with/without trajectory. Addresses
+% "why four ministers" given NAVIGATOR's weak standalone InjecAgent numbers.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Related Work}
+\label{sec:related}
+% Full comparison table in PAPER_NOTES_JUNE3.md (ClawGuard, AgentArmor,
+% LlamaFirewall, MELON, PromptArmor, PRISM, ZEDD, MXC, Kavach). Keep ASR
+% numbers same-benchmark only; mark cross-benchmark cells explicitly.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Limitations}
+\label{sec:limitations}
+% - ClawGuard achieves 0% ASR on AgentDojo under rules; we do not match that
+%   on AgentDojo (complementary semantic approach; head-to-head is future work
+%   pending our AgentDojo run).
+% - Tamper-EVIDENT not tamper-PROOF (write-capable attacker; external anchor
+%   is future work).
+% - Trajectory ceiling needs intent seeding (#9) to reach full risk.
+% - Mean-pooling chain leg vs trained Siamese (Trajectory Guard F1 ≤ 0.69).
+% - Single LLM backbone (Gemma\,4 27B); cross-model generality is future work.
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Conclusion}
+\label{sec:conclusion}
+
+\bibliographystyle{ACM-Reference-Format}
+% \bibliography{kavach}
+
+\end{document}
