@@ -715,12 +715,25 @@ async def verify_ledger() -> dict[str, Any]:
 
     expected_prev = GENESIS_HASH
     checked = 0
+    chain_started = False
     for r in rows:
-        # Legacy rows written before the chain existed have NULL hashes; skip
-        # them but reset the expected_prev so the chain resumes cleanly.
+        # Hash columns are NULL only for genuine legacy rows written before the
+        # chain feature existed. Those legacy rows must all PRECEDE the first
+        # chained row. A NULL hash appearing AFTER the chain has started is
+        # treated as tampering (an attacker nulling hashes to drop rows from
+        # the chain), not as a benign legacy row. (June-10 audit hardening.)
         if r[16] is None:
+            if chain_started:
+                return {
+                    "intact": False,
+                    "entries_checked": checked,
+                    "tampered_at_id": r[0],
+                    "reason": "null hash after chain start — possible hash "
+                              "stripping to drop a row from the chain",
+                }
             expected_prev = GENESIS_HASH
             continue
+        chain_started = True
         row = {
             "ts": r[1], "session_id": r[2], "correlation_id": r[3],
             "stage": r[4], "input_text": r[5], "verdict": r[6],
