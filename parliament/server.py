@@ -287,11 +287,16 @@ GENESIS_HASH = "0" * 64
 def _entry_hash(prev_hash: str, row: dict) -> str:
     """SHA-256 over the previous hash plus a canonical serialization of the
     content-bearing fields (id/autoincrement excluded — it is not content)."""
+    fields = ["ts", "session_id", "correlation_id", "stage", "input_text",
+              "verdict", "decided_by", "confidence", "reason", "ministers_json",
+              "compass_sim", "traj_risk", "latency_ms"]
+    # Backward-compatible: provenance_json only enters the hash when present, so
+    # rows written before provenance existed (and rows with no provenance) hash
+    # identically under both old and new code. (June-10 self-audit fix.)
+    if row.get("provenance_json") is not None:
+        fields.append("provenance_json")
     canonical = json.dumps(
-        {k: row[k] for k in (
-            "ts", "session_id", "correlation_id", "stage", "input_text",
-            "verdict", "decided_by", "confidence", "reason", "ministers_json",
-            "compass_sim", "traj_risk", "latency_ms", "provenance_json")},
+        {k: row[k] for k in fields},
         sort_keys=True, separators=(",", ":"), default=str,
     )
     return hashlib.sha256((prev_hash + canonical).encode("utf-8")).hexdigest()
@@ -637,15 +642,17 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # is the highest-confidence BLOCK minister, else the highest-confidence
     # minister overall. Trajectory-ceiling blocks have no single minister
     # source, so they record a session-trajectory provenance basis.
-    if minister_results:
+    if speaker_v.decided_by == "TRAJECTORY":
+        # Session-level block from the trajectory ceiling: NO single minister
+        # caused it, so we must not cite a minister's technique (that would be
+        # a false provenance). Emit a dedicated trajectory provenance.
+        provenance = prov.trajectory_provenance()
+    elif minister_results:
         blockers = [r for r in minister_results if r.verdict == "BLOCK"]
         winner = max(blockers or minister_results, key=lambda r: r.confidence)
         provenance = prov.resolve(winner.source, winner.minister)
     else:
         provenance = prov.resolve(None, "")
-    if speaker_v.decided_by == "TRAJECTORY":
-        # Session-level block: stage progression, not a single technique.
-        provenance.provenance_basis = "session-trajectory"
     provenance_dict = provenance.to_dict()
 
     _log_vote(

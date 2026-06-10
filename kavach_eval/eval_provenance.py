@@ -93,7 +93,11 @@ _HASH_FIELDS = ("ts", "session_id", "correlation_id", "stage", "input_text",
 
 
 def _eh(prev: str, row: dict) -> str:
-    canon = json.dumps({k: row[k] for k in _HASH_FIELDS},
+    # Mirror server.py: provenance_json enters the hash only when present.
+    fields = [f for f in _HASH_FIELDS if f != "provenance_json"]
+    if row.get("provenance_json") is not None:
+        fields.append("provenance_json")
+    canon = json.dumps({k: row[k] for k in fields},
                        sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256((prev + canon).encode()).hexdigest()
 

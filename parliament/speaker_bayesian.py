@@ -100,10 +100,16 @@ class ReliabilityStore:
 
 
 class BayesianSpeaker:
-    def __init__(self, store: Optional[ReliabilityStore] = None):
+    def __init__(self, store: Optional[ReliabilityStore] = None,
+                 rho: Optional[float] = None):
         self.store = store or ReliabilityStore()
         self.prior_block = self._compute_prior_from_labelled_ledger()
         self._calibrated = self.store.total_observations() >= 50
+        # Per-instance correlation discount. When None, fall back to the module
+        # global CORRELATION_RHO. Set explicitly so multiple speakers with
+        # different rho can coexist WITHOUT importlib.reload (which corrupts
+        # other live instances).
+        self.rho = CORRELATION_RHO if rho is None else float(rho)
 
     def _compute_prior_from_labelled_ledger(self) -> float:
         # ISSUE 4: only use ground-truth-labelled entries; never self-decisions.
@@ -132,7 +138,7 @@ class BayesianSpeaker:
     def _correlation_exponent(self, n_votes: int) -> float:
         if n_votes <= 1:
             return 1.0
-        return 1.0 / (1.0 + (n_votes - 1) * CORRELATION_RHO)
+        return 1.0 / (1.0 + (n_votes - 1) * self.rho)
 
     def _likelihood(self, vote: MinisterVote, candidate_decision: str) -> float:
         # ISSUE 1: ABSTAIN is exactly neutral (1.0 for both -> cancels).
@@ -190,7 +196,7 @@ class BayesianSpeaker:
         minister_weights = {v.minister: round(self._likelihood(v, decision), 4) for v in votes}
         vote_summary = ", ".join(f"{v.minister}={v.vote}({v.confidence:.2f})" for v in votes)
         warn = "" if self._calibrated else " [UNCALIBRATED - confidence not yet trustworthy]"
-        reasoning = (f"Bayesian (rho={CORRELATION_RHO}, exp={exponent:.3f}) over "
+        reasoning = (f"Bayesian (rho={self.rho}, exp={exponent:.3f}) over "
                      f"[{vote_summary}]. P(BLOCK)={post_block:.3f}, P(ALLOW)={post_allow:.3f}, "
                      f"prior(BLOCK)={prior_block:.3f}. Decision: {decision} conf={confidence:.3f}.{warn}")
 

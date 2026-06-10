@@ -114,10 +114,9 @@ rate as an adaptive attacker corrupts $K$ ministers. Measured on
 # ── §5 ablation table ────────────────────────────────────────────────────────
 
 def ablation_table(runs, rho, synthetic) -> str:
-    os.environ["KAVACH_CORRELATION_RHO"] = str(rho)
-    import importlib; importlib.reload(speaker_bayesian)
     sp = speaker_bayesian.BayesianSpeaker(
-        store=speaker_bayesian.ReliabilityStore(f"/tmp/kavach_s5_{rho}.json"))
+        store=speaker_bayesian.ReliabilityStore(f"/tmp/kavach_s5_{rho}.json"),
+        rho=rho)
     abl = eh.ablation_n_ministers(runs, sp)
     body = []
     for label, m in abl.items():

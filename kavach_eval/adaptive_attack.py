@@ -139,11 +139,12 @@ def majority(votes: list[dict], line: dict) -> str:
 
 
 def make_bayesian(rho: float):
-    os.environ["KAVACH_CORRELATION_RHO"] = str(rho)
-    import importlib
-    importlib.reload(speaker_bayesian)
+    # Pass rho per-instance — NO importlib.reload (that mutates module state and
+    # corrupts other live BayesianSpeaker instances built with a different rho;
+    # caught in the June-10 self-audit).
     sp = speaker_bayesian.BayesianSpeaker(
-        store=speaker_bayesian.ReliabilityStore(f"/tmp/kavach_adv_{rho}.json"))
+        store=speaker_bayesian.ReliabilityStore(f"/tmp/kavach_adv_{rho}.json"),
+        rho=rho)
     sp.prior_block = 0.3
     MV = speaker_bayesian.MinisterVote
 

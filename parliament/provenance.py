@@ -180,6 +180,19 @@ def _resolve_id(tech_id: str, basis: str) -> Provenance:
         provenance_basis=basis)
 
 
+def trajectory_provenance() -> Provenance:
+    """Provenance for a session-level trajectory-ceiling block. No single
+    minister or technique caused it — it is a multi-step stage progression —
+    so we deliberately do NOT cite a technique ID (citing one would be false
+    provenance). The stage is left unknown; the basis names the cause."""
+    return Provenance(
+        technique_id="N/A (session trajectory)",
+        technique_name="Multi-step trajectory escalation",
+        tactic="(session-level)", stage="unknown", stage_index=-1,
+        framework="none", framework_version="-",
+        provenance_basis="session-trajectory")
+
+
 def resolve(source: str | None, minister: str) -> Provenance:
     """Resolve a matched pattern's `source` string to a provenance chain.
 
