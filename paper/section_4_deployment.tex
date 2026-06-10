@@ -77,6 +77,10 @@ from up to nine to one, and measured latency is \TBD\,ms p50 / \TBD\,ms p95 ---
 an order of magnitude below lifecycle-instrumenting scanners
 (PRISM~\cite{prism2026} $\approx$15.8\,s p95; AgentArmor~\cite{agentarmor2026}
 $\approx$20.9\,s). We report cost jointly with detection rather than in
-isolation. Finally, \texttt{/ledger/verify} re-walks the hash chain and detects
+isolation (Table~\ref{tab:cost}).
+
+Finally, \texttt{/ledger/verify} re-walks the hash chain and detects
 any post-hoc edit to a recorded decision or its provenance, which we demonstrate
 on a tampered ledger in the appendix.
+
+\input{tables/tab_cost}
