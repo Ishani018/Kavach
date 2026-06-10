@@ -5,7 +5,7 @@
 
 ## 🔴 ADDENDUM — June 10, 2026 (read BEFORE the rest; overrides where it conflicts)
 
-**1. Branch change.** Trajectory is now merged — **use `main`** for Steps 1–3, not `ishani/trajectory-monitor`. For the InjecAgent re-run (Step 4) use **`ishani/hybrid-retrieval`** — it is rebased onto main and carries the FPR fix (hybrid BM25+dense with a calibrated lexical gate). Both branches were force-pushed after a rebase; do a fresh `git fetch --all` and if your local copies diverge, `git checkout -B ishani/hybrid-retrieval origin/ishani/hybrid-retrieval` rather than pulling.
+**1. Branch change.** Trajectory is now merged — **use `main`** for Steps 1–3, not `ishani/trajectory-monitor`. For the InjecAgent re-run (Step 4): **merge the `ishani/hybrid-retrieval` PR into `main` first, then run from `main`.** Do NOT run the FPR benchmark from the standalone `ishani/hybrid-retrieval` branch — that branch was rebased onto an EARLIER main and does not contain the hash-chained ledger, the provenance layer, or the June-10 audit fixes (it predates commits 231228d→3f83fea). Running from it would benchmark a server missing those features. Once the hybrid PR is merged, `main` has both the FPR fix and every other fix. Same applies to `ishani/dynamic-thresholds`: merge its PR, then run from `main`.
 
 **2. New dependency for the hybrid run:** `pip install rank-bm25`. Without it the server silently falls back to dense-only (check `GET /health` → `retrieval_mode: "hybrid"` before benchmarking; `"dense"` means the install didn't take).
 

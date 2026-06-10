@@ -7,6 +7,7 @@
 
 \section{Kavach Architecture}
 \label{sec:design}
+\label{sec:architecture}
 
 \subsection{Overview}
 
@@ -14,7 +15,11 @@ Kavach is a runtime guardrail that interposes between an LLM agent orchestrator
 and its tool-execution layer. Every tool call proposed by the agent is
 intercepted, evaluated by a Parliament of domain-bound Ministers, and sentenced
 by a deterministic Speaker before any side-effecting action is permitted to
-execute. Figure~\ref{fig:architecture} shows the end-to-end request path.
+execute. The end-to-end request path is: user intent is seeded; each proposed
+tool call is embedded once; COMPASS scores intent drift; the semantic router
+activates the relevant ministers, which retrieve against their corpora in
+parallel; and the Speaker aggregates their verdicts under the trajectory
+ceiling before returning BLOCK / ESCALATE / ALLOW.
 
 The system exposes a single HTTP endpoint \texttt{POST /parliament/evaluate}
 that the OpenClaw plugin (\S\ref{sec:plugin}) calls synchronously in the

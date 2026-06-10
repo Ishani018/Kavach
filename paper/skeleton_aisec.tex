@@ -68,6 +68,10 @@ reproducible offline; the trajectory monitor and aggregator require no GPU.
 % provenance subsection, corrected Speaker table). §2 is reused as-is. §4/§5
 % bodies carry [TBD] tables pending the Dell runs.
 % generated table-value macros (created by make_section5.py)
+% Graceful table inclusion: generated tables (make_section5.py) may be absent
+% on a fresh checkout. Show a visible placeholder instead of failing to build.
+\newcommand{\inputtable}[1]{\IfFileExists{#1.tex}{\input{#1}}{%
+  \begin{center}\fbox{\textcolor{red}{[table #1 — run make\_section5.py]}}\end{center}}}
 \IfFileExists{tables/section5_macros.tex}{\input{tables/section5_macros}}{}
 \input{section_1_intro_aisec}
 \input{section_2_background}
