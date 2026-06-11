@@ -1,0 +1,28 @@
+name: Repo Visualizer
+
+# Generates a diagram of the repository structure (diagram.svg) on every push to
+# main and commits it back to the repo root. Diagram is embedded in README.md.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagram:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate repository diagram
+        uses: githubocto/repo-visualizer@0.9.1
+        with:
+          output_file: "diagram.svg"
+          excluded_paths: ".git,node_modules,.venv,.chroma,parliament/.chroma_kavach,__pycache__,paper/tables"
+          should_push: true
+          commit_message: "chore: update repo diagram.svg [skip ci]"
+          branch: "main"

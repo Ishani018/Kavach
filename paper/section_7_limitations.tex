@@ -34,7 +34,12 @@ sequence-aware detection; Trajectory Guard \cite{advani2026trajectoryguard}
 reports that mean-pooling centroid approaches cap at F1 $\leq 0.69$ on
 trajectory detection. Kavach's trajectory monitor uses lightweight context
 signals rather than a trained sequence model, and the session-risk ceiling
-requires intent seeding to reach full sensitivity. A learned, stage-aware
+requires intent seeding to reach full sensitivity. The session ceiling is
+currently fixed at an empirically calibrated value (0.50, set just above the
+observed benign session peak across ten multi-step sessions); modulating it by
+COMPASS intent drift is a natural extension --- the architecture already supports
+it since \texttt{compass\_sim} is in scope at the ceiling check --- but requires
+drift-seeded calibration data we leave to future work. A learned, stage-aware
 trajectory model over the provenance stage axis (\S\ref{sec:provenance}) is the
 natural next step.
 
