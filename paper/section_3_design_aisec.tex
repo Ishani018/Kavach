@@ -7,6 +7,7 @@
 
 \section{Kavach Architecture}
 \label{sec:design}
+\label{sec:architecture}
 
 \subsection{Overview}
 
@@ -14,7 +15,11 @@ Kavach is a runtime guardrail that interposes between an LLM agent orchestrator
 and its tool-execution layer. Every tool call proposed by the agent is
 intercepted, evaluated by a Parliament of domain-bound Ministers, and sentenced
 by a deterministic Speaker before any side-effecting action is permitted to
-execute. Figure~\ref{fig:architecture} shows the end-to-end request path.
+execute. The end-to-end request path is: user intent is seeded; each proposed
+tool call is embedded once; COMPASS scores intent drift; the semantic router
+activates the relevant ministers, which retrieve against their corpora in
+parallel; and the Speaker aggregates their verdicts under the trajectory
+ceiling before returning BLOCK / ESCALATE / ALLOW.
 
 The system exposes a single HTTP endpoint \texttt{POST /parliament/evaluate}
 that the OpenClaw plugin (\S\ref{sec:plugin}) calls synchronously in the
@@ -117,14 +122,40 @@ maps the set of Minister verdicts and COMPASS output to a single sentence:
 V = \text{Speaker}(\{v_m\}_{m \in M_{\text{active}}},\, \delta_{\text{drift}},\, r_{\text{session}})
 \end{equation}
 
-The decision table (five cases, applied in priority order):
+The decision table (applied in priority order):
 \begin{enumerate}
+  \item Session risk $r_{\text{session}} \geq r_{\text{max}}$ $\Rightarrow$
+        \textsc{Block} (session-level trajectory ceiling; fires independently
+        of any single Minister's verdict --- this is what makes Kavach a
+        session monitor rather than a per-call guard).
   \item Any Minister returns \textsc{Block} $\Rightarrow$ \textsc{Block}.
   \item $\delta_{\text{drift}} > \theta_{\text{drift}}$ $\Rightarrow$ \textsc{Escalate}.
-  \item Session risk $r_{\text{session}} > r_{\text{max}}$ $\Rightarrow$ \textsc{Escalate}.
-  \item Any Minister returns \textsc{Grey} $\Rightarrow$ \textsc{Escalate}.
+  \item Any Minister returns \textsc{Grey} (\textsc{Escalate}) $\Rightarrow$ \textsc{Escalate}.
   \item All Ministers return \textsc{Allow} $\Rightarrow$ \textsc{Allow}.
 \end{enumerate}
+The aggregation is a pure veto: a single \textsc{Block} suffices, with no
+confidence-weighted averaging. \S\ref{sec:frontier} studies this choice
+empirically against Bayesian and hybrid alternatives under adaptive attack.
+
+\subsection{Taxonomy-grounded provenance}
+\label{sec:provenance}
+Every verdict carries a provenance chain that grounds it in a structured
+cyber-taxonomy: the matched corpus pattern resolves to a technique identifier
+(MITRE ATLAS for AI/agent-native techniques, e.g.\ AML.T0051 indirect prompt
+injection and AML.T0086 exfiltration via agent tool invocation; MITRE ATT\&CK
+for host-level techniques), which maps to a tactic and an ordered kill-chain
+stage. Resolution is corpus-tagged where a pattern declares its source
+technique, with a per-minister default as a fallback so the chain is always
+populated; the chain records which basis was used, so the audit trail is
+explicit about precision. The provenance record is serialized into the
+SHA-256 hash-chained Ledger as a hashed field. Consequently, editing the
+\emph{grounding} of a historical decision --- for instance, relabeling a
+credential-access block as a benign read to mislead an auditor --- breaks the
+hash chain at that entry, detected by \texttt{/ledger/verify}. Prior runtime
+monitors provide either explainability or tamper-evident logging but not a
+taxonomy-grounded chain whose integrity is cryptographically verifiable; the
+ordered stage axis additionally provides the substrate for stage-aware
+trajectory reasoning, which we leave to future work.
 
 \subsection{OpenClaw Plugin}
 \label{sec:plugin}

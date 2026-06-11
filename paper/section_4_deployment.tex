@@ -1,0 +1,86 @@
+% paper/section_4_deployment.tex
+% Deployment & Detection. Prose is submission-ready; \TBD marks numbers
+% pending the Dell benchmark runs (InjecAgent re-run, benign gate, native).
+
+\section{Deployment and Detection}
+\label{sec:eval}
+
+\subsection{The gateway hook gap}
+\label{sec:hookgap}
+Our first finding is a property of the host runtime, not of Kavach. OpenClaw
+exposes two execution paths: an \emph{embedded} runner used when the agent is
+driven programmatically, and a \emph{gateway} path used by the interactive
+terminal and the hosted gateway. A pre-execution security plugin must run at
+the \texttt{before\_tool\_call} boundary --- after arguments are resolved, before
+the tool executes. We find that on the gateway path this boundary is not
+reachable by any plugin: issue \#5513 causes the typed-hook runner to snapshot
+the plugin registry at construction, hiding hooks registered during plugin
+load, and issue \#5943 means \texttt{before\_tool\_call}, although documented as
+available since v2026.3.28, is never invoked in \texttt{executeToolCalls()} on
+that path. We confirm the gap with a sentinel-file probe: a tool call that
+writes a marker executes with no plugin interception on the gateway path, while
+the same call is intercepted in embedded mode. We contribute upstream fixes for
+both defects (PR-1) and evaluate Kavach in embedded mode. The general lesson is
+that a working pre-execution hook is a precondition for \emph{any} runtime
+guardrail, and agent platforms should treat it as a first-class, tested primitive
+rather than optional plugin surface.
+
+\subsection{Live interception}
+\label{sec:live}
+We deploy on a Dell Precision~3660 (NVIDIA RTX~4090), with Gemma\,4~27B served
+via Ollama as the agent backbone and \texttt{BAAI/bge-base-en-v1.5} (768-d) as
+the embedding model, resident on the GPU. A staged attack that induces the agent
+to read a credential file and transmit its contents is intercepted before
+execution: the deciding minister returns \textsc{Block}, the call is denied, and
+a provenance-grounded record (technique $\rightarrow$ tactic $\rightarrow$ stage)
+is committed to the hash-chained Ledger. End-to-end interception latency for the
+blocking decision is approximately \TBD\,ms. The plugin fails closed on the
+tool-call path: a verdict that does not return within the timeout denies the
+call (\texttt{toolCallFailMode = deny}).
+
+\subsection{Representation mismatch: an instructive negative result}
+\label{sec:repmismatch}
+Our corpus is authored in the register of MITRE technique descriptions and
+tool-call syntax. On the OpenClaw-native benchmark, whose attacks are expressed
+as structured tool calls, Kavach achieves \TBD\% false-positive rate at the
+recall-preserving threshold. On InjecAgent \cite{zhan2024injecagent}, whose
+attacks are expressed as fluent natural-language instructions, the same
+configuration at the same recall yields \TBD\% false-positive rate. The gap is
+not a tuning artifact: it reflects a representation mismatch between a corpus
+embedded in tool-call/technique register and attacks embedded in
+natural-language register, so benign natural-language actions land near the
+corpus in embedding space. We report this because it is the kind of deployment
+lesson that a purely benchmark-simulated evaluation would hide.
+
+\subsection{Hybrid retrieval recovers the false-positive rate}
+\label{sec:hybridresults}
+The fix follows from the diagnosis. We add a lexical channel: BM25 over the same
+corpus, fused with dense retrieval by reciprocal-rank fusion for candidate
+selection, with the final confidence computed as the dense cosine similarity
+scaled by a lexical gate (a benign action that is semantically near an attack
+pattern but shares none of its distinctive tokens is discounted). On InjecAgent
+this lowers false-positive rate from \TBD\% to \TBD\% while holding strict recall
+at \TBD\%. The gate floor is a single tunable parameter; Table~\TBD{} reports the
+recall/FPR trade-off across its range.
+
+\subsection{Detection results and cost}
+\label{sec:results}
+Table~\TBD{} reports InjecAgent strict and loose recall and false-positive rate
+under per-minister thresholds with hybrid retrieval, and the OpenClaw-native
+benchmark in clean tool-call register. Per-minister detection rates are uneven
+(EXECUTOR and VAULT carry most attack recall on InjecAgent; NAVIGATOR is a
+trajectory-class detector that the per-call InjecAgent benchmark does not
+exercise, and we show it firing in the staged-attack test of \S\ref{sec:live});
+\S\ref{sec:frontier} reports the minister ablation that motivates the four-way
+split. On cost, the embed-once optimization reduces embedding calls per decision
+from up to nine to one, and measured latency is \TBD\,ms p50 / \TBD\,ms p95 ---
+an order of magnitude below lifecycle-instrumenting scanners
+(PRISM~\cite{prism2026} $\approx$15.8\,s p95; AgentArmor~\cite{agentarmor2026}
+$\approx$20.9\,s). We report cost jointly with detection rather than in
+isolation (Table~\ref{tab:cost}).
+
+Finally, \texttt{/ledger/verify} re-walks the hash chain and detects
+any post-hoc edit to a recorded decision or its provenance, which we demonstrate
+on a tampered ledger in the appendix.
+
+\inputtable{tables/tab_cost}

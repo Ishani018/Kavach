@@ -19,12 +19,19 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 # Import the patched Speaker so we score with the real aggregator
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, "..")
 try:
-    from speaker import BayesianSpeaker, MinisterVote, ReliabilityStore
+    # BayesianSpeaker/MinisterVote live in parliament/speaker_bayesian.py
+    from parliament.speaker_bayesian import BayesianSpeaker, MinisterVote, ReliabilityStore
     HAVE_SPEAKER = True
 except Exception:
-    HAVE_SPEAKER = False
+    try:
+        from speaker_bayesian import BayesianSpeaker, MinisterVote, ReliabilityStore
+        HAVE_SPEAKER = True
+    except Exception:
+        HAVE_SPEAKER = False
 
 
 # ---------------------------------------------------------------------------

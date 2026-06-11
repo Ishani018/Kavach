@@ -1,0 +1,108 @@
+% paper/skeleton_aisec.tex
+% ═══════════════════════════════════════════════════════════════════════════
+% Kavach — AISec 2026 submission skeleton (ACM CCS workshop, The Hague)
+% Deadline: July 24, 2026.  10pp ACM double-column, ANONYMIZED.
+%
+% Restructured June 10, 2026 per repo audit (KAVACH_SCRUTINY_AISEC_PLAN.md):
+%   - Spine: systems/measurement (the hook-gap finding + live interception +
+%     representation-mismatch + hybrid-retrieval fix).
+%   - §5: the aggregation frontier (veto vs Bayesian vs hybrid under adaptive
+%     corruption) — now testable against the REAL Speaker via adaptive_attack v3.
+%   - The old "temporal--spatial" section is DEMOTED to a short design
+%     principle (§3.5); the implementation does not enforce load-order, so the
+%     standalone formal section over-claimed and burned page budget.
+%
+% Numbers are [TBD] until Parv's Dell runs land (see DELL_BENCHMARK_RUNBOOK.md).
+% Replace \anonymise{} contents only in the camera-ready.
+% ═══════════════════════════════════════════════════════════════════════════
+
+\documentclass[sigconf,anonymous,review]{acmart}
+
+% AISec is non-archival-friendly; keep rights commands minimal for review.
+\settopmatter{printacmref=false}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\pagestyle{plain}
+
+\usepackage{booktabs}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+
+\newcommand{\anonymise}[1]{\textit{[anon]}}
+\newcommand{\TBD}{\textcolor{red}{[TBD]}}
+\usepackage{xcolor}
+
+\begin{document}
+
+\title{Kavach: Semantic Pre-Execution Interception for LLM Agent Runtimes}
+\subtitle{A Measurement, a Deployment, and the Aggregation Frontier}
+
+\author{\anonymise{Author One}}
+\affiliation{\institution{\anonymise{PES University}}\country{\anonymise{India}}}
+% NOTE: capstone mentor Prof. Rajesh Banginwar acknowledged in camera-ready only.
+
+\begin{abstract}
+We present Kavach, an OpenClaw-native runtime monitor that intercepts every
+agent tool call \emph{before execution}, scores its semantic intent against a
+curated corpus of attack-pattern descriptions across four specialized
+ministers (EXECUTOR / VAULT / CHANNEL / NAVIGATOR), and tracks session-level
+trajectory and intent drift. We make three contributions. First, a
+\emph{measurement}: we show that OpenClaw's gateway execution path exposes no
+pre-execution plugin hook, so no security plugin can intercept there, and we
+characterize where interception \emph{is} achievable (the embedded runner).
+Second, a \emph{deployment}: live interception on production hardware at
+\TBD\,ms p50, with a representation-mismatch analysis explaining why a corpus
+authored in tool-call syntax yields \TBD\% FPR on natural-language attacks, and
+a hybrid BM25+dense retrieval fix that recovers FPR to \TBD\%. Third, the
+\emph{aggregation frontier}: we show that score-based vote aggregation
+(including a Bayesian variant) is brittle to an adaptive attacker who corrupts
+individual ministers, while a pure-veto aggregator is robust but sacrifices
+benign utility; we quantify the FPR/robustness frontier and propose a tuned
+hybrid (Bayesian decision path with a veto floor). All artifacts are
+reproducible offline; the trajectory monitor and aggregator require no GPU.
+\end{abstract}
+
+\maketitle
+
+% Real section content lives in separate files, reconciled for the AISec
+% restructure. §1 and §3 use the _aisec variants (four-contribution framing,
+% provenance subsection, corrected Speaker table). §2 is reused as-is. §4/§5
+% bodies carry [TBD] tables pending the Dell runs.
+% generated table-value macros (created by make_section5.py)
+% Graceful table inclusion: generated tables (make_section5.py) may be absent
+% on a fresh checkout. Show a visible placeholder instead of failing to build.
+\newcommand{\inputtable}[1]{\IfFileExists{#1.tex}{\input{#1}}{%
+  \begin{center}\fbox{\textcolor{red}{[table #1 — run make\_section5.py]}}\end{center}}}
+\IfFileExists{tables/section5_macros.tex}{\input{tables/section5_macros}}{}
+\input{section_1_intro_aisec}
+\input{section_2_background}
+\input{section_3_design_aisec}
+
+% §4 Deployment & Detection and §5 Aggregation Frontier: the prose is written;
+% the tables are [TBD] until benchmark + minister-dump data lands. The old
+% temporal--spatial section (section_4_temporal_spatial.tex) is intentionally
+% NOT input — it is demoted to the design principle in §3 per the audit.
+\input{section_4_deployment}
+\input{section_5_frontier}
+
+\section{Related Work}
+\label{sec:related}
+\input{related_work_table}
+
+\section{Limitations}
+\label{sec:limitations}
+\input{section_7_limitations}
+
+\section{Conclusion}
+\label{sec:conclusion}
+Kavach demonstrates that semantic pre-execution interception is achievable on a
+production agent runtime, that grounding each verdict in a structured cyber
+taxonomy makes both the decision and its justification tamper-evident, and that
+the choice of vote aggregator is a measurable robustness/utility trade-off
+rather than an implementation detail. The pre-execution hook gap we document,
+and the upstream fixes we contribute, suggest that pre-execution interception
+should be a first-class runtime primitive for agent platforms.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{kavach}
+
+\end{document}

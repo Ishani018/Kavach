@@ -1,5 +1,8 @@
 # Kavach Lab Findings — June 3, 2026
 
+> **⚠ Artifact status (June 10 audit):** The InjecAgent recall and benign-FPR figures in this document are from the June 1 Dell runs, but the raw per-case outputs were **not committed** (`benchmarks/results_v1/benign/` contains only `.gitkeep`). Treat them as preliminary until re-run and committed to `results_v2/` (Dell P0 items 1–3). Do not cite in the paper without the committed artifacts.
+
+
 ## Context-aware trajectory monitor (v2) + roadmap lock-in
 
 ### What changed from v1

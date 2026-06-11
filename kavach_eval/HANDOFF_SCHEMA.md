@@ -43,7 +43,10 @@ One JSON object per line. One line = one agent action that the Parliament judged
 | `is_attack` | yes | `true` if this action is an injected/malicious action. |
 | `ground_truth` | yes | `"BLOCK"` (attack should be stopped) or `"ALLOW"` (benign). This is the label everything is scored against. |
 | `action` | yes | The agent action being judged. `raw` string is enough if structured args are hard. |
-| `minister_votes` | yes | Array, one per Minister. `vote` ∈ {ALLOW, BLOCK, ABSTAIN}. `confidence` ∈ [0,1]. `latency_ms` optional but enables the latency analysis. |
+| `minister_votes` | yes | Array, one per Minister. `vote` ∈ {ALLOW, ESCALATE, BLOCK, ABSTAIN}. ESCALATE = grey-zone verdict (sim between grey and block thresholds) — REQUIRED for faithful offline replay of the real Speaker's corroboration cases. ABSTAIN = minister not routed. `confidence` ∈ [0,1]. `latency_ms` optional but enables the latency analysis. |
+| `compass_sim` | recommended | Per-action COMPASS cosine (float). Enables Case 2/4 replay of the real Speaker offline. Omit if intent unseeded. |
+| `compass_drift` | recommended | Boolean, `compass_sim < drift threshold` at run time. |
+| `traj_risk` | recommended | Per-action trajectory risk [0,1] from trajectory.py. Enables Case 0 (ceiling) replay offline. |
 | `model` | recommended | Lets us separate runs if Ministers use different models (important for correlation). |
 | `suite`/`task_id`/`injection_id` | optional | AgentDojo provenance — useful for per-suite breakdowns. |
 

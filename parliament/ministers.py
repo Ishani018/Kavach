@@ -37,6 +37,7 @@ class MinisterScan:
     matched_id:   str | None
     matched_text: str | None
     matched_level: str | None    # "L1" | "L2" | "L3"
+    source:       str | None = None   # corpus pattern source (e.g. "MITRE ATT&CK T1555.003") for provenance
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -115,6 +116,7 @@ def run_minister(
         matched_id=best_meta.get("pattern_id"),
         matched_text=best_doc[:240] if best_doc else None,
         matched_level=best_meta.get("level"),
+        source=best_meta.get("source"),
     )
 
 
@@ -148,5 +150,6 @@ def run_minister_dual(
             matched_id=(rT.matched_id or "") + ":tech",
             matched_text=rT.matched_text,
             matched_level=rT.matched_level,
+            source=rT.source,
         )
     return r1

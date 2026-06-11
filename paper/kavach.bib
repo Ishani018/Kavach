@@ -1,0 +1,145 @@
+% kavach.bib — bibliography for the Kavach AISec 2026 submission
+% ============================================================================
+% PROVENANCE OF ENTRIES (read this):
+%   [VERIFIED]  — confirmed against arXiv/ACL/publisher June 2026; safe to use.
+%   [NOTES-ID]  — arXiv ID taken from paper/PAPER_NOTES_JUNE3.md; the ID was
+%                 supplied by the team but author/title were NOT independently
+%                 verified here (several are 2026 preprints). VERIFY each before
+%                 camera-ready: open arxiv.org/abs/<id> and confirm author+title.
+%   [STUB]      — could not verify; placeholder so the paper compiles. You MUST
+%                 replace these with the real reference (or remove the \cite).
+%
+% After filling, run:  pdflatex; bibtex; pdflatex; pdflatex
+% ============================================================================
+
+% ─────────────────────────── VERIFIED ──────────────────────────────────────
+
+% [VERIFIED] arXiv:2406.13352, NeurIPS 2024 D&B. Official key matches our \cite.
+@inproceedings{debenedetti2024agentdojo,
+  title     = {AgentDojo: A Dynamic Environment to Evaluate Prompt Injection
+               Attacks and Defenses for {LLM} Agents},
+  author    = {Debenedetti, Edoardo and Zhang, Jie and Balunovi{\'c}, Mislav
+               and Beurer-Kellner, Luca and Fischer, Marc and Tram{\`e}r, Florian},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)
+               Datasets and Benchmarks Track},
+  year      = {2024},
+  eprint    = {2406.13352},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+}
+
+% [VERIFIED] arXiv:2403.02691, Findings of ACL 2024. 1,054 cases / 17 user
+% tools / 62 attacker tools.
+@inproceedings{zhan2024injecagent,
+  title     = {InjecAgent: Benchmarking Indirect Prompt Injections in
+               Tool-Integrated Large Language Model Agents},
+  author    = {Zhan, Qiusi and Liang, Zhixiang and Ying, Zifan and Kang, Daniel},
+  booktitle = {Findings of the Association for Computational Linguistics:
+               ACL 2024},
+  pages     = {10471--10506},
+  year      = {2024},
+  eprint    = {2403.02691},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+}
+
+% [VERIFIED] arXiv:2309.07597, SIGIR 2024. BGE embedding family (C-Pack).
+@inproceedings{xiao2024bge,
+  title     = {C-Pack: Packed Resources for General {C}hinese Embeddings},
+  author    = {Xiao, Shitao and Liu, Zheng and Zhang, Peitian and
+               Muennighoff, Niklas},
+  booktitle = {Proceedings of the 47th International ACM SIGIR Conference on
+               Research and Development in Information Retrieval (SIGIR)},
+  year      = {2024},
+  eprint    = {2309.07597},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+}
+
+% ───────────────────── NOTES-ID (verify the ID before camera-ready) ─────────
+
+% [NOTES-ID] arXiv:2604.11790 per PAPER_NOTES_JUNE3 (ClawGuard; SMU; closest
+% prior art). VERIFY author list + exact title at arxiv.org/abs/2604.11790.
+@article{clawguard2026,
+  title  = {ClawGuard: Deterministic Tool-Call Interception for {OpenClaw} Agents},
+  author = {{ClawGuard Authors (VERIFY)}},
+  journal= {arXiv preprint arXiv:2604.11790},
+  year   = {2026},
+  note   = {Verify authors/title before camera-ready},
+}
+
+% [NOTES-ID] arXiv:2508.01249 per PAPER_NOTES (AgentArmor; program analysis;
+% 95.75\% TPR / 3.66\% FPR AgentDojo).
+@article{agentarmor2026,
+  title  = {AgentArmor: Program Analysis for Agent Tool-Call Security},
+  author = {{AgentArmor Authors (VERIFY)}},
+  journal= {arXiv preprint arXiv:2508.01249},
+  year   = {2025},
+  note   = {Verify authors/title before camera-ready},
+}
+
+% [NOTES-ID] arXiv:2505.03574 per PAPER_NOTES (LlamaFirewall; Meta;
+% PromptGuard 2 + AlignmentCheck).
+@article{saxe2025llamafirewall,
+  title  = {LlamaFirewall: An Open-Source Guardrail System for {LLM} Agents},
+  author = {Saxe, Joshua and others (VERIFY)},
+  journal= {arXiv preprint arXiv:2505.03574},
+  year   = {2025},
+  note   = {Verify authors/title before camera-ready},
+}
+
+% [NOTES-ID] arXiv:2603.11853 per PAPER_NOTES (OpenClaw PRISM; defense-in-depth;
+% ~15.8s p95; tamper-evident audit plane).
+@article{prism2026,
+  title  = {PRISM: Defense-in-Depth Runtime Security for {OpenClaw}},
+  author = {{PRISM Authors (VERIFY)}},
+  journal= {arXiv preprint arXiv:2603.11853},
+  year   = {2026},
+  note   = {Verify authors/title before camera-ready},
+}
+
+% [STUB] DRIFT — Secure Planner + Dynamic Validator + Injection Isolator over
+% the plan representation (cited in §2). NOTE: this key is DRIFT, not MELON;
+% an earlier draft mislabeled it. Verify the arXiv ID and authors.
+@misc{drift2026,
+  title  = {{[STUB] DRIFT: Secure Planner / Dynamic Validator / Injection Isolator}},
+  author = {{TODO — verify DRIFT authors}},
+  year   = {2026},
+  note   = {Key is DRIFT (plan-time guardrail), NOT MELON. Find real arXiv ID.},
+}
+
+% ─────────────────────────────── STUB ──────────────────────────────────────
+% Each entry below is a placeholder so the document compiles. Replace with the
+% real reference or delete the corresponding \cite. Grouped by where it is used.
+
+% §1 — harness/CVE narrative & framing
+@misc{liu2026clawdesign,    title={{[STUB] OpenClaw harness design / 98\%-harness statistic}}, author={{TODO}}, year={2026}, note={Replace}}
+@misc{agentauditkit2026,    title={{[STUB] 30 MCP-layer CVEs in 60 days source}}, author={{TODO}}, year={2026}, note={Replace}}
+@misc{crowdsec2026langflow, title={{[STUB] CrowdSec LangFlow CVE-2025-34291 in-the-wild report}}, author={{CrowdSec}}, year={2026}, note={Replace with report URL}}
+@misc{thenewstack2026openclaw, title={{[STUB] OpenClaw growth / 370k stars source}}, author={{TODO}}, year={2026}, note={Replace}}
+@misc{kapoor2024aiagents,   title={{[STUB] Kapoor et al., AI Agents That Matter}}, author={{Kapoor, Sayash and others}}, year={2024}, note={Verify: likely arXiv:2407.01502}}
+
+% §1/§2 — spatial guardrails positioning
+@misc{wang2025agentspec,    title={{[STUB] AgentSpec}}, author={{Wang and others}}, year={2025}, note={Verify arXiv ID}}
+@misc{luo2025agrail,        title={{[STUB] AGrail}}, author={{Luo and others}}, year={2025}, note={Verify arXiv ID}}
+@misc{chen2025shieldagent,  title={{[STUB] ShieldAgent}}, author={{Chen and others}}, year={2025}, note={Verify arXiv:2503.22738}}
+@misc{debenedetti2025camel, title={{[STUB] CaMeL: capability propagation}}, author={{Debenedetti and others}}, year={2025}, note={Verify arXiv ID}}
+@misc{costa2025fides,       title={{[STUB] FIDES information-flow labels}}, author={{Costa and others}}, year={2025}, note={Verify arXiv ID}}
+@misc{tsai2025conseca,      title={{[STUB] Conseca: LLM-generated context policy}}, author={{Tsai and others}}, year={2025}, note={Verify arXiv:2501.17070}}
+@misc{zhong2025rtbas,       title={{[STUB] RTBAS}}, author={{Zhong and others}}, year={2025}, note={Verify arXiv ID}}
+@misc{jia2025taskshield,    title={{[STUB] TaskShield}}, author={{Jia and others}}, year={2025}, note={Verify arXiv ID}}
+@misc{abdelnabi2024tasktracker, title={{[STUB] TaskTracker}}, author={{Abdelnabi and others}}, year={2024}, note={Verify arXiv ID}}
+
+% §1 — concurrent-work positioning
+@misc{albrethsen2026deepcontext, title={{[STUB] DeepContext intent-distance oracle}}, author={{Albrethsen and others}}, year={2026}, note={Verify}}
+@misc{psgagent2026,         title={{[STUB] PSG-Agent}}, author={{TODO}}, year={2026}, note={Verify}}
+
+% §5/§7 — trajectory & related systems
+@misc{advani2026trajectoryguard, title={{[STUB] Trajectory Guard (F1<=0.69 mean-pooling)}}, author={{Advani and others}}, year={2026}, note={Verify arXiv:2601.00516}}
+@misc{shieldnet2026,        title={{[STUB] ShieldNet}}, author={{TODO}}, year={2026}, note={Replace or remove}}
+@misc{nvidia2025nemoclaw,   title={{[STUB] NVIDIA NeMo guardrails / OpenClaw}}, author={{NVIDIA}}, year={2025}, note={Replace}}
+@misc{tracesafe2026,        title={{[STUB] TraceSafe-Bench}}, author={{TODO}}, year={2026}, note={Replace}}
+
+% Standards (no arXiv) — fill with the canonical citation forms
+@misc{mitre_atlas,  title={{MITRE ATLAS}}, author={{MITRE Corporation}}, year={2026}, howpublished={\url{https://atlas.mitre.org}}, note={Snapshot 2026.05}}
+@misc{mitre_attack, title={{MITRE ATT\&CK Enterprise v19}}, author={{MITRE Corporation}}, year={2026}, howpublished={\url{https://attack.mitre.org}}}
