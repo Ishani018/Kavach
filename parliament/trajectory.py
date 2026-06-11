@@ -67,7 +67,15 @@ DENIAL_ECHO_THRESHOLD: float = 0.68  # cosine above which current echoes a denia
 
 # Hard session ceiling — if combined risk >= this, BLOCK regardless of ministers.
 # Motivated by the independent enforcement gap vs PRISM's scalar graduated blocks.
-TRAJ_BLOCK_CEILING: float = 0.72
+#
+# Empirically calibrated (benchmarks/traj_distribution.py, 2026-06-11): across 10
+# benign and 10 attack multi-step sessions, benign peak traj_risk maxed at 0.497
+# (mean 0.419) and attack peak risk averaged 0.524 (mean), with clean separation
+# at 0.50 — i.e. 0.50 sits just above the observed benign session peak. The prior
+# 0.72 was never reached by any session (benign or attack) and so never fired.
+# Modulating this by COMPASS drift is a natural extension (see §7) but needs
+# drift-seeded calibration data; left to future work.
+TRAJ_BLOCK_CEILING: float = 0.50
 
 # Canonical cross-minister attack patterns (AgentDoG source→consequence taxonomy).
 # Each entry is an ordered subsequence of decided_by values to match in the window.
