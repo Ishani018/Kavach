@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Generate repository diagram
         uses: githubocto/repo-visualizer@0.9.1
@@ -25,4 +27,7 @@ jobs:
           excluded_paths: ".git,node_modules,.venv,.chroma,parliament/.chroma_kavach,__pycache__,paper/tables"
           should_push: true
           commit_message: "chore: update repo diagram.svg [skip ci]"
-          branch: "main"
+          # NOTE: do NOT set `branch:` to the same branch the workflow runs on —
+          # repo-visualizer@0.9.1 runs `git switch -c <branch> --track origin/<branch>`
+          # which fails with "a branch named 'main' already exists" (exit 128) when
+          # it equals the checked-out branch. Omitting it commits to the current ref.
