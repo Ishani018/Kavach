@@ -98,8 +98,9 @@ def test_seed_intent():
         "text": "Help me fix the import error in my Python project",
         "session_id": "itest-001",
     })
-    assert_in("stored key present", resp.get("status", resp.get("stored", "")), ["ok", True, "stored"])
-    dims = resp.get("embedding_dims", resp.get("dims", 0))
+    # Server returns {"ok": true, "session_id": ..., "dim": 768}.
+    assert_in("stored key present", resp.get("ok", resp.get("status", resp.get("stored", ""))), ["ok", True, "stored"])
+    dims = resp.get("dim", resp.get("embedding_dims", resp.get("dims", 0)))
     if dims >= 384:
         ok(f"embedding dims {dims} ≥ 384")
     else:
@@ -137,7 +138,8 @@ def test_intent_drift_block():
         "session_id": "itest-003",
     })
     assert_eq("drift verdict is BLOCK", resp.get("verdict"), "BLOCK", resp)
-    sim = resp.get("similarity", 1.0)
+    # /hook/check_drift returns the intent-cosine as "compass_sim".
+    sim = resp.get("compass_sim", resp.get("similarity", 1.0))
     if sim < 0.55:
         ok(f"cosine similarity {sim:.3f} < 0.55 (correct drift detection)")
     else:
@@ -165,7 +167,7 @@ def test_benign_drift_allow():
         "session_id": "itest-005",
     })
     assert_eq("aligned action is ALLOW", resp.get("verdict"), "ALLOW", resp)
-    sim = resp.get("similarity", 0.0)
+    sim = resp.get("compass_sim", resp.get("similarity", 0.0))
     if sim >= 0.45:
         ok(f"cosine similarity {sim:.3f} ≥ 0.45 (aligned)")
     else:
@@ -248,7 +250,7 @@ def test_router_selectivity():
     if not block_ministers:
         ok("no ministers blocked a benign git log")
     else:
-        fail(f"ministers {block_ministers} blocked a benign git log — possible FP")
+        fail("git log → ALLOW", f"ministers {block_ministers} blocked a benign git log — possible FP")
 
 
 # ─── main ──────────────────────────────────────────────────────────────────────
