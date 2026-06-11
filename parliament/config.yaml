@@ -5,23 +5,14 @@
 # can mutate them without code edits.
 # ───────────────────────────────────────────────────────────────────
 
-# Embedding model — must match the model used by corpus_loader.py.
 embed_model: BAAI/bge-base-en-v1.5
 
-# BGE asymmetric query prefix. Applied ONLY to query inputs, never to corpus
-# documents. This is the documented BGE convention; using a different prefix
-# (or applying it to docs) silently degrades retrieval.
 query_prefix: "Represent this sentence for searching relevant passages: "
 
-# Persistent ChromaDB path. corpus_loader.py writes here; server.py reads.
 chroma_path: ./parliament/.chroma_kavach
 
-# Router config — JSON file with one list of routing descriptions per
-# minister. The router computes max cosine sim against each minister's
-# descriptions and activates ministers above router_min.
 router_config_path: ./kavach_router_config.json
 
-# Ministers (the four attack-category detectors). COMPASS is separate.
 ministers:
   - EXECUTOR
   - VAULT
@@ -31,23 +22,20 @@ ministers:
 compass_collection: COMPASS
 
 # ───────────────────────────────────────────────────────────────────
-# Thresholds — calibrated values to be replaced by Youden's J output
-# from compass_calibrator.py and threshold_sweep.py once we have data.
-# Current values are placeholders carried from the browser lab.
+# Thresholds
 # ───────────────────────────────────────────────────────────────────
 thresholds:
   block:         0.55   # base block — overridden per minister by per_minister below
   grey:          0.50   # ≥ this and < block → minister ESCALATEs
   compass_drift: 0.40   # < this → COMPASS drift detected
-  router_min:    0.40   # ≥ this → minister activated for this query
+  router_min:    0.40   # >= this → minister activated for this query
 
   # Per-minister block thresholds from threshold_sweep.py Youden's J output.
-  # These override the base block value for each minister individually.
-  # Trajectory modulation (from traj_risk) is applied ON TOP of these values.
+  # These override the global block value for each minister individually.
   #
-  # Sweep results (InjecAgent, threshold=Youden J optimal):
+  # Sweep results (InjecAgent, threshold = Youden J optimal):
   #   EXECUTOR: TPR 0.903, FPR 0.471 @ 0.55 — keep low, strongest minister
-  #   VAULT:    TPR 0.839, FPR 0.706 @ 0.55 — corpus too broad, raise to cut FPR
+  #   VAULT:    TPR 0.839, FPR 0.706 @ 0.55 — corpus too broad, raised to cut FPR
   #   CHANNEL:  TPR 0.516, FPR 0.235 @ 0.60
   #   NAVIGATOR:TPR 0.371, FPR 0.294 @ 0.60
   per_minister:
@@ -56,10 +44,32 @@ thresholds:
     CHANNEL:   0.60
     NAVIGATOR: 0.60
 
+  # ── Threshold modulation ownership (IMPORTANT — avoid double-modulation) ──
+  # Two modulators exist. They must NOT both adjust the same base:
+  #   1. server.py  → traj.modulate_threshold(): applies TRAJECTORY risk to the
+  #      per-call block value BEFORE calling the Speaker.
+  #   2. speaker.py → COMPASS drift_factor modulation (below): applies INTENT
+  #      drift inside combine_verdicts.
+  # To keep these orthogonal, server.py passes the per-minister base (not a
+  # re-modulated value) for COMPASS modulation. Set drift_factor: 0.0 to
+  # disable COMPASS modulation entirely and rely on trajectory only.
+  #
+  # Dynamic COMPASS-modulated thresholds (Issue #3)
+  # Formula: effective = base + drift_factor * (compass_sim - 0.5)
+  # Only active when user intent has been seeded (compass_sim < 1.0) AND #9 fixed.
+  #   drift_factor: 0.0 = static, 0.3 = default, 0.5 = aggressive
+  drift_factor:  0.3
+
+  # clip_upper: max upward adjustment (0.0 = alignment NEVER loosens threshold).
+  # Anti-gaming: an attacker keeping actions superficially aligned with intent
+  # cannot raise the threshold.
+  clip_upper:    0.0
+
+  # clip_lower: max downward adjustment (prevents threshold collapse on drift)
+  clip_lower:   -0.15
+
 # ───────────────────────────────────────────────────────────────────
-# Server bind. Default 127.0.0.1:8088 — the OpenClaw plugin's default
-# parliamentUrl. Bind to 0.0.0.0 only if the parliament runs on a
-# different host than the agent.
+# Server bind
 # ───────────────────────────────────────────────────────────────────
 host: 127.0.0.1
 port: 8088
