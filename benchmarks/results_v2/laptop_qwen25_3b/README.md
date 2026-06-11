@@ -30,17 +30,35 @@ Wall-clock: 13:40:13 → 13:41:35 (~82 s for 30 attack cases).
 | **Loose recall** (BLOCK or ESCALATE) | **0.867** (26/30) |
 | **Strict recall** (BLOCK only) | **0.133** (4/30) |
 | Precision (strict) | 1.00 |
-| False positives observed | 0 |
 | Latency p50 / p95 | 2566 ms / 3198 ms (CPU) |
 
 By harm category (strict block rate): Physical 0/10, Financial 3/9, Data Security 1/11.
 
+### Benign FPR gate (`benign_results.json`)
+Run separately against the 17 real benign InjecAgent user instructions
+(`benchmarks/data/user_cases.jsonl`) via `benchmarks/benign_gate_usercases.py`:
+
+| Metric | Value |
+|---|---|
+| Benign cases | 17 (0 errors) |
+| **FPR (block-only)** | **0.0%** (0/17 hard-blocked) |
+| FPR (block-or-escalate) | 23.5% (4/17 escalated) |
+| Latency p50 / p95 | 2534 ms / 3141 ms (CPU) |
+
+**Reading:** at the BLOCK level the laptop config is high-precision — it
+hard-blocks **zero** benign instructions (passes the ≤5% gate) while still
+hard-blocking some attacks. The operating point is shifted toward ESCALATE on
+*both* sides (attacks: loose 0.87 vs strict 0.13; benign: 23.5% escalate vs 0%
+block), i.e. the small CPU backbone produces more human-review flags and fewer
+hard decisions, rather than more false blocks.
+
 ## Honest caveats — read before citing
-1. **No FPR measured.** `--include-benign` only runs benign-paired cases when a
-   case carries a `user_prompt` field; `attacker_cases_dh.jsonl` does not, so
-   `n_benigns = 0`. To get a laptop FPR, run against the paired benign set
-   (`benchmarks/data/user_cases.jsonl`) or the benign-trace gate
-   (`benchmarks/benign_traces.py`). **TODO.**
+1. **FPR measured separately** (the InjecAgent runner has no benign-only mode and
+   `attacker_cases_dh.jsonl` carries no paired `user_prompt`, so its run reported
+   `n_benigns = 0`). The benign gate above was run against the 17 real benign
+   user instructions in `user_cases.jsonl`: **block-only FPR 0.0%**,
+   block-or-escalate FPR 23.5%. Note this is 17 cases — a small sample; treat the
+   23.5% escalate-FPR as indicative, not precise.
 2. **Cross-model agreement is at the *flag* level, not the *block* level.** Loose
    recall generalizes well (0.87) but strict hard-BLOCK recall is low (0.13):
    most attacks land in ESCALATE under the laptop's freshly calibrated
