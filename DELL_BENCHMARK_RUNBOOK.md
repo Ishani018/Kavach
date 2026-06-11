@@ -44,6 +44,16 @@ Do them in order. Each step says what you should see. If it doesn't match, there
 
 **Do not merge any PR.** That is Ishani's job after you confirm the numbers.
 
+**This Dell run is the *primary* configuration** — Gemma\,4 27B on the RTX 4090.
+Its numbers are the paper's headline results. A *secondary*, CPU-only laptop run
+(qwen2.5:3b, same corpus + embedding model) already exists as a cross-model
+generalization check; its artifacts live in
+`benchmarks/results_v2/laptop_qwen25_3b/` and must stay separate from your Dell
+output in `benchmarks/results_v2/`. Do not overwrite or merge the two — the paper
+compares them as primary vs. secondary. You only fill in the Dell (primary) side;
+see `benchmarks/results_v2/PARV_RESULTS.md` and `REPRODUCIBILITY.md`
+("Hardware configurations").
+
 ---
 
 ## STEP 0 — Pull the latest and switch branch

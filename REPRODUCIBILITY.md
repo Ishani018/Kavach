@@ -6,6 +6,36 @@ The whole sequence on a clean lab machine should take 2–4 hours of human-super
 
 ---
 
+## Hardware configurations
+
+Kavach is evaluated on two configurations. The **primary** config produces the
+headline numbers reported in §4/§5; the **secondary** config is a CPU-only,
+small-backbone replication used as a cross-model generalization check (see
+§4 "Cross-model generalization").
+
+| | **Primary (Dell)** | **Secondary (laptop)** |
+|---|---|---|
+| Role | Headline numbers (§4/§5) | Cross-model generalization check |
+| Machine | Dell Precision 3660 | Intel i5-1155G7 laptop, 16 GB RAM |
+| Accelerator | NVIDIA RTX 4090 | CPU only (no GPU) |
+| Agent backbone | Gemma4 27B via Ollama | qwen2.5:3b via Ollama |
+| Embedding model | BAAI/bge-base-en-v1.5 (768-d) | BAAI/bge-base-en-v1.5 (768-d) |
+| Results dir | `benchmarks/results_v2/` | `benchmarks/results_v2/laptop_qwen25_3b/` |
+
+The embedding model and corpus are **identical** across configs — only the
+hardware and the agent backbone differ. This is deliberate: it isolates whether
+parliament decisions are driven by the semantic corpus (shared) or by the
+agent backbone (different). The §4 headline numbers are the Dell primary config.
+The laptop run is secondary and clearly separated in its own results directory;
+it must never be substituted for the primary numbers.
+
+> Note (laptop secondary): on CPU the per-action latency is seconds, not the
+> <300 ms targets below — those latency pass conditions apply to the Dell
+> primary config. The laptop run is for detection-rate generalization, not
+> latency claims.
+
+---
+
 ## Step 0 — Environment
 
 ```bash

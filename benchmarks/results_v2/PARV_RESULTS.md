@@ -2,6 +2,29 @@
 # Fill in every field. Leave nothing blank — put N/A if not run, not "TODO".
 # Commit and push to ishani/trajectory-monitor when complete.
 
+> ## Two-configuration setup (read first)
+>
+> Kavach is evaluated on **two** hardware/backbone configurations:
+>
+> - **Primary (Dell — this document):** Dell Precision 3660, RTX 4090,
+>   **Gemma4 27B** via Ollama, BGE-base 768-d. These are the **headline numbers**
+>   the paper reports in §4/§5. *Everything below is the Dell's job to fill in.*
+> - **Secondary (laptop):** Intel i5 / 16 GB / CPU-only, **qwen2.5:3b** via Ollama,
+>   same BGE model and same corpus. Results live in
+>   `benchmarks/results_v2/laptop_qwen25_3b/` and are reported as a
+>   **cross-model generalization check** (§4 "Cross-model generalization"),
+>   *not* as headline numbers.
+>
+> **What Parv needs to fill in (Dell, primary):** every field in this file —
+> the trajectory live test, InjecAgent recall/FPR/F1/latency with per-minister
+> thresholds, AgentDojo ASR + benign utility, and the latency breakdown. The
+> laptop secondary run is already captured separately and does not depend on the
+> Dell run; the two are compared in the paper, not merged.
+>
+> The comparison only means something if both configs use the **identical corpus
+> and embedding model** (they do) so that any difference is attributable to the
+> agent backbone, not to a different detector.
+
 Date:
 Hardware: Dell Precision 3660, i9-13900, 128GB, RTX 4090
 Kavach branches tested:

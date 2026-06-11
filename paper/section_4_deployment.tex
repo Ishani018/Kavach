@@ -83,4 +83,30 @@ Finally, \texttt{/ledger/verify} re-walks the hash chain and detects
 any post-hoc edit to a recorded decision or its provenance, which we demonstrate
 on a tampered ledger in the appendix.
 
-\inputtable{tables/tab_cost}
+\subsection{Cross-model generalization}
+\label{sec:crossmodel}
+The headline numbers above are measured on the primary configuration
+(Dell~Precision~3660, RTX~4090, Gemma\,4~27B). To test whether parliament
+decisions are driven by the shared semantic corpus rather than by a particular
+agent backbone, we replicate the InjecAgent detection run on a secondary,
+CPU-only configuration (Intel~i5, 16\,GB~RAM) with \texttt{qwen2.5:3b} as the
+agent backbone, holding the embedding model and corpus identical. On this
+secondary configuration the parliament catches \(26/30\) attack actions at the
+block-or-escalate level (loose recall \(0.87\)) with zero request errors, and on
+a separate benign gate of \(17\) natural-language user instructions it
+hard-blocks \emph{none} (block-only FPR \(0.0\%\)); mean per-action latency is
+\(\approx\!2.6\)\,s, reflecting CPU-only embedding rather than the GPU-resident
+primary path. Strict (hard-\textsc{Block}) recall is markedly lower on the
+secondary configuration (\(0.13\)): under the laptop's freshly calibrated
+thresholds the operating point shifts toward \textsc{Escalate} on \emph{both}
+sides---attacks are flagged rather than hard-blocked (strict \(0.13\) vs.\ loose
+\(0.87\)), and \(4/17\) benign instructions escalate (block-or-escalate FPR
+\(23.5\%\)) while none are blocked. Cross-model agreement is therefore at the
+level of \emph{flagging} suspicious actions, not of the final block decision,
+and the hard-\textsc{Block} decisions that do fire remain high-precision (no
+benign hard-blocks observed). We read this as qualified support for backbone
+independence---the shared corpus, not the agent model, drives whether an action
+is flagged---while noting the small benign sample and that a threshold-matched
+comparison against the primary configuration remains \TBD. Table~\TBD{} reports
+the two configurations side by side; full secondary-run artifacts are in
+\texttt{benchmarks/results\_v2/laptop\_qwen25\_3b/}.
