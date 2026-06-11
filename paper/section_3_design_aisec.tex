@@ -137,6 +137,30 @@ The aggregation is a pure veto: a single \textsc{Block} suffices, with no
 confidence-weighted averaging. \S\ref{sec:frontier} studies this choice
 empirically against Bayesian and hybrid alternatives under adaptive attack.
 
+\paragraph{Bayesian alternative: priors are estimated, not fixed.}
+The Bayesian aggregator we compare against in \S\ref{sec:frontier} does not use
+hardcoded conditional probabilities. Its prior and per-Minister reliabilities are
+maintained as Beta--Bernoulli posteriors over ground-truth-labelled outcomes.
+The block prior is the shrinkage estimate
+\begin{equation}
+\hat{\pi}_{\text{block}} = \alpha\,\frac{b}{N} + (1-\alpha)\,\pi_0,
+\qquad \alpha = \min\!\left(\tfrac{N}{100},\,1\right),
+\end{equation}
+where $b$ is the number of \textsc{Block} ground-truth labels among $N$ labelled
+ledger entries and $\pi_0$ a weak default. Each Minister's reliability
+$r_{m,v}$ for vote type $v$ is the running posterior mean of a
+Beta$(\cdot)$ updated as
+\begin{equation}
+r_{m,v} \leftarrow \frac{r_{m,v}\,n_{m,v} + \mathbb{1}[\text{vote correct}]}{n_{m,v}+1},
+\qquad n_{m,v} \leftarrow n_{m,v}+1 .
+\end{equation}
+Crucially, these updates are applied \emph{offline} against verified ground
+truth and never at inference time. This is a deliberate security decision:
+allowing the runtime to fabricate its own ``ground truth'' from underdetermined
+self-decisions would create a feedback channel an adversary could poison to
+drift the priors. The deployed Speaker is the deterministic veto above; the
+Bayesian path is an analyzed alternative, not the enforcement path.
+
 \subsection{Taxonomy-grounded provenance}
 \label{sec:provenance}
 Every verdict carries a provenance chain that grounds it in a structured
@@ -178,6 +202,15 @@ OpenClaw plugin interface:
 The plugin is configured via \texttt{openclaw.plugin.json} and requires only
 \texttt{KAVACH\_URL} (default: \texttt{http://localhost:8000}) and
 \texttt{SESSION\_ID} to be present in the OpenClaw runtime environment.
+
+We emphasize that Kavach itself is \emph{not} an OpenClaw component: all
+detection logic --- embedding, the four Ministers, the Speaker, and the Ledger
+--- lives in \texttt{parliament/server.py}, a standalone ASGI (FastAPI) service
+exposing HTTP endpoints. The OpenClaw plugin is a $\sim$150-line adapter that
+renders a tool call to text and \texttt{POST}s it; any agent framework that can
+issue an HTTP request at a pre-execution hook integrates against the same
+service without modification. The framework binding is an adapter, not a
+dependency.
 
 \subsection{Design Decisions and Trade-offs}
 

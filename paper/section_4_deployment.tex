@@ -77,7 +77,31 @@ from up to nine to one, and measured latency is \TBD\,ms p50 / \TBD\,ms p95 ---
 an order of magnitude below lifecycle-instrumenting scanners
 (PRISM~\cite{prism2026} $\approx$15.8\,s p95; AgentArmor~\cite{agentarmor2026}
 $\approx$20.9\,s). We report cost jointly with detection rather than in
-isolation (Table~\ref{tab:cost}).
+isolation (Table~\ref{tab:cost}). All headline detection numbers are cold
+transfer from third-party benchmarks (InjecAgent~\cite{zhan2024injecagent},
+AgentDojo~\cite{debenedetti2024agentdojo}) whose attacks the corpus was not
+authored against; the synthetic generator (\texttt{make\_synthetic.py}) is used
+\emph{only} to validate that the \S\ref{sec:frontier} estimator recovers a
+known injected error-correlation $\rho$, and never as an evaluation of the
+detector against its own payloads.
+
+\paragraph{Semantic triage, not a regex fast path.}
+Cost is controlled by a two-stage semantic pipeline rather than a syntactic
+pre-filter. A single query embedding is computed once per action (the embed-once
+optimization above) and reused by a lightweight router that gates which
+Ministers fire: a Minister is activated only when the action's cosine similarity
+to that Minister's domain descriptors exceeds $\theta_{\text{route}}$ (0.40),
+so a typical action runs one or two Ministers rather than all four. This router
+is Kavach's triage layer. We deliberately do \emph{not} add a zero-LLM
+regex/AST fast path: the central finding of \S\ref{sec:repmismatch} is that
+attacks expressed in natural-language register evade tool-call/technique-syntax
+matching, so a syntactic pre-filter would reintroduce exactly the representation
+mismatch the semantic corpus exists to close, and would silently pass the
+fluent-language attacks Kavach is designed to catch. A complementary
+optimization that is \emph{safe} because it never suppresses a detection is a
+deterministic allowlist for provably benign calls (e.g.\ workspace-scoped
+read-only operations) evaluated before embedding; we leave this latency
+refinement to future work.
 
 Finally, \texttt{/ledger/verify} re-walks the hash chain and detects
 any post-hoc edit to a recorded decision or its provenance, which we demonstrate
