@@ -5,12 +5,12 @@ parliament/server.py
 
 Kavach Parliament — production HTTP service.
 
-Replaces the Stage-I demo (kavach_parliament_demo.py, port 8080) which used a
-hardcoded 25-description corpus and one shared ChromaDB collection. This server
-loads the full kavach_corpus_v1.json into FIVE separate collections (one per
-minister + COMPASS), uses BGE mean pooling, and applies the asymmetric query
-prefix. Same wire format as the Stage-I server so existing callers (the post-
-hoc monitor, the embedding lab) keep working.
+v2.1 changes (hybrid retrieval):
+- BM25 indexes built at startup for each minister collection
+- run_minister_hybrid() used instead of run_minister() — fuses BM25 + dense
+  with Reciprocal Rank Fusion (RRF, k=60) to reduce false positive rate
+- Graceful fallback to dense-only if rank_bm25 not installed
+- /health now reports retrieval_mode: "hybrid" or "dense"
 
 Default port: 8088 (the OpenClaw plugin defaults to this URL).
 
@@ -23,9 +23,6 @@ Endpoints:
 
 Run:
     python -m uvicorn parliament.server:app --host 127.0.0.1 --port 8088
-
-Or directly:
-    python parliament/server.py
 """
 
 from __future__ import annotations
@@ -47,22 +44,34 @@ import numpy as np
 import uvicorn
 import yaml
 from chromadb.config import Settings
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
-# Support both: `uvicorn parliament.server:app` (package mode, relative imports work)
-# and `python parliament/server.py` (script mode, need to add project root to path).
 try:
-    from .ministers import MinisterScan, run_minister, run_minister_dual
+    from .ministers import (
+        MinisterScan,
+        run_minister,
+        run_minister_dual,
+        run_minister_hybrid,
+        run_minister_dual_hybrid,
+        build_bm25_index,
+    )
     from .speaker import SpeakerVerdict, combine_verdicts
     from . import trajectory as traj
     from . import provenance as prov
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from parliament.ministers import MinisterScan, run_minister, run_minister_dual
+    from parliament.ministers import (
+        MinisterScan,
+        run_minister,
+        run_minister_dual,
+        run_minister_hybrid,
+        run_minister_dual_hybrid,
+        build_bm25_index,
+    )
     from parliament.speaker import SpeakerVerdict, combine_verdicts
     from parliament import trajectory as traj
     from parliament import provenance as prov
@@ -110,7 +119,7 @@ CFG = _load_config()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Global state — model, chroma client, router, session intent vectors, ledger
+# Global state
 # ──────────────────────────────────────────────────────────────────────────────
 
 from collections import defaultdict
@@ -120,6 +129,7 @@ _state: dict[str, Any] = {
     "chroma":     None,
     "collections": {},      # minister name → chroma Collection (v1 semantic corpus)
     "tech_collections": {},  # minister name → chroma Collection (technical precision corpus)
+    "bm25_indexes": {},      # minister name → bm25 index dict (built at startup)
     "router":     None,
     "intents":    {},    # session_id → np.ndarray (BGE vector of user intent)
     "history":    defaultdict(traj.new_history),  # session_id → deque[ActionRecord]
@@ -152,8 +162,7 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Routing — pick which ministers to activate based on cosine distance to each
-# minister's domain centroid (precomputed from kavach_router_config.json)
+# Routing
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _route(text: str) -> list[str]:
@@ -163,7 +172,6 @@ def _route(text: str) -> list[str]:
     threshold = CFG["thresholds"]["router_min"]
 
     for minister, descriptions in _state["router"].items():
-        # Score: max cosine across all routing descriptions for this minister.
         max_sim = 0.0
         for desc in descriptions:
             doc_vec = _embed_doc(desc)
@@ -173,11 +181,8 @@ def _route(text: str) -> list[str]:
         if max_sim >= threshold:
             activated.append(minister)
 
-    # Always activate at least one minister — fall back to the highest-scoring
-    # one if none crossed the threshold. Better to over-evaluate than to skip.
     if not activated:
-        log.info("router: no minister crossed %.2f, falling back to all four",
-                 threshold)
+        log.info("router: no minister crossed %.2f, falling back to all four", threshold)
         return list(_state["router"].keys())
 
     return activated
@@ -252,6 +257,7 @@ def _init_db() -> None:
             traj_risk       REAL,
             latency_ms      REAL,
             provenance_json TEXT,
+            retrieval_mode  TEXT,
             prev_hash       TEXT,
             entry_hash      TEXT
         )
@@ -266,6 +272,8 @@ def _init_db() -> None:
         conn.execute("ALTER TABLE votes ADD COLUMN entry_hash TEXT")
     if "provenance_json" not in cols:
         conn.execute("ALTER TABLE votes ADD COLUMN provenance_json TEXT")
+    if "retrieval_mode" not in cols:
+        conn.execute("ALTER TABLE votes ADD COLUMN retrieval_mode TEXT")
     conn.commit()
     conn.close()
 
@@ -322,6 +330,7 @@ def _log_vote(
     latency_ms: float,
     traj_risk: float | None = None,
     provenance: dict | None = None,
+    retrieval_mode: str = "dense",
 ) -> None:
     conn = sqlite3.connect(DB_PATH)
     row = {
@@ -346,19 +355,20 @@ def _log_vote(
         """INSERT INTO votes
            (ts, session_id, correlation_id, stage, input_text, verdict,
             decided_by, confidence, reason, ministers_json, compass_sim,
-            traj_risk, latency_ms, provenance_json, prev_hash, entry_hash)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            traj_risk, latency_ms, provenance_json, retrieval_mode, prev_hash, entry_hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (*[row[k] for k in (
             "ts", "session_id", "correlation_id", "stage", "input_text",
             "verdict", "decided_by", "confidence", "reason", "ministers_json",
-            "compass_sim", "traj_risk", "latency_ms", "provenance_json")], prev_hash, entry_hash),
+            "compass_sim", "traj_risk", "latency_ms", "provenance_json")],
+         retrieval_mode, prev_hash, entry_hash),
     )
     conn.commit()
     conn.close()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Lifespan — load model, chroma collections, router on startup
+# Lifespan — load model, chroma collections, BM25 indexes, router
 # ──────────────────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -366,8 +376,6 @@ async def lifespan(app: FastAPI):
     log.info("loading BGE model: %s", CFG["embed_model"])
     _state["model"] = SentenceTransformer(CFG["embed_model"])
 
-    # Resolve chroma_path relative to parliament/ directory (ROOT) so that
-    # relative paths in config.yaml work regardless of the CWD at launch.
     chroma_path = Path(CFG["chroma_path"])
     if not chroma_path.is_absolute():
         chroma_path = (ROOT.parent / chroma_path).resolve()
@@ -378,8 +386,6 @@ async def lifespan(app: FastAPI):
         settings=Settings(anonymized_telemetry=False),
     )
 
-    # Collection names: attack ministers use kavach_<minister_lower>,
-    # COMPASS uses kavach_compass_calibration (matches corpus_loader.py DEFAULT_COLLECTIONS).
     _COLL_NAMES = {
         "EXECUTOR":  "kavach_executor",
         "VAULT":     "kavach_vault",
@@ -402,7 +408,7 @@ async def lifespan(app: FastAPI):
             )
             raise
 
-    # Load technical precision collections (supplementary; non-fatal if absent).
+    # Load technical precision collections (non-fatal if absent)
     _TECH_NAMES = {
         "EXECUTOR":  "kavach_executor_tech",
         "VAULT":     "kavach_vault_tech",
@@ -423,17 +429,40 @@ async def lifespan(app: FastAPI):
             _state["tech_collections"][_minister] = None
             log.info("tech collection %s not found — using v1 only", _minister)
 
+    # ── Build BM25 indexes for hybrid retrieval (FPR fix) ────────────────────
+    log.info("building BM25 indexes for hybrid retrieval...")
+    _hybrid_available = False
+    for minister in CFG["ministers"]:
+        try:
+            idx = build_bm25_index(_state["collections"][minister])
+            _state["bm25_indexes"][minister] = idx
+            if idx:
+                log.info("BM25 index built: %s (%d docs)",
+                         minister, idx["bm25"].corpus_size)
+                _hybrid_available = True
+            else:
+                log.warning(
+                    "BM25 index skipped for %s (rank_bm25 not installed — "
+                    "run: pip install rank-bm25)", minister
+                )
+        except Exception as e:
+            log.warning("BM25 index build failed for %s: %s", minister, e)
+            _state["bm25_indexes"][minister] = None
+
+    retrieval_mode = "hybrid" if _hybrid_available else "dense"
+    log.info("retrieval mode: %s", retrieval_mode)
+    _state["retrieval_mode"] = retrieval_mode
+
     log.info("loading router config: %s", CFG["router_config_path"])
     with open(CFG["router_config_path"]) as f:
         _router_full = json.load(f)
-    # Extract routing_corpus sub-key (the full JSON has version/description/reversibility_tiers too)
     _state["router"] = _router_full.get("routing_corpus", _router_full)
-    # Remove COMPASS from router — it always runs, never needs routing
     _state["router"].pop("COMPASS", None)
     log.info("router loaded ministers: %s", list(_state["router"].keys()))
 
     _init_db()
-    log.info("parliament ready on %s:%d", CFG["host"], CFG["port"])
+    log.info("parliament ready on %s:%d  [retrieval=%s]",
+             CFG["host"], CFG["port"], retrieval_mode)
     yield
     log.info("parliament shutting down")
 
@@ -444,8 +473,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Kavach Parliament API",
-    version="2.0.0",
-    description="Semantic firewall for OpenClaw agents",
+    version="2.1.0",
+    description="Semantic firewall for LLM agents — hybrid BM25+dense retrieval",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -472,10 +501,11 @@ class ParliamentRequest(BaseModel):
 
 
 class MinisterResult(BaseModel):
-    verdict:    str
-    confidence: float
-    matched_id: str | None = None
-    matched_text: str | None = None
+    verdict:        str
+    confidence:     float
+    matched_id:     str | None = None
+    matched_text:   str | None = None
+    retrieval_mode: str = "dense"
 
 
 class ParliamentResponse(BaseModel):
@@ -487,6 +517,7 @@ class ParliamentResponse(BaseModel):
     compass_sim:    float | None
     traj_risk:      float | None = None
     activated:      list[str]
+    retrieval_mode: str
     correlation_id: str
     latency_ms:     float
     ts:             str
@@ -499,15 +530,16 @@ class ParliamentResponse(BaseModel):
 @app.get("/health")
 async def health() -> dict[str, Any]:
     return {
-        "status":      "ok",
-        "service":     "Kavach Parliament API",
-        "version":     "2.0.0",
-        "host":        CFG["host"],
-        "port":        CFG["port"],
-        "model":       CFG["embed_model"],
-        "ministers":   list(CFG["ministers"]),
-        "thresholds":  CFG["thresholds"],
-        "doc_counts":  {
+        "status":         "ok",
+        "service":        "Kavach Parliament API",
+        "version":        "2.1.0",
+        "host":           CFG["host"],
+        "port":           CFG["port"],
+        "model":          CFG["embed_model"],
+        "ministers":      list(CFG["ministers"]),
+        "thresholds":     CFG["thresholds"],
+        "retrieval_mode": _state.get("retrieval_mode", "dense"),
+        "doc_counts": {
             m: _state["collections"][m].count()
             for m in CFG["ministers"] + [CFG["compass_collection"]]
         },
@@ -517,26 +549,19 @@ async def health() -> dict[str, Any]:
 
 @app.post("/hook/seed_intent")
 async def seed_intent(req: IntentRequest) -> dict[str, Any]:
-    """Stage II — store user intent vector for COMPASS drift checks."""
-    vec = _embed_query(req.text)
-    _state["intents"][req.session_id] = vec
-    return {
-        "ok":         True,
-        "session_id": req.session_id,
-        "dim":        int(vec.shape[0]),
-    }
+    vec = _state["intents"][req.session_id] = _embed_query(req.text)
+    return {"ok": True, "session_id": req.session_id, "dim": int(vec.shape[0])}
 
 
 @app.post("/hook/check_drift")
 async def check_drift(req: ParliamentRequest) -> dict[str, Any]:
-    """Stage IV — COMPASS-only drift check vs stored intent."""
     drift, sim = _compass_drift(req.session_id, req.text)
     return {
-        "session_id":      req.session_id,
-        "compass_sim":     sim,
-        "drift_detected":  drift,
-        "threshold":       CFG["thresholds"]["compass_drift"],
-        "verdict":         "BLOCK" if drift else "ALLOW",
+        "session_id":     req.session_id,
+        "compass_sim":    sim,
+        "drift_detected": drift,
+        "threshold":      CFG["thresholds"]["compass_drift"],
+        "verdict":        "BLOCK" if drift else "ALLOW",
     }
 
 
@@ -574,28 +599,48 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         traj_risk=traj_res.risk,
     )
 
-    # Step 2: Router selects ministers.
+    # Step 2: Router
     activated = _route(req.text)
 
-    # Step 3: Run activated ministers in parallel (sharing action_vec + the
-    # trajectory-modulated thresholds for this call).
+    # Step 3: Run activated ministers in parallel — hybrid BM25+dense retrieval
+    # when an index exists, sharing action_vec (embed-once) and the
+    # trajectory-modulated per-minister thresholds for this call.
     loop = asyncio.get_event_loop()
-    minister_tasks = [
-        loop.run_in_executor(
-            None,
-            run_minister_dual if _state["tech_collections"].get(minister) else run_minister,
-            minister,
-            req.text,
-            _state["collections"][minister],
-            *([_state["tech_collections"][minister]]
-              if _state["tech_collections"].get(minister) else []),
-            _embed_query,
-            _get_minister_thresholds(minister, call_thresholds),
-            10,
-            action_vec,
-        )
-        for minister in activated
-    ]
+    minister_tasks = []
+    for minister in activated:
+        bm25_idx  = _state["bm25_indexes"].get(minister)
+        tech_coll = _state["tech_collections"].get(minister)
+        m_thresholds = _get_minister_thresholds(minister, call_thresholds)
+
+        if tech_coll:
+            task = loop.run_in_executor(
+                None,
+                run_minister_dual_hybrid,
+                minister,
+                req.text,
+                _state["collections"][minister],
+                tech_coll,
+                bm25_idx,
+                _embed_query,
+                m_thresholds,
+                10,
+                action_vec,
+            )
+        else:
+            task = loop.run_in_executor(
+                None,
+                run_minister_hybrid,
+                minister,
+                req.text,
+                _state["collections"][minister],
+                bm25_idx,
+                _embed_query,
+                m_thresholds,
+                10,
+                action_vec,
+            )
+        minister_tasks.append(task)
+
     minister_results: list[MinisterScan] = await asyncio.gather(*minister_tasks)
 
     # Step 4: Speaker combines verdicts (under the modulated thresholds).
@@ -628,24 +673,20 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
             confidence=r.confidence,
             matched_id=r.matched_id,
             matched_text=r.matched_text,
+            retrieval_mode=r.retrieval_mode,
         )
 
     pattern = (
         "intent_drift" if drift and speaker_v.verdict == "BLOCK"
-        else (minister_results[0].matched_id if minister_results
-              and minister_results[0].verdict == "BLOCK"
-              else "none")
+        else (
+            minister_results[0].matched_id
+            if minister_results and minister_results[0].verdict == "BLOCK"
+            else "none"
+        )
     )
 
-    # Provenance: ground the deciding verdict in the cyber taxonomy
-    # (matched pattern → technique → tactic → kill-chain stage). The "winner"
-    # is the highest-confidence BLOCK minister, else the highest-confidence
-    # minister overall. Trajectory-ceiling blocks have no single minister
-    # source, so they record a session-trajectory provenance basis.
+    # Provenance
     if speaker_v.decided_by == "TRAJECTORY":
-        # Session-level block from the trajectory ceiling: NO single minister
-        # caused it, so we must not cite a minister's technique (that would be
-        # a false provenance). Emit a dedicated trajectory provenance.
         provenance = prov.trajectory_provenance()
     elif minister_results:
         blockers = [r for r in minister_results if r.verdict == "BLOCK"]
@@ -654,6 +695,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     else:
         provenance = prov.resolve(None, "")
     provenance_dict = provenance.to_dict()
+    active_retrieval = _state.get("retrieval_mode", "dense")
 
     _log_vote(
         session_id=req.session_id,
@@ -666,9 +708,10 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         reason=speaker_v.reason,
         ministers={
             m: {
-                "verdict":     r.verdict,
-                "confidence":  r.confidence,
-                "matched_id":  r.matched_id,
+                "verdict":        r.verdict,
+                "confidence":     r.confidence,
+                "matched_id":     r.matched_id,
+                "retrieval_mode": r.retrieval_mode,
             }
             for m, r in zip(activated, minister_results)
         },
@@ -676,6 +719,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         latency_ms=latency_ms,
         traj_risk=round(traj_res.risk, 4),
         provenance=provenance_dict,
+        retrieval_mode=active_retrieval,
     )
 
     return ParliamentResponse(
@@ -690,6 +734,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         provenance=provenance_dict,
         compass_sim=compass_sim if drift or _state["intents"].get(req.session_id) is not None else None,
         traj_risk=round(traj_res.risk, 4),
+        retrieval_mode=active_retrieval,
         activated=activated,
         correlation_id=correlation_id,
         latency_ms=round(latency_ms, 2),
@@ -765,7 +810,7 @@ async def ledger(limit: int = 100) -> dict[str, Any]:
     rows = conn.execute(
         """SELECT ts, session_id, correlation_id, stage, input_text, verdict,
                   decided_by, confidence, reason, ministers_json, compass_sim,
-                  traj_risk, latency_ms
+                  traj_risk, latency_ms, retrieval_mode
            FROM votes ORDER BY id DESC LIMIT ?""",
         (limit,),
     ).fetchall()
@@ -786,16 +831,17 @@ async def ledger(limit: int = 100) -> dict[str, Any]:
             "compass_sim":    r[10],
             "traj_risk":      r[11],
             "latency_ms":     r[12],
+            "retrieval_mode": r[13] or "dense",
         }
         for r in rows
     ]
 
     return {
-        "total":   len(votes),
-        "blocked": sum(1 for v in votes if v["verdict"] == "BLOCK"),
-        "allowed": sum(1 for v in votes if v["verdict"] == "ALLOW"),
+        "total":    len(votes),
+        "blocked":  sum(1 for v in votes if v["verdict"] == "BLOCK"),
+        "allowed":  sum(1 for v in votes if v["verdict"] == "ALLOW"),
         "escalated": sum(1 for v in votes if v["verdict"] == "ESCALATE"),
-        "votes":   votes,
+        "votes":    votes,
     }
 
 
