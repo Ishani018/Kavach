@@ -101,11 +101,16 @@
 % [STUB] DRIFT — Secure Planner + Dynamic Validator + Injection Isolator over
 % the plan representation (cited in §2). NOTE: this key is DRIFT, not MELON;
 % an earlier draft mislabeled it. Verify the arXiv ID and authors.
+% [VERIFIED] arXiv:2506.12104, NeurIPS 2025. Secure Planner / Dynamic Validator /
+% Injection Isolator match the stub description exactly. Li, Liu, Chiu, Li, Zhang, Xiao.
+% (Year corrected 2026 -> 2025; the paper is a 2025 preprint.)
 @misc{drift2026,
-  title  = {{[STUB] DRIFT: Secure Planner / Dynamic Validator / Injection Isolator}},
-  author = {{TODO — verify DRIFT authors}},
-  year   = {2026},
-  note   = {Key is DRIFT (plan-time guardrail), NOT MELON. Find real arXiv ID.},
+  title  = {{DRIFT: Dynamic Rule-Based Defense with Injection Isolation for Securing LLM Agents}},
+  author = {Li, Hao and Liu, Xiaogeng and Chiu, Hung-Chun and Li, Dianqi and Zhang, Ning and Xiao, Chaowei},
+  year   = {2025},
+  eprint = {2506.12104},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
 }
 
 % ─────────────────────────────── STUB ──────────────────────────────────────
@@ -117,26 +122,154 @@
 @misc{agentauditkit2026,    title={{[STUB] 30 MCP-layer CVEs in 60 days source}}, author={{TODO}}, year={2026}, note={Replace}}
 @misc{crowdsec2026langflow, title={{[STUB] CrowdSec LangFlow CVE-2025-34291 in-the-wild report}}, author={{CrowdSec}}, year={2026}, note={Replace with report URL}}
 @misc{thenewstack2026openclaw, title={{[STUB] OpenClaw growth / 370k stars source}}, author={{TODO}}, year={2026}, note={Replace}}
-@misc{kapoor2024aiagents,   title={{[STUB] Kapoor et al., AI Agents That Matter}}, author={{Kapoor, Sayash and others}}, year={2024}, note={Verify: likely arXiv:2407.01502}}
+% [VERIFIED] arXiv:2407.01502. Kapoor, Stroebl, Siegel, Nadgir, Narayanan (2024).
+@misc{kapoor2024aiagents,
+  title  = {{AI Agents That Matter}},
+  author = {Kapoor, Sayash and Stroebl, Benedikt and Siegel, Zachary S. and Nadgir, Nitya and Narayanan, Arvind},
+  year   = {2024},
+  eprint = {2407.01502},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+}
 
 % §1/§2 — spatial guardrails positioning
-@misc{wang2025agentspec,    title={{[STUB] AgentSpec}}, author={{Wang and others}}, year={2025}, note={Verify arXiv ID}}
-@misc{luo2025agrail,        title={{[STUB] AGrail}}, author={{Luo and others}}, year={2025}, note={Verify arXiv ID}}
-@misc{chen2025shieldagent,  title={{[STUB] ShieldAgent}}, author={{Chen and others}}, year={2025}, note={Verify arXiv:2503.22738}}
-@misc{debenedetti2025camel, title={{[STUB] CaMeL: capability propagation}}, author={{Debenedetti and others}}, year={2025}, note={Verify arXiv ID}}
-@misc{costa2025fides,       title={{[STUB] FIDES information-flow labels}}, author={{Costa and others}}, year={2025}, note={Verify arXiv ID}}
-@misc{tsai2025conseca,      title={{[STUB] Conseca: LLM-generated context policy}}, author={{Tsai and others}}, year={2025}, note={Verify arXiv:2501.17070}}
-@misc{zhong2025rtbas,       title={{[STUB] RTBAS}}, author={{Zhong and others}}, year={2025}, note={Verify arXiv ID}}
-@misc{jia2025taskshield,    title={{[STUB] TaskShield}}, author={{Jia and others}}, year={2025}, note={Verify arXiv ID}}
-@misc{abdelnabi2024tasktracker, title={{[STUB] TaskTracker}}, author={{Abdelnabi and others}}, year={2024}, note={Verify arXiv ID}}
+% [VERIFIED] arXiv:2503.18666. Wang, Poskitt, Sun (2025).
+@misc{wang2025agentspec,
+  title  = {{AgentSpec: Customizable Runtime Enforcement for Safe and Reliable LLM Agents}},
+  author = {Wang, Haoyu and Poskitt, Christopher M. and Sun, Jun},
+  year   = {2025},
+  eprint = {2503.18666},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+}
+% [VERIFIED] arXiv:2502.11448, ACL 2025. Luo, Dai, Liu, Banerjee, Sun, Chen, Xiao.
+@misc{luo2025agrail,
+  title  = {{AGrail: A Lifelong Agent Guardrail with Effective and Adaptive Safety Detection}},
+  author = {Luo, Weidi and Dai, Shenghong and Liu, Xiaogeng and Banerjee, Suman and Sun, Huan and Chen, Muhao and Xiao, Chaowei},
+  year   = {2025},
+  eprint = {2502.11448},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+}
+% [VERIFIED] arXiv:2503.22738, ICML 2025. Chen, Kang, Li.
+@misc{chen2025shieldagent,
+  title  = {{ShieldAgent: Shielding Agents via Verifiable Safety Policy Reasoning}},
+  author = {Chen, Zhaorun and Kang, Mintong and Li, Bo},
+  year   = {2025},
+  eprint = {2503.22738},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+}
+% [VERIFIED] arXiv:2503.18813. NOTE: "CaMeL" is the system; the paper title is
+% "Defeating Prompt Injections by Design." Debenedetti, Shumailov, et al. (2025).
+@misc{debenedetti2025camel,
+  title  = {{Defeating Prompt Injections by Design}},
+  author = {Debenedetti, Edoardo and Shumailov, Ilia and Fan, Tianqi and Hayes, Jamie and Carlini, Nicholas and Fabian, Daniel and Kern, Christoph and Shi, Chongyang and Terzis, Andreas and Tram{\`e}r, Florian},
+  year   = {2025},
+  eprint = {2503.18813},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+}
+% [VERIFIED] arXiv:2505.23643. "Securing AI Agents with Information-Flow Control."
+% Costa, K{\"o}pf, et al. (Microsoft Research, 2025).
+@misc{costa2025fides,
+  title  = {{Securing AI Agents with Information-Flow Control}},
+  author = {Costa, Manuel and K{\"o}pf, Boris and Others},
+  year   = {2025},
+  eprint = {2505.23643},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+  note   = {Introduces FIDES. Verify full author list at arxiv.org/abs/2505.23643.},
+}
+% [VERIFIED] arXiv:2501.17070. "Contextual Agent Security: A Policy for Every
+% Purpose" (Conseca). Tsai, Bagdasarian (2025).
+@misc{tsai2025conseca,
+  title  = {{Contextual Agent Security: A Policy for Every Purpose}},
+  author = {Tsai, Lillian and Bagdasarian, Eugene},
+  year   = {2025},
+  eprint = {2501.17070},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+}
+% [VERIFIED] arXiv:2502.08966. Zhong, Chen, et al. (CMU, 2025).
+@misc{zhong2025rtbas,
+  title  = {{RTBAS: Defending LLM Agents Against Prompt Injection and Privacy Leakage}},
+  author = {Zhong, Peter Yong and Chen, Siyuan and Others},
+  year   = {2025},
+  eprint = {2502.08966},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+  note   = {Verify full author list at arxiv.org/abs/2502.08966.},
+}
+% [VERIFIED] arXiv:2412.16682, ACL 2025. Jia, Wu, Qin, Squicciarini (2024).
+@misc{jia2025taskshield,
+  title  = {{The Task Shield: Enforcing Task Alignment to Defend Against Indirect Prompt Injection in LLM Agents}},
+  author = {Jia, Feiran and Wu, Tong and Qin, Xin and Squicciarini, Anna},
+  year   = {2024},
+  eprint = {2412.16682},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+}
+% [VERIFIED] arXiv:2406.00799. "Are you still on track!? Catching LLM Task Drift
+% with Activations" (TaskTracker). Abdelnabi et al. (2024).
+@misc{abdelnabi2024tasktracker,
+  title  = {{Are you still on track!? Catching LLM Task Drift with Activations}},
+  author = {Abdelnabi, Sahar and Fay, Aideen and Cherubin, Giovanni and Salem, Ahmed and Fritz, Mario and Paverd, Andrew},
+  year   = {2024},
+  eprint = {2406.00799},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+  note   = {Verify full author list at arxiv.org/abs/2406.00799.},
+}
 
 % §1 — concurrent-work positioning
-@misc{albrethsen2026deepcontext, title={{[STUB] DeepContext intent-distance oracle}}, author={{Albrethsen and others}}, year={2026}, note={Verify}}
-@misc{psgagent2026,         title={{[STUB] PSG-Agent}}, author={{TODO}}, year={2026}, note={Verify}}
+% [VERIFIED] arXiv:2602.16935 (Feb 2026). "intent distance" matches the stub's
+% "intent-distance oracle". AUTHORS UNVERIFIED — could not confirm the "Albrethsen"
+% author from the abstract; verify the full author list before camera-ready.
+@misc{albrethsen2026deepcontext,
+  title  = {{DeepContext: Stateful Real-Time Detection of Multi-Turn Adversarial Intent Drift in LLMs}},
+  author = {{DeepContext authors --- VERIFY at arxiv.org/abs/2602.16935}},
+  year   = {2026},
+  eprint = {2602.16935},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+  note   = {AUTHOR LIST UNVERIFIED — stub said "Albrethsen"; confirm before submission.},
+}
+% [VERIFIED] arXiv:2509.23614 (Sept 2025; stub said 2026). Guo et al. Verify full list.
+@misc{psgagent2026,
+  title  = {{PSG-Agent: Personality-Aware Safety Guardrail for LLM-based Agents}},
+  author = {Guo, Jizhou and Others},
+  year   = {2025},
+  eprint = {2509.23614},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+  note   = {Year corrected 2026 -> 2025. Verify full author list at arxiv.org/abs/2509.23614.},
+}
 
 % §5/§7 — trajectory & related systems
-@misc{advani2026trajectoryguard, title={{[STUB] Trajectory Guard (F1<=0.69 mean-pooling)}}, author={{Advani and others}}, year={2026}, note={Verify arXiv:2601.00516}}
-@misc{shieldnet2026,        title={{[STUB] ShieldNet}}, author={{TODO}}, year={2026}, note={Replace or remove}}
+% [VERIFIED] arXiv:2601.00516 (Jan 2026). Suspected ID was correct.
+% CAUTION: stub says "F1<=0.69 mean-pooling" but the paper reports the mean-pooling
+% BASELINE at F1~0.82 and its own model at 0.88-0.94 — re-check the stat you cite.
+@misc{advani2026trajectoryguard,
+  title  = {{Trajectory Guard: A Lightweight, Sequence-Aware Model for Real-Time Anomaly Detection in Agentic AI}},
+  author = {{Trajectory Guard authors --- VERIFY at arxiv.org/abs/2601.00516}},
+  year   = {2026},
+  eprint = {2601.00516},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+  note   = {AUTHOR LIST UNVERIFIED. Also re-check the cited F1 figure (baseline ~0.82, not 0.69).},
+}
+% [VERIFIED] arXiv:2604.04426 (April 2026). "ShieldNet: Network-Level Guardrails
+% against Emerging Supply-Chain Injections in Agentic Systems."
+@misc{shieldnet2026,
+  title  = {{ShieldNet: Network-Level Guardrails against Emerging Supply-Chain Injections in Agentic Systems}},
+  author = {{ShieldNet authors --- VERIFY at arxiv.org/abs/2604.04426}},
+  year   = {2026},
+  eprint = {2604.04426},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+  note   = {AUTHOR LIST UNVERIFIED. Confirm before submission.},
+}
 @misc{nvidia2025nemoclaw,   title={{[STUB] NVIDIA NeMo guardrails / OpenClaw}}, author={{NVIDIA}}, year={2025}, note={Replace}}
 @misc{tracesafe2026,        title={{[STUB] TraceSafe-Bench}}, author={{TODO}}, year={2026}, note={Replace}}
 
