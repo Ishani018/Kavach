@@ -270,9 +270,66 @@
   primaryClass  = {cs.CR},
   note   = {AUTHOR LIST UNVERIFIED. Confirm before submission.},
 }
+
+% ─── Cited in CODE (parliament/speaker.py, parliament/trajectory.py) ──────────
+% These are referenced by arXiv ID in source comments (the denial-echo /
+% causality-laundering and cross-minister-escalation trajectory logic), so they
+% MUST appear in the paper — reviewers cross-check.
+%
+% [VERIFIED] arXiv:2604.04035 (April 2026). System name "ARM" (Agentic Reference
+% Monitor); paper title is about causality laundering. Matches trajectory.py's
+% denial-echo leg.
+@misc{arm2026causalitylaundering,
+  title  = {{Causality Laundering: Denial-Feedback Leakage in Tool-Calling LLM Agents}},
+  author = {{ARM authors --- VERIFY at arxiv.org/abs/2604.04035}},
+  year   = {2026},
+  eprint = {2604.04035},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+  note   = {Introduces ARM (Agentic Reference Monitor). AUTHOR LIST UNVERIFIED. Cited in parliament/trajectory.py and speaker.py.},
+}
+% [VERIFIED] arXiv:2601.18491 (Jan 2026). Shanghai AI Lab (AI45Lab); ~43 authors.
+% Matches the cross-minister escalation reference in trajectory.py/speaker.py.
+@misc{agentdog2026,
+  title  = {{AgentDoG: A Diagnostic Guardrail Framework for AI Agent Safety and Security}},
+  author = {{AgentDoG authors (Shanghai AI Lab) --- VERIFY at arxiv.org/abs/2601.18491}},
+  year   = {2026},
+  eprint = {2601.18491},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR},
+  note   = {~43 authors; use a shortened author+et al. form. AUTHOR LIST UNVERIFIED. Cited in parliament/trajectory.py and speaker.py.},
+}
+
 @misc{nvidia2025nemoclaw,   title={{[STUB] NVIDIA NeMo guardrails / OpenClaw}}, author={{NVIDIA}}, year={2025}, note={Replace}}
 @misc{tracesafe2026,        title={{[STUB] TraceSafe-Bench}}, author={{TODO}}, year={2026}, note={Replace}}
 
 % Standards (no arXiv) — fill with the canonical citation forms
 @misc{mitre_atlas,  title={{MITRE ATLAS}}, author={{MITRE Corporation}}, year={2026}, howpublished={\url{https://atlas.mitre.org}}, note={Snapshot 2026.05}}
 @misc{mitre_attack, title={{MITRE ATT\&CK Enterprise v19}}, author={{MITRE Corporation}}, year={2026}, howpublished={\url{https://attack.mitre.org}}}
+
+% Red-team / scanning tools (software, no arXiv) — cited in related_work_table.tex.
+% garak also has a paper (arXiv:2406.11036, "garak: A Framework for Security
+% Probing Large Language Models"); the software URL is the canonical cite.
+@misc{garak2024,
+  title  = {{garak: A Framework for Security Probing Large Language Models}},
+  author = {Derczynski, Leon and Galinkin, Erick and Martin, Jeffrey and Majumdar, Subho and Inie, Nanna},
+  year   = {2024},
+  eprint = {2406.11036},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+  note   = {[VERIFIED] NVIDIA. Software: \url{https://github.com/NVIDIA/garak}. garak = Generative AI Red-teaming and Assessment Kit.},
+}
+@misc{pyrit2024,
+  title  = {{PyRIT: Python Risk Identification Tool for generative AI}},
+  author = {{Microsoft AI Red Team}},
+  year   = {2024},
+  howpublished = {\url{https://github.com/Azure/PyRIT}},
+  note   = {Microsoft red-teaming framework.},
+}
+@misc{llmguard2024,
+  title  = {{LLM Guard: a security toolkit for LLM interactions}},
+  author = {{Protect AI}},
+  year   = {2024},
+  howpublished = {\url{https://github.com/protectai/llm-guard}},
+  note   = {Open-source input/output scanner suite.},
+}

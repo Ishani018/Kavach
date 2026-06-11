@@ -61,6 +61,12 @@ DeepContext & session & RNN over embeds & no & binary & n/r & n/r \\
 Trajectory Guard & trajectory & Siamese RAE & no & score & n/r & n/r \\
 \midrule
 
+% ─── Red-team / scanning tools (offensive testing + open I/O filters) ─────────
+garak \cite{garak2024} & input (test) & vuln.\ probes & yes (probes) & per-probe & n/r & n/r \\
+PyRIT \cite{pyrit2024} & input (test) & red-team orch. & yes (attacks) & {\em n/a} & n/r & n/r \\
+LLM-Guard \cite{llmguard2024} & input/output & detector suite & yes (scanners) & threshold & n/r & n/r \\
+\midrule
+
 % ─── Commercial baseline ──────────────────────────────────────────────────────
 DKnownAI Guard & mixed & ensemble & partial & threshold & n/r & 96.5\% \\
 Lakera Guard & input & classifier & no & threshold & n/r & n/r \\
@@ -76,4 +82,11 @@ the call unconditionally; COMPASS drift escalates unless a minister blocks first
 No score averaging. See Definition~3 and Claim~1 in \S\ref{sec:temporal-spatial}.
 \textbf{Corpus extensibility} (Kavach): new attack patterns are added as natural-language
 descriptions, re-embedded into ChromaDB without retraining any model component.
+\textbf{Red-team / scanning tools} are complementary, not competing: garak
+\cite{garak2024} (NVIDIA) and PyRIT \cite{pyrit2024} (Microsoft) are
+\emph{offensive} test harnesses that probe a model/agent for vulnerabilities
+pre-deployment rather than enforce at runtime, and LLM-Guard \cite{llmguard2024}
+is an input/output scanner suite operating at the prompt boundary rather than the
+tool-call boundary. Kavach is orthogonal: a runtime, tool-call-time enforcement
+layer that these tools can be used to red-team.
 \end{table*}
