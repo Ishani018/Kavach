@@ -73,16 +73,6 @@ Most production agent runtimes have **no pre-execution interception point** — 
 
 ## 3. How the Whole System Fits Together
 
-### Repository structure
-
-Auto-generated on every push to `main` by the
-[repo-visualizer](https://github.com/githubocto/repo-visualizer) GitHub Action
-(`.github/workflows/repo-visualizer.yml`):
-
-![Repository diagram](./diagram.svg)
-
-### Data flow
-
 ```
 ┌─────────────────────────────────────────────────────────┐
 │              OpenClaw Agent (--local mode)               │
