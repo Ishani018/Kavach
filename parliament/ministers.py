@@ -281,7 +281,9 @@ def run_minister_hybrid(
     res = collection.query(
         query_embeddings=[q_list],
         n_results=min(top_k, bm25_index["bm25"].corpus_size),
-        include=["distances", "metadatas", "documents", "ids"],
+        # NOTE: ChromaDB >=0.5.5 dropped "ids" as a valid include value — ids are
+        # always returned in the result regardless, so we read res["ids"] below.
+        include=["distances", "metadatas", "documents"],
     )
 
     if not res or not res.get("distances") or not res["distances"][0]:
