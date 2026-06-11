@@ -140,22 +140,35 @@ class BayesianSpeaker:
             return 1.0
         return 1.0 / (1.0 + (n_votes - 1) * self.rho)
 
+    @staticmethod
+    def _normalize_vote(vote: str) -> str:
+        # The live parliament emits a three-way verdict {ALLOW, ESCALATE, BLOCK},
+        # but the Bayesian aggregator reasons over the binary {ALLOW, BLOCK}.
+        # ESCALATE is a grey-zone flag — a minister saw something near, but below,
+        # its block threshold. It is NOT a definitive block, so we fold it into
+        # ALLOW: a grey-zone vote contributes non-blocking evidence and never, on
+        # its own, pushes the posterior toward BLOCK. This is the conservative
+        # (no-over-block) reading and keeps offline §5 replay from crashing on the
+        # ESCALATE votes that real minister_runs.jsonl dumps contain.
+        return "ALLOW" if vote == "ESCALATE" else vote
+
     def _likelihood(self, vote: MinisterVote, candidate_decision: str) -> float:
         # ISSUE 1: ABSTAIN is exactly neutral (1.0 for both -> cancels).
         if vote.vote == "ABSTAIN":
             return 1.0
+        vote_value = self._normalize_vote(vote.vote)
         # Validate vote value — unknown strings must not silently skew results
-        if vote.vote not in DECISIONS:
+        if vote_value not in DECISIONS:
             raise ValueError(f"Invalid vote '{vote.vote}' from {vote.minister}; "
-                             f"expected one of {DECISIONS + ['ABSTAIN']}")
-        r = self.store.get(vote.minister, vote.vote)
+                             f"expected one of {DECISIONS + ['ESCALATE', 'ABSTAIN']}")
+        r = self.store.get(vote.minister, vote_value)
         c = vote.confidence
         # NaN/inf guard: math.isfinite catches both; comparisons with NaN are
         # always False so the plain clamp below would let NaN through.
         if not (isinstance(c, (int, float)) and math.isfinite(c)):
             raise ValueError(f"Non-finite confidence {c!r} from {vote.minister}")
         c = max(0.01, min(0.99, c))
-        if vote.vote == candidate_decision:
+        if vote_value == candidate_decision:
             return c * r + (1 - c) * (1 - r)
         return (1 - c) * r + c * (1 - r)
 
