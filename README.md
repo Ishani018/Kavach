@@ -1,5 +1,26 @@
 # Kavach — Runtime Semantic Firewall for LLM Agents
 
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full interactive diagram.
+
+```mermaid
+flowchart LR
+  A["Agent\nLLM host"] -->|"tool call"| B["OpenClaw\nplugin"]
+  B -->|"HTTP"| C["Parliament\nserver.py"]
+  C --> D(("COMPASS\nintent cosine"))
+  C --> E["Trajectory\nmonitor"]
+  C --> F["4 Ministers\nEXECUTOR · VAULT · CHANNEL · NAVIGATOR"]
+  F --> G["Speaker\npure veto"]
+  E -->|"ceiling breach"| G
+  D -->|"drift"| G
+  G --> H["Provenance\nATLAS · ATT&CK · CWE"]
+  H --> I[("Ledger\nSHA-256 chain")]
+  H -->|"BLOCK / ALLOW"| B
+```
+
+
+
 > **⚠ Artifact status (June 10 audit):** The InjecAgent recall and benign-FPR figures in this document are from the June 1 Dell runs, but the raw per-case outputs were **not committed** (`benchmarks/results_v1/benign/` contains only `.gitkeep`). Treat them as preliminary until re-run and committed to `results_v2/` (Dell P0 items 1–3). Do not cite in the paper without the committed artifacts.
 
 
