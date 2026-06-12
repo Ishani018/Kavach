@@ -73,7 +73,7 @@ See ROADMAP.md Phase 1.2 for exact code.
 | `parliament/speaker.py` | hard ceiling Case 0 (D): traj_risk >= TRAJ_BLOCK_CEILING → BLOCK decided_by=TRAJECTORY |
 | `parliament/server.py` | wire current_vec into trajectory_risk, traj_risk into combine_verdicts, is_denial into record_action |
 | `ROADMAP.md` | NEW — full strategic roadmap, phase plan, PR map, AISec 2026 submission guide |
-| `DELL_BENCHMARK_RUNBOOK.md` | NEW — Parv's complete Dell guide (trajectory test, InjecAgent, AgentDojo) |
+| `PARV_DELL_RUNBOOK.md` | Parv's complete Dell guide (trajectory test, InjecAgent, AgentDojo) — supersedes the older DELL_BENCHMARK_RUNBOOK.md |
 | `MASTER_PLAN.md` | trajectory.py added to Workstream B, §7 limitation updated |
 
 # Kavach Lab Findings — June 2, 2026
