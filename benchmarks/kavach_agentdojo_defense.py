@@ -106,7 +106,6 @@ KAVACH_TIMEOUT = float(os.environ.get("KAVACH_TIMEOUT", "10"))
 
 try:
     from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
-    from agentdojo.types import ChatMessage
 
     class KavachDefense(BasePipelineElement):
         """Wraps the Kavach parliament as an AgentDojo defense.
@@ -201,16 +200,36 @@ try:
             # ALLOW or fail-open: pass through unchanged
             return query, runtime, env, messages, extra_args
 
-        def _format_tool_call(self, query: str, messages: list[ChatMessage]) -> str:
-            """Format the pending tool call as a parliament-scorable string."""
-            # Walk the message list backwards to find the most recent tool call
+        @staticmethod
+        def _attr(obj, key, default=None):
+            """Read `key` whether obj is a dict or a pydantic/attr object."""
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return getattr(obj, key, default)
+
+        def _format_tool_call(self, query: str, messages: list) -> str:
+            """Format the pending tool call as a parliament-scorable string.
+
+            AgentDojo (0.1.x) passes pydantic ChatMessage objects whose
+            tool_calls are FunctionCall objects (attribute access), not dicts.
+            We handle both shapes so the adapter works across versions.
+            """
             for msg in reversed(messages):
-                if not isinstance(msg, dict):
-                    continue
-                if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                    tc   = msg["tool_calls"][0]
-                    name = tc.get("function", {}).get("name", "unknown")
-                    args = tc.get("function", {}).get("arguments", "{}")
+                role = self._attr(msg, "role")
+                tcs = self._attr(msg, "tool_calls")
+                if role == "assistant" and tcs:
+                    tc = tcs[0]
+                    # FunctionCall in this version exposes .function (name) and
+                    # .args; older dict shape nests under "function".
+                    fn = self._attr(tc, "function")
+                    if fn is not None:
+                        name = self._attr(fn, "name", "unknown")
+                        args = self._attr(fn, "arguments", "{}")
+                    else:
+                        name = self._attr(tc, "function", None) or \
+                               self._attr(tc, "name", "unknown")
+                        args = self._attr(tc, "args", None) or \
+                               self._attr(tc, "arguments", "{}")
                     return f"tool:{name} args:{args}"
             return query
 
