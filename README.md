@@ -406,7 +406,7 @@ See [TEAM.md](TEAM.md) for full ownership table and workstream split.
 [DONE] ✅  Minister logic — complete, dual-corpus support
 [DONE] ✅  OpenClaw plugin — fixed for OC 2026.4.15
 [DONE] ✅  PR-1 patch spec + vitest tests — complete
-[DONE] ✅  Corpus — 200 patterns across four ministers (50 per minister, corpus_v2)
+[DONE] ✅  Corpus — 400 patterns across four ministers (100 per minister, kavach_corpus_v1.json)
 [DONE] ✅  InjecAgent benchmark — 1,054 cases, 98.4% recall
 [DONE] ✅  Benign FPR gate — 2.1% at threshold 0.725
 [DONE] ✅  Live interception proved on Dell (June 1)
