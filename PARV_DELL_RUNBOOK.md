@@ -1,8 +1,9 @@
 # Parv — Dell Benchmark Runbook (single source of truth)
 
 **Follow this top to bottom. Everything runs from `main`. Do not switch branches.**
-This supersedes `DELL_BENCHMARK_RUNBOOK.md` and `GPU_RUNBOOK_ADDENDUM.md` — if
-anything there conflicts with this file, **this file wins.**
+This is the operational runbook. `GPU_RUNBOOK_ADDENDUM.md` is a companion
+reference that maps each Dell output to the paper finding it fills (F-1 latency,
+F-2 InjecAgent, D-4 AgentDojo) — read this file to run, that one to see why.
 
 - **Hardware:** Dell Precision 3660 · i9-13900 · 128 GB · RTX 4090
 - **Agent model:** Gemma 4 27B via Ollama (fallback: Qwen2.5 32B if Gemma fails tool-calling)

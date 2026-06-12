@@ -318,7 +318,7 @@ which is what it was always supposed to be.
 ---
 
 ## Phase 2 — Dell Work (Parv, now → week 3)
-*See DELL_BENCHMARK_RUNBOOK.md for exact commands.*
+*See PARV_DELL_RUNBOOK.md for exact commands.*
 
 ### 2.1 Pull and verify trajectory-monitor branch (week 1)
 - Pull `ishani/trajectory-monitor` after Ishani pushes v2 (Phase 1.1)
@@ -345,7 +345,7 @@ which is what it was always supposed to be.
 - This is the must-have number for the paper. Target: ASR ≤ 5%.
 
 ### 2.5 OpenClaw-native staged attack (week 1-2)
-- Run the 5-step cred→search→exfil attack scenario (in DELL_BENCHMARK_RUNBOOK.md)
+- Run the 5-step cred→search→exfil attack scenario (in PARV_DELL_RUNBOOK.md)
 - Capture ledger output showing traj_risk climbing and TRAJECTORY block firing
 - Screenshot/export as paper figure evidence
 
