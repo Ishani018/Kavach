@@ -1,8 +1,11 @@
 # parliament/config.yaml
 # ───────────────────────────────────────────────────────────────────
-# Kavach Parliament configuration. Loaded by parliament/server.py at
-# startup. All thresholds are externalized here so threshold_sweep.py
-# can mutate them without code edits.
+# Kavach Parliament configuration. Loaded verbatim by parliament/server.py at
+# startup (_load_config); the values below ARE what the live server uses.
+# Calibration scripts (threshold_sweep.py, compass_calibrator.py) compute optimal
+# values and write them to *_calibration.json; those numbers must be copied INTO
+# this file to take effect — the server does NOT read the calibration JSONs at
+# runtime. Keep this file in sync with the latest calibration before any run.
 # ───────────────────────────────────────────────────────────────────
 
 embed_model: BAAI/bge-base-en-v1.5
@@ -27,7 +30,10 @@ compass_collection: COMPASS
 thresholds:
   block:         0.55   # base block — overridden per minister by per_minister below
   grey:          0.50   # ≥ this and < block → minister ESCALATEs
-  compass_drift: 0.40   # < this → COMPASS drift detected
+  compass_drift: 0.585  # < this → COMPASS drift detected. Youden's-J optimal from
+                        # compass_calibration.json (TPR 0.86 / FPR 0.14, J=0.72).
+                        # Was 0.40 (TPR 0.22, barely fires) — stale; the live server
+                        # runs 0.585. Re-run compass_calibrator.py to regenerate.
   router_min:    0.40   # >= this → minister activated for this query
 
   # Per-minister block thresholds from threshold_sweep.py Youden's J output.

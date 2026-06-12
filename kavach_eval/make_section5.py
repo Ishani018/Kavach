@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -114,10 +115,15 @@ rate as an adaptive attacker corrupts $K$ ministers. Measured on
 # ── §5 ablation table ────────────────────────────────────────────────────────
 
 def ablation_table(runs, rho, synthetic) -> str:
-    sp = speaker_bayesian.BayesianSpeaker(
-        store=speaker_bayesian.ReliabilityStore(f"/tmp/kavach_s5_{rho}.json"),
-        rho=rho)
-    abl = eh.ablation_n_ministers(runs, sp)
+    # Fresh reliability store in a unique temp dir per invocation: portable
+    # (no hardcoded /tmp, which does not exist on Windows) and prevents a stale
+    # Beta-Bernoulli posterior from leaking across runs and skewing the §5 table.
+    with tempfile.TemporaryDirectory(prefix="kavach_s5_") as _td:
+        sp = speaker_bayesian.BayesianSpeaker(
+            store=speaker_bayesian.ReliabilityStore(
+                os.path.join(_td, f"kavach_s5_{rho}.json")),
+            rho=rho)
+        abl = eh.ablation_n_ministers(runs, sp)
     body = []
     for label, m in abl.items():
         body.append(f"{label.replace('_', ' ')} & {_pct(m.asr)} & {_pct(m.fpr)} "
