@@ -21,7 +21,7 @@ activates the relevant ministers, which retrieve against their corpora in
 parallel; and the Speaker aggregates their verdicts under the trajectory
 ceiling before returning BLOCK / ESCALATE / ALLOW.
 
-The system exposes a single HTTP endpoint \texttt{POST /parliament/evaluate}
+The system exposes a single HTTP endpoint \texttt{POST /hook/parliament}
 that the OpenClaw plugin (\S\ref{sec:plugin}) calls synchronously in the
 \texttt{pre\_tool\_call} hook. The endpoint returns a JSON verdict
 \texttt{\{decision, confidence, ministers\_fired, compass\_score,
@@ -56,37 +56,30 @@ and from contemporaneous work such as NemoClaw~\cite{nvidia2025nemoclaw}, which
 enforces a single boundary at the pipeline entry point.
 
 \paragraph{Ministers.}
-Each activated Minister runs a two-tier scan:
-
-\begin{enumerate}
-  \item \textbf{Syntactic tier (L1).} Regex and exact-match rules over the
-        raw action string. Matches produce an \texttt{L1\_hit} flag and a
-        severity label. High-severity L1 hits short-circuit to \textsc{Block}
-        without invoking the semantic tier.
-  \item \textbf{Semantic tier (L2/L3).} The action embedding is compared via
-        cosine distance against every pattern in the Minister's ChromaDB
-        collection. A hit is declared when
-        $\cos(\mathbf{a}, \mathbf{p}) \geq \theta_{\min}$ where
-        $\theta_{\min} = 0.45$ (Config\,B; see \S\ref{sec:eval}).
-        The hit is labelled with the matching pattern's L1/L2/L3 descriptors
-        for the verdict log.
-\end{enumerate}
+Each activated Minister performs a semantic scan: the action embedding is
+compared via cosine distance against every pattern in the Minister's
+ChromaDB collection. A hit is declared when
+$\cos(\mathbf{a}, \mathbf{p}) \geq \theta_{\min}$ where
+$\theta_{\min} = 0.45$ (Config\,B; see \S\ref{sec:eval}).
+Each corpus pattern carries L1/L2/L3 descriptors (intent $\to$ mechanism
+$\to$ surface) that are propagated into the verdict log for provenance
+(described in \S\ref{sec:provenance}).
 
 The four domain-bound Ministers and their attack-surface coverage:
 
 \begin{itemize}
   \item \textbf{EXECUTOR} — code execution, process injection, persistence
-        mechanisms, container escape (100 patterns; MITRE ATT\&CK T1059,
+        mechanisms, container escape (50 patterns; MITRE ATT\&CK T1059,
         T1055, T1053, T1611 and sub-techniques).
   \item \textbf{VAULT} — credential access, secret file reads, metadata service
-        queries, platform keychain enumeration (100 patterns; T1552, T1528,
+        queries, platform keychain enumeration (50 patterns; T1552, T1528,
         T1555 and sub-techniques).
   \item \textbf{CHANNEL} — data exfiltration via any outbound channel: HTTP/S,
-        DNS, SMTP, cloud storage, git push, covert channels (100 patterns;
+        DNS, SMTP, cloud storage, git push, covert channels (50 patterns;
         T1048, T1567, T1102 and sub-techniques).
   \item \textbf{NAVIGATOR} — session trajectory anomalies: post-task
         persistence, scope widening, recon sequences, anti-forensic actions
-        (100 patterns; OWASP Agentic Top 10 2026 A01, T1083, T1082, T1070).
+        (50 patterns; OWASP Agentic Top 10 2026 A01, T1083, T1082, T1070).
 \end{itemize}
 
 \paragraph{COMPASS.}
@@ -165,7 +158,7 @@ OpenClaw plugin interface:
 
 \begin{itemize}
   \item \textbf{\texttt{pre\_tool\_call}}: synchronously calls
-        \texttt{/parliament/evaluate} before the agent executes a tool.
+        \texttt{/hook/parliament} before the agent executes a tool.
         On \textsc{Block} or \textsc{Escalate}, the plugin throws
         \texttt{KavachBlockError} or \texttt{KavachEscalateError}, preventing
         tool execution.
@@ -175,9 +168,9 @@ OpenClaw plugin interface:
         mode: all tool calls are blocked and an operator alert is raised.
 \end{itemize}
 
-The plugin is configured via \texttt{openclaw.plugin.json} and requires only
-\texttt{KAVACH\_URL} (default: \texttt{http://localhost:8000}) and
-\texttt{SESSION\_ID} to be present in the OpenClaw runtime environment.
+The plugin is configured via \texttt{openclaw.plugin.json} with
+\texttt{parliamentUrl} (default: \texttt{http://127.0.0.1:8088}) and
+\texttt{SESSION\_ID} in the OpenClaw runtime environment.
 
 \subsection{Design Decisions and Trade-offs}
 
