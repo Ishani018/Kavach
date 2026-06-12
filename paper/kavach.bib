@@ -114,11 +114,36 @@
 % Each entry below is a placeholder so the document compiles. Replace with the
 % real reference or delete the corresponding \cite. Grouped by where it is used.
 
-% §1 — harness/CVE narrative & framing
-@misc{liu2026clawdesign,    title={{[STUB] OpenClaw harness design / 98\%-harness statistic}}, author={{TODO}}, year={2026}, note={Replace}}
-@misc{agentauditkit2026,    title={{[STUB] 30 MCP-layer CVEs in 60 days source}}, author={{TODO}}, year={2026}, note={Replace}}
-@misc{crowdsec2026langflow, title={{[STUB] CrowdSec LangFlow CVE-2025-34291 in-the-wild report}}, author={{CrowdSec}}, year={2026}, note={Replace with report URL}}
-@misc{thenewstack2026openclaw, title={{[STUB] OpenClaw growth / 370k stars source}}, author={{TODO}}, year={2026}, note={Replace}}
+% §1/§2 — harness/CVE narrative & framing
+% NOTE: the former [STUB] liu2026clawdesign (98%-harness stat) and
+% thenewstack2026openclaw (370k-stars stat) were removed — those precise figures
+% were not independently sourceable, so the prose was softened to remove them
+% rather than cite an unverifiable number.
+% [VERIFIED] agent-wars.com deep-dive, 13 Mar 2026.
+@misc{agentauditkit2026,
+  title  = {{MCP Security 2026: 30 CVEs in 60 Days --- What Went Wrong}},
+  author = {{Agent Wars Security Research}},
+  year   = {2026},
+  howpublished = {\url{https://agent-wars.com/news/2026-03-13-mcp-security-2026-30-cves-in-60-days-what-went-wrong}},
+  note   = {Documents 30 MCP-layer CVEs disclosed Jan--Feb 2026.},
+}
+% [VERIFIED] CrowdSec VulnTracking report, 26 Jan 2026.
+@misc{crowdsec2026langflow,
+  title  = {{CVE-2025-34291 Exploited in the Wild: LangFlow AI Framework Under Fire}},
+  author = {{CrowdSec}},
+  year   = {2026},
+  howpublished = {\url{https://www.crowdsec.net/vulntracking-report/cve-2025-34291}},
+  note   = {Active exploitation observed beginning 23 Jan 2026.},
+}
+% [VERIFIED] Ctrl-Alt-Intel threat-intel analysis, Mar 2026. Attributes
+% CVE-2025-34291 exploitation to the Iranian APT MuddyWater for initial access.
+@misc{ctrlaltintel2026muddywater,
+  title  = {{MuddyWater Exposed: Inside an Iranian APT Operation}},
+  author = {{Ctrl-Alt-Intel}},
+  year   = {2026},
+  howpublished = {\url{https://ctrlaltintel.com/research/MuddyWater/}},
+  note   = {Links CVE-2025-34291 exploitation to MuddyWater initial access. Source for the README CVE table's MuddyWater attribution; not currently \cite{}d in the paper body.},
+}
 % [VERIFIED] arXiv:2407.01502. Kapoor, Stroebl, Siegel, Nadgir, Narayanan (2024).
 @misc{kapoor2024aiagents,
   title  = {{AI Agents That Matter}},
@@ -220,9 +245,8 @@
 }
 
 % §1 — concurrent-work positioning
-% [VERIFIED] arXiv:2602.16935 (Feb 2026). "intent distance" matches the stub's
-% "intent-distance oracle". AUTHORS UNVERIFIED — could not confirm the "Albrethsen"
-% author from the abstract; verify the full author list before camera-ready.
+% [VERIFIED] arXiv:2602.16935 (Feb 2026). Authors confirmed (Albrethsen, Datta,
+% Kumar, Rajasekar). "intent distance" matches our intent-distance framing.
 @misc{albrethsen2026deepcontext,
   title  = {{DeepContext: Stateful Real-Time Detection of Multi-Turn Adversarial Intent Drift in LLMs}},
   author = {Albrethsen, Justin and Datta, Yash and Kumar, Kunal and Rajasekar, Sharath},
@@ -289,15 +313,24 @@
 % Matches the cross-minister escalation reference in trajectory.py/speaker.py.
 @misc{agentdog2026,
   title  = {{AgentDoG: A Diagnostic Guardrail Framework for AI Agent Safety and Security}},
-  author = {{AgentDoG authors (Shanghai AI Lab) --- VERIFY at arxiv.org/abs/2601.18491}},
+  author = {Liu, Dongrui and Ren, Qihan and Qian, Chen and Shao, Shuai and Xie, Yuejin and others},
   year   = {2026},
   eprint = {2601.18491},
   archivePrefix = {arXiv},
   primaryClass  = {cs.CR},
-  note   = {~43 authors; use a shortened author+et al. form. AUTHOR LIST UNVERIFIED. Cited in parliament/trajectory.py and speaker.py.},
+  note   = {[VERIFIED] Shanghai AI Lab (AI45Lab); 41+ authors, shortened form. Cited in parliament/trajectory.py and speaker.py.},
 }
 
-@misc{nvidia2025nemoclaw,   title={{[STUB] NVIDIA NeMo guardrails / OpenClaw}}, author={{NVIDIA}}, year={2025}, note={Replace}}
+% [VERIFIED] arXiv:2310.10501, EMNLP 2023 (system demo). NVIDIA NeMo Guardrails.
+@misc{nvidia2025nemoclaw,
+  title  = {{NeMo Guardrails: A Toolkit for Controllable and Safe LLM Applications with Programmable Rails}},
+  author = {Rebedea, Traian and Dinu, Razvan and Sreedhar, Makesh and Parisien, Christopher and Cohen, Jonathan},
+  year   = {2023},
+  eprint = {2310.10501},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+  note   = {NVIDIA programmable-rails guardrail toolkit.},
+}
 
 % Standards (no arXiv) — fill with the canonical citation forms
 @misc{mitre_atlas,  title={{MITRE ATLAS}}, author={{MITRE Corporation}}, year={2026}, howpublished={\url{https://atlas.mitre.org}}, note={Snapshot 2026.05}}

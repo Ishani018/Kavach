@@ -8,11 +8,11 @@
 
 Modern LLM agents are composite systems: a language model provides the
 reasoning surface, while the harness provides tool dispatch, context management,
-multi-turn state, and persistence. Liu et al.~\cite{liu2026clawdesign} observe
-that the harness now accounts for approximately 98\% of source lines in
-production agent deployments, with the model contributing roughly 2\%. This
-structural inversion has a direct security consequence: the harness, not the
-model, is the dominant attack surface.
+multi-turn state, and persistence. In production agent deployments the harness
+now accounts for the overwhelming majority of source lines, with the model
+contributing only a small fraction. This structural inversion has a direct
+security consequence: the harness, not the model, is the dominant attack
+surface.
 
 Agent harnesses expose several classes of latent vulnerabilities.
 \emph{Configuration-as-code} attacks exploit declarative configuration that
