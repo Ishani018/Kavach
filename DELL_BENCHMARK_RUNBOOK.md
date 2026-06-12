@@ -1,3 +1,8 @@
+> ⛔ **SUPERSEDED — do not follow this file.** Use **`PARV_DELL_RUNBOOK.md`** instead.
+> It is the single, self-consistent runbook (everything on `main`, port 8088,
+> endpoint `/hook/parliament`, ceiling 0.50, the `compass_drift=0.585` pre-flight).
+> This older file is kept only for reference and has stale branch/port/ceiling steps.
+
 # Dell Benchmark Runbook — Parv
 ### Everything you need to run on the Dell. Top to bottom. No gaps.
 
