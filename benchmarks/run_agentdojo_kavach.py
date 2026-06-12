@@ -59,6 +59,42 @@ from agentdojo.types import (
 )
 
 
+def _extract_first_json_object(text: str):
+    """Return the first balanced {...} JSON object in text, or None.
+
+    Robust to markdown code fences, a trailing bare '>' or '</function>', and
+    surrounding prose — we scan for the first '{' and track brace depth (while
+    respecting strings) to find its matching '}'.
+    """
+    depth = 0
+    in_str = False
+    esc = False
+    start = -1
+    for i, ch in enumerate(text):
+        if start == -1:
+            if ch == "{":
+                start = i
+                depth = 1
+            continue
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+    return None
+
+
 def _parse_tolerant(completion: str):
     default = _ChatAssistantMessage(
         role="assistant",
@@ -69,14 +105,14 @@ def _parse_tolerant(completion: str):
     if not open_match:
         return default
     fn = open_match.group(1).strip()
-    start = open_match.end()
-    # Accept "</function>" OR a bare ">" as the closer; take the earliest.
-    end = len(completion)
-    for closer in ("</function>", ">"):
-        i = completion.find(closer, start)
-        if i != -1:
-            end = min(end, i)
-    raw = completion[start:end].strip().rstrip(">").strip()
+    tail = completion[open_match.end():]
+    # Strip markdown code fences, then pull the first balanced JSON object —
+    # tolerant of bare '>' / '</function>' / ``` fences / surrounding text.
+    tail = tail.replace("```json", " ").replace("```", " ")
+    raw = _extract_first_json_object(tail)
+    if raw is None:
+        # No braces at all → treat as a zero-arg call (valid per the prompt spec).
+        raw = "{}"
     try:
         params = _json.loads(raw)
         tool_calls = [_FunctionCall(function=fn, args=params)]
