@@ -131,12 +131,22 @@ try:
             self,
             query: str,
             runtime: Any,
-            env: Any,
-            messages: list[ChatMessage],
-            tools: list,
+            env: Any = None,
+            messages: Any = (),
+            extra_args: dict | None = None,
             **kwargs: Any,
-        ) -> tuple[str, list[ChatMessage]]:
-            """Called by AgentDojo before each tool-call step."""
+        ):
+            """Screen the latest tool output before it returns to the LLM.
+
+            AgentDojo (0.1.x) pipeline-element contract: takes and returns the
+            5-tuple (query, runtime, env, messages, extra_args). KavachDefense
+            sits inside the ToolsExecutionLoop, so it sees each tool result; if
+            the parliament returns BLOCK, we replace the latest message content
+            with a refusal so the injected instruction never reaches the model.
+            """
+            if extra_args is None:
+                extra_args = {}
+            messages = list(messages)
             self._call_count += 1
             tool_text = self._format_tool_call(query, messages)
             session_id = f"{KAVACH_SESSION}-{id(env)}"
@@ -170,7 +180,13 @@ try:
                         f"This action was blocked by the Kavach security monitor. "
                         f"Reason: {reason[:120]}"
                     )
-                    return refusal, messages
+                    # Neutralize the latest message content (the tool output that
+                    # would carry the injection) with the refusal.
+                    if messages:
+                        last = dict(messages[-1])
+                        last["content"] = refusal
+                        messages[-1] = last
+                    return refusal, runtime, env, messages, extra_args
 
                 log.debug(
                     "[KavachDefense] %s call=%d traj_risk=%.3f",
@@ -182,8 +198,8 @@ try:
             except Exception as exc:
                 log.warning("[KavachDefense] parliament unreachable: %s — failing open", exc)
 
-            # ALLOW or fail-open: pass through
-            return query, messages
+            # ALLOW or fail-open: pass through unchanged
+            return query, runtime, env, messages, extra_args
 
         def _format_tool_call(self, query: str, messages: list[ChatMessage]) -> str:
             """Format the pending tool call as a parliament-scorable string."""
