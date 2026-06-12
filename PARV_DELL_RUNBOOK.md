@@ -172,6 +172,25 @@ The final `summary.json` is the headline source — paste its JSON to Ishani.
 
 ---
 
+## STEP 4.5 — Latency benchmark (GPU-only — the paper's headline latency)
+
+The paper's p50/p95 latency figure must come from the RTX 4090. This is the most
+irreplaceable Dell number — the laptop CPU path is ~2.6 s and useless for the
+claim. Run a clean benign steady-state pass (not attack-contaminated):
+
+```bash
+python benchmarks/benign_traces.py \
+  --parliament-url http://127.0.0.1:8088 \
+  --output benchmarks/results_v2/latency/
+```
+
+The committed `benchmarks/results_v2/latency/benign_summary.json`
+`latency_ms.{p50,p95}` are the numbers cited in §4. Takes a few minutes. Paste
+the percentiles to Ishani. (This run doubles as the benign-FPR gate — its
+`fpr_block_only` should be ≤ 0.05.)
+
+---
+
 ## STEP 5 — AgentDojo
 
 ### 5.1 Install
@@ -248,24 +267,41 @@ If time is tight, **workspace alone is sufficient for the paper.**
 
 ---
 
-## STEP 6 — Dump votes, verify ledger, commit raw outputs
+## STEP 6 — Export §5 votes, verify ledger, commit raw outputs
+
+> 🔴 This is the step that makes §5 possible. The vote dump is built FROM the
+> InjecAgent `results.csv` (STEP 4), which is the only artifact that carries the
+> attack/benign ground-truth label alongside the four minister votes. The live
+> ledger does NOT store ground truth, so it cannot be used for this. Do this
+> while you still have the Dell — it cannot be reconstructed later.
 
 ```bash
-# 1. Export minister votes for the §5 analysis (schema: keep ESCALATE, include
-#    compass_sim / compass_drift / traj_risk per line — see kavach_eval/HANDOFF_SCHEMA.md)
-python kavach_eval/minister_calibrate.py \
-  --ledger parliament/kavach_parliament.db \
+# 1. Build minister_runs.jsonl for the §5 frontier analysis (HANDOFF_SCHEMA format).
+#    Pass every InjecAgent results.csv you produced (default run + any gate-floor
+#    ablations). --model must match the agent backbone you actually used.
+python kavach_eval/export_minister_runs.py \
+  --inputs benchmarks/results_v2/injecagent_dell/results.csv \
+  --model gemma-4-27b \
   --out minister_runs.jsonl
 
-# 2. Tamper-evidence artifact — screenshot this JSON
+# 2. 🔴 SANITY CHECK — read this output BEFORE you tear anything down.
+#    Every line must have 4 minister votes and a ground_truth. If "rows with all
+#    4 votes" is less than the total, or attacks=0, STOP and message Ishani while
+#    the Dell is still up.
+python -c "import json; L=[json.loads(l) for l in open('minister_runs.jsonl')]; print('lines:',len(L)); print('with 4 votes:',sum(len(x['minister_votes'])==4 for x in L)); print('with ground_truth:',sum('ground_truth' in x for x in L)); print('attacks:',sum(x['is_attack'] for x in L),' benign:',sum(not x['is_attack'] for x in L))"
+
+# 3. Tamper-evidence artifact — screenshot this JSON
 curl -s http://127.0.0.1:8088/ledger/verify | python -m json.tool
 # expect: {"intact": true, "entries_checked": N, "head_hash": "..."}
 
-# 3. COMMIT THE RAW OUTPUTS (hard requirement — numbers without artifacts can't be cited)
+# 4. COMMIT THE RAW OUTPUTS (hard requirement — numbers without artifacts can't be cited).
+#    Include the raw ledger DB as a fallback so the dump can be rebuilt off-Dell if needed.
 git add benchmarks/results_v2/injecagent_dell/ \
         benchmarks/results_v2/agentdojo_dell/ \
-        minister_runs.jsonl
-git commit -m "data: Dell primary run (Gemma4 27B, RTX 4090) — InjecAgent + AgentDojo + vote dump"
+        benchmarks/results_v2/latency/ \
+        minister_runs.jsonl \
+        parliament/kavach_parliament.db
+git commit -m "data: Dell primary run (Gemma4 27B, RTX 4090) — InjecAgent + AgentDojo + latency + vote dump + ledger"
 git push origin main
 ```
 
