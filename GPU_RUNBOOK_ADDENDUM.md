@@ -8,6 +8,42 @@ Record for every run: exact command, git commit hash, and the output file path.
 
 ---
 
+## ⚠ PRE-FLIGHT — do this BEFORE any run below
+
+**Restart the parliament server after pulling.** The server reads
+`parliament/config.yaml` **once, at startup** (`_load_config`), and holds the
+values in memory — it does **not** re-read the file or the `*_calibration.json`
+files at runtime. If a server is already running from a previous session, it is
+using the **old** thresholds and a `git pull` will NOT change its behavior.
+
+This matters specifically for the COMPASS drift threshold, which was just
+corrected:
+
+- `config.yaml` `compass_drift` is now **0.585** (Youden's-J optimal:
+  TPR 0.86 / FPR 0.14). The old value was **0.40**, at which COMPASS barely
+  fires (TPR 0.22). A run against a stale server would report near-dead drift
+  detection and be **unreproducible** from the committed config.
+
+**Procedure on the Dell:**
+```bash
+git pull                                   # get config.yaml with compass_drift=0.585
+# Kill any parliament already bound to :8088:
+pkill -f "uvicorn parliament.server" || true
+# Start fresh so the new config is loaded:
+python -m uvicorn parliament.server:app --host 127.0.0.1 --port 8088
+# Confirm the live value matches the file before running anything:
+curl -s http://127.0.0.1:8088/health | python3 -c \
+  "import sys,json; print('compass_drift =', json.load(sys.stdin)['thresholds']['compass_drift'])"
+# Expected output: compass_drift = 0.585   (NOT 0.40)
+```
+If `/health` shows `0.40`, the server is stale — kill and restart it.
+
+> General rule: any time you change `config.yaml` or re-run
+> `compass_calibrator.py` / `threshold_sweep.py`, copy the new numbers into
+> `config.yaml` AND restart the server. The calibration JSONs are not read live.
+
+---
+
 ## F-1 — The `p50=826ms / p95=1649ms` latency figure (CRITICAL, UNVERIFIABLE)
 
 **Status:** No committed log anywhere in the repo produces 826ms (`grep -rn 826
