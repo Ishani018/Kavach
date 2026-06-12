@@ -12,9 +12,8 @@ non-trivial work: code generation, infrastructure operations, sales pipelines,
 and autonomous decision-making. The implementations of these systems have a
 striking structural property — the agent's harness, the deterministic code that
 wraps the language model with tool dispatch, context management, and persistence,
-is now roughly 98\% of the source lines; the model itself accounts for
-approximately 2\% \cite{liu2026clawdesign}. The model is no longer the system.
-The harness is.
+now constitutes the overwhelming majority of the source lines, while the model
+itself is a small fraction. The model is no longer the system. The harness is.
 
 This shift has produced a new class of vulnerabilities, exploited at the harness
 layer rather than at the model. Four incidents from the past six months
@@ -68,10 +67,9 @@ actual runtime arguments, is about to execute. This is the gap that Kavach fills
 
 There is a second, subtler gap. Systems that \emph{intend} to fire at the
 tool-call boundary cannot do so if the host runtime's plugin hook is silently
-broken. On OpenClaw — currently the fastest-growing agent runtime
-\cite{thenewstack2026openclaw} with approximately 370,000 GitHub stars and
-active weekly releases — two upstream bugs (issues \#5513 and \#5943) prevent
-\texttt{before\_tool\_call} from firing at all. Issue \#5513: the typed-hook
+broken. On OpenClaw — a widely adopted, rapidly growing open-source agent
+runtime with active weekly releases — two upstream bugs (issues \#5513 and
+\#5943) prevent \texttt{before\_tool\_call} from firing at all. Issue \#5513: the typed-hook
 runner snapshots the plugin registry at construction time, so hooks registered
 during the plugin-load phase are invisible to the runner. Issue \#5943:
 \texttt{before\_tool\_call} is defined and documented as available since
