@@ -31,9 +31,7 @@ import sys
 from pathlib import Path
 
 from agentdojo.task_suite.load_suites import get_suite
-from agentdojo.agent_pipeline.agent_pipeline import (
-    AgentPipeline, ModelsEnum, MODEL_PROVIDERS, get_llm,
-)
+from agentdojo.agent_pipeline.agent_pipeline import AgentPipeline
 from agentdojo.agent_pipeline.basic_elements import InitQuery, SystemMessage
 from agentdojo.agent_pipeline.tool_execution import (
     ToolsExecutor, ToolsExecutionLoop, tool_result_to_str,
@@ -41,6 +39,87 @@ from agentdojo.agent_pipeline.tool_execution import (
 from agentdojo.attacks.attack_registry import load_attack
 from agentdojo.benchmark import benchmark_suite_with_injections
 from agentdojo.logging import OutputLogger
+
+# --- Tolerant tool-call parser for Gemma -------------------------------------
+# AgentDojo's LocalLLM expects tool calls closed with "</function>", but Gemma
+# 4 26B often closes with a bare ">" (e.g. <function=get_day>{"day": "..."}> ).
+# Its parser then keeps the trailing ">" inside the JSON and fails with
+# "broken JSON: '...}>'". We subclass LocalLLM and override _parse to accept
+# either closer and strip stray trailing ">"/"</function>".
+import re as _re
+import json as _json
+from agentdojo.agent_pipeline.llms.local_llm import (
+    LocalLLM, chat_completion_request, _make_system_prompt,
+)
+from agentdojo.functions_runtime import FunctionCall as _FunctionCall
+from agentdojo.types import (
+    ChatAssistantMessage as _ChatAssistantMessage,
+    get_text_content_as_str as _get_text,
+    text_content_block_from_string as _text_block,
+)
+
+
+def _parse_tolerant(completion: str):
+    default = _ChatAssistantMessage(
+        role="assistant",
+        content=[_text_block(completion.strip())],
+        tool_calls=[],
+    )
+    open_match = _re.compile(r"<function\s*=\s*([^>]+)>").search(completion)
+    if not open_match:
+        return default
+    fn = open_match.group(1).strip()
+    start = open_match.end()
+    # Accept "</function>" OR a bare ">" as the closer; take the earliest.
+    end = len(completion)
+    for closer in ("</function>", ">"):
+        i = completion.find(closer, start)
+        if i != -1:
+            end = min(end, i)
+    raw = completion[start:end].strip().rstrip(">").strip()
+    try:
+        params = _json.loads(raw)
+        tool_calls = [_FunctionCall(function=fn, args=params)]
+    except Exception:
+        print(f"[debug] broken JSON after tolerant parse: {raw!r}")
+        return default
+    return _ChatAssistantMessage(
+        role="assistant",
+        content=[_text_block(completion.strip())],
+        tool_calls=tool_calls,
+    )
+
+
+class GemmaTolerantLLM(LocalLLM):
+    """LocalLLM whose tool-call parser tolerates Gemma's bare-'>' closer."""
+
+    def query(self, query, runtime, env=None, messages=(), extra_args=None):
+        from agentdojo.functions_runtime import EmptyEnv
+        if env is None:
+            env = EmptyEnv()
+        if extra_args is None:
+            extra_args = {}
+        messages_ = []
+        for m in messages:
+            role, content = m["role"], m["content"]
+            if role == "system" and content is not None:
+                content = _make_system_prompt(_get_text(content), runtime.functions.values())
+            if role == "tool":
+                role = self.tool_delimiter
+                if m.get("error") is not None:
+                    content = _json.dumps({"error": m["error"]})
+                else:
+                    fr = m["content"]
+                    fr = "Success" if fr == "None" else fr
+                    content = _json.dumps({"result": fr})
+            messages_.append({"role": role, "content": content})
+        completion = chat_completion_request(
+            self.client, model=self.model, messages=messages_,
+            temperature=self.temperature, top_p=self.top_p,
+        )
+        output = _parse_tolerant(completion)
+        return query, runtime, env, [*messages, output], extra_args
+# -----------------------------------------------------------------------------
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from benchmarks.kavach_agentdojo_defense import KavachDefense  # noqa: E402
@@ -54,7 +133,14 @@ DEFAULT_SYS_MSG = (
 def build_pipeline(model_id: str, with_kavach: bool):
     """Replicate from_config's `local` assembly; optionally insert Kavach into
     the tools loop. Mirrors agentdojo.agent_pipeline.from_config exactly."""
-    llm = get_llm(MODEL_PROVIDERS[ModelsEnum("local")], "local", model_id, None)
+    # Build the local Ollama client the same way agentdojo's get_llm does
+    # (LOCAL_LLM_PORT, default 8000 -> we use Ollama's 11434), but wrap it in
+    # GemmaTolerantLLM so Gemma's bare-'>' tool-call closer parses correctly.
+    import os as _os
+    import openai as _openai
+    _port = _os.getenv("LOCAL_LLM_PORT", "8000")
+    _client = _openai.OpenAI(api_key="EMPTY", base_url=f"http://localhost:{_port}/v1")
+    llm = GemmaTolerantLLM(_client, model_id)
     llm_name = "local"
 
     system_message_component = SystemMessage(DEFAULT_SYS_MSG)
