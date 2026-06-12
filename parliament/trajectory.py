@@ -434,11 +434,8 @@ if __name__ == "__main__":
           f"{float(np.dot(blocked_vec, reformulated)):.2f})")
 
     print("\n=== Demo E: escalating session (ceiling approach — full breach needs #9) ===")
-    # NOTE: ceiling at 0.72 requires all three main signals: acc + esc + chain.
-    # With esc=0.00 (intent unseeded, FINDINGS #9), max risk = W_ACC + W_CHAIN = 0.75.
-    # The ceiling breach fires in production once seed_intent is wired (#9 fixed),
-    # because then esc contributes 0.25 * (up to 1.0) = +0.25 more risk.
-    # This demo shows risk=0.58 approaching ceiling with threshold already compressed.
+    # Demo: escalating session approaching ceiling (0.50). Full breach requires seed_intent
+    # wired so esc signal contributes; this shows risk≈0.58 with threshold compressed.
     h4 = new_history()
     # Session: multiple high-confidence calls, VAULT→CHANNEL pattern, then denial
     calls = [

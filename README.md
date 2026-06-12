@@ -63,7 +63,7 @@ Agent runtimes give LLMs access to tools — bash execution, file I/O, HTTP call
 | CVE | System | Attack |
 |---|---|---|
 | CVE-2025-59536 | Claude Code | Prompt injection via tool output → RCE |
-| CVE-2026-21852 | Claude Code | WebSocket hijacking → tool call injection |
+| CVE-2026-21852 | Claude Code | API-key exfiltration via tool call injection |
 | CVE-2025-68664 | LangChain | Serialization injection via tool arguments |
 | CVE-2025-34291 | LangFlow | RCE via agent tool call (CISA KEV, MuddyWater APT) |
 
@@ -138,7 +138,7 @@ Posts to `/hook/parliament`, honors BLOCK/ESCALATE/ALLOW verdict.
 
 ### 4.2 The Parliament Server
 
-**File:** `parliament/server.py` (585 lines) | **Owner:** Ishani
+**File:** `parliament/server.py` (859 lines) | **Owner:** Ishani
 
 FastAPI service on `127.0.0.1:8088`. Owns BGE model, ChromaDB, router, intent store, ledger.
 
@@ -387,7 +387,7 @@ thresholds:
 
 # Per-minister optimal thresholds from Youden's J sweep (InjecAgent):
 # EXECUTOR: 0.55 | VAULT: 0.55 | CHANNEL: 0.60 | NAVIGATOR: 0.60
-# TODO: implement per-minister threshold support in server.py
+# Per-minister thresholds: implemented in server.py _get_minister_thresholds()
 ```
 
 ---
@@ -406,7 +406,7 @@ See [TEAM.md](TEAM.md) for full ownership table and workstream split.
 [DONE] ✅  Minister logic — complete, dual-corpus support
 [DONE] ✅  OpenClaw plugin — fixed for OC 2026.4.15
 [DONE] ✅  PR-1 patch spec + vitest tests — complete
-[DONE] ✅  Corpus — 382 patterns across four ministers
+[DONE] ✅  Corpus — 200 patterns across four ministers (50 per minister, corpus_v2)
 [DONE] ✅  InjecAgent benchmark — 1,054 cases, 98.4% recall
 [DONE] ✅  Benign FPR gate — 2.1% at threshold 0.725
 [DONE] ✅  Live interception proved on Dell (June 1)
@@ -419,7 +419,7 @@ See [TEAM.md](TEAM.md) for full ownership table and workstream split.
 [NEXT]  ⬜  AgentDojo benchmark runner
 [NEXT]  ⬜  OpenClaw-native benchmark (20-30 scenarios)
 [NEXT]  ⬜  Write paper §3 (architecture), §5 (evaluation), §7 (limitations)
-[NEXT]  ⬜  Submit MASEC@NeurIPS 2026 (~Sept 2026 deadline)
+[NEXT]  ⬜  Submit AISec@CCS 2026 (deadline July 24, 2026)
 ```
 
 ---

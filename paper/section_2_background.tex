@@ -113,11 +113,6 @@ environments (banking, travel, workspace, e-commerce, SlackBot). The standard
 metrics are ASR (lower is better) and utility score (higher is better for benign
 tasks). We defer AgentDojo to future work due to its environmental complexity.
 
-\textbf{TraceSafe-Bench} \cite{tracesafe2026} — benchmark for multi-step tool-call
-trajectories, using BFCL multi-step traces with localized adversarial mutations.
-More stringent than InjecAgent because attacks are distributed across multiple
-tool calls. We include TraceSafe-Bench in Workstream D alongside InjecAgent.
-
 A methodological note: running InjecAgent before measuring benign false-positive
 rate produces precision numbers that conflate detector quality with detector
 aggressiveness. Our evaluation protocol (\S\ref{sec:eval}) gates on FPR ${<}5\%$
