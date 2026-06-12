@@ -97,14 +97,39 @@ Expected output in order:
 If the boot script fails at corpus load, run manually:
 ```bash
 python corpus_loader.py
-uvicorn parliament.server:app --host 0.0.0.0 --port 8000 &
+uvicorn parliament.server:app --host 127.0.0.1 --port 8088 &
 ```
 
 Health check:
 ```bash
-curl http://localhost:8000/health
+curl http://127.0.0.1:8088/health
 ```
 Expected: `{"status":"ok","ministers":["EXECUTOR","VAULT","CHANNEL","NAVIGATOR"]}`
+
+### 🔴 MANDATORY pre-flight — verify the COMPASS threshold loaded
+
+The server reads `parliament/config.yaml` **once at startup** and holds it in
+memory — it does NOT re-read the file or the calibration JSONs at runtime. If a
+server was already running from an earlier session, it is using the OLD threshold
+and your `git pull` did nothing. Confirm the calibrated value is live before
+running ANY benchmark below:
+
+```bash
+curl -s http://127.0.0.1:8088/health \
+  | python3 -c "import sys,json; print('compass_drift =', json.load(sys.stdin)['thresholds']['compass_drift'])"
+# MUST print:  compass_drift = 0.585     (NOT 0.40)
+```
+
+If it prints `0.40`, the server is stale — kill and restart it:
+```bash
+pkill -f "uvicorn parliament.server"
+./kavach_boot.sh --skip-patch        # or the manual uvicorn command above
+# then re-run the curl check until it shows 0.585
+```
+
+Why it matters: at `0.40` COMPASS barely fires (TPR 0.22 vs 0.86 at the
+calibrated `0.585`), so a stale-server run produces wrong drift numbers that
+cannot be reproduced from the committed config.
 
 ---
 
