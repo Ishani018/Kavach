@@ -40,6 +40,7 @@ from agentdojo.agent_pipeline.tool_execution import (
 )
 from agentdojo.attacks.attack_registry import load_attack
 from agentdojo.benchmark import benchmark_suite_with_injections
+from agentdojo.logging import OutputLogger
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from benchmarks.kavach_agentdojo_defense import KavachDefense  # noqa: E402
@@ -93,9 +94,13 @@ def summarize(results) -> dict:
 def run_one(suite, attack_name, model_id, with_kavach, logdir):
     pipeline = build_pipeline(model_id, with_kavach)
     attacker = load_attack(attack_name, suite, pipeline)
-    results = benchmark_suite_with_injections(
-        pipeline, suite, attacker, logdir=logdir, force_rerun=False,
-    )
+    # AgentDojo requires an active OutputLogger context (it sets the global
+    # logger the benchmark reads logdir from); without it benchmark_* raises
+    # "NullLogger has no attribute logdir".
+    with OutputLogger(str(logdir), live=None):
+        results = benchmark_suite_with_injections(
+            pipeline, suite, attacker, logdir=logdir, force_rerun=False,
+        )
     return summarize(results)
 
 
