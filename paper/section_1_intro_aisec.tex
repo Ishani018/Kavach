@@ -26,7 +26,8 @@ CVE-2026-21852 allowed exfiltration of the user's API key via a malicious
 \texttt{ANTHROPIC\_BASE\_URL} override in \texttt{.claude/settings.json} —
 redirecting traffic to an attacker-controlled server and exfiltrating credentials
 as a side effect of normal agent operation. Both were discovered by Check Point
-Research (disclosed March 2026) and subsequently patched.
+Research (disclosed February 2026) and subsequently patched
+\cite{checkpoint2026claudecode}.
 
 \textbf{CVE-2025-68664} (LangChain Core, disclosed December 2025). A
 serialization-injection vulnerability in the \texttt{dumps()}/\texttt{dumpd()}
@@ -34,7 +35,7 @@ APIs enabled arbitrary class instantiation in trusted namespaces (CVSS 9.3
 Critical). The attack surface: \texttt{secrets\_from\_env=True} was the default,
 meaning environment variables containing credentials could be exfiltrated via a
 prompt-injection-crafted response that was then deserialized. At disclosure time,
-LangChain reported approximately 98 million monthly installs. A companion
+LangChain was one of the most widely deployed agent frameworks. A companion
 vulnerability, CVE-2025-68665, affected the LangChain JavaScript SDK.
 
 \textbf{CVE-2025-34291} (LangFlow, disclosed October 2025). A CSRF vulnerability
