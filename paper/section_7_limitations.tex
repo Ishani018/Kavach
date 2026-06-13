@@ -28,6 +28,22 @@ taxonomies; novel techniques absent from those taxonomies will not be matched.
 This is intrinsic to corpus-based semantic detection and motivates the live
 knowledge-base ingestion we sketch as future work.
 
+\paragraph{Small distinct-$N$, FPR driver, and an escalate-only minister.}
+Our primary numbers come from InjecAgent's 62 distinct attacker tools
+(30 data-harm, 32 data-stealing) replayed across 17 user tasks; the
+distinct-attack count is modest, so per-minister and per-threshold figures
+should be read as indicative rather than tightly estimated. Two structural
+findings from the run: the benign false-positive rate is driven almost entirely
+by the CHANNEL minister --- a small number of over-broad exfiltration patterns
+account for every benign hard-block --- which a corpus-quality pass should
+target first; and VAULT's per-minister block threshold (0.75) sits above its
+observed attack-confidence ceiling on this benchmark, so VAULT contributes
+escalations rather than hard blocks. Inter-minister error correlation is low on
+average ($\bar\rho=0.09$) but not uniform: the NAVIGATOR--CHANNEL pair reaches
+$\rho=0.52$, reflecting overlapping pattern coverage that the aggregation
+analysis (\S\ref{sec:frontier}) accounts for. Recalibrating per-minister
+thresholds and deduplicating the CHANNEL/VAULT corpora are concrete next steps.
+
 \paragraph{Single-vector similarity and the trajectory leg.} Per-call detection
 uses single-vector cosine similarity, which has known limits relative to
 sequence-aware detection; Trajectory Guard \cite{advani2026trajectoryguard}
@@ -44,7 +60,7 @@ trajectory model over the provenance stage axis (\S\ref{sec:provenance}) is the
 natural next step.
 
 \paragraph{Single backbone and runtime.} We evaluate with one agent backbone
-(Gemma\,4~27B) on OpenClaw in embedded mode, without MXC. Cross-model generality
+(Gemma\,4~26B) on OpenClaw in embedded mode, without MXC. Cross-model generality
 and a defense-in-depth evaluation inside an MXC sandbox --- the production
 configuration implied by the Build~2026 Microsoft/OpenClaw partnership --- are
 future work.
