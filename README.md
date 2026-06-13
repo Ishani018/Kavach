@@ -355,18 +355,24 @@ python benchmarks/threshold_sweep.py \
     --output benchmarks/results_v1/sweep/
 ```
 
-### Current results (June 1, 2026)
+### Current results (Dell primary run — Gemma 4 26B, hybrid retrieval, per-minister thresholds)
 
-| Benchmark | Recall | FPR | F1 | Threshold |
+InjecAgent = 1,054 test cases (62 attacker tools × 17 user tasks), split data-harm (DH) / data-stealing (DS).
+Recall is per-distinct-attack (identical row-level vs deduplicated); FPR is per-distinct-action.
+
+| Benchmark | Loose recall | Strict recall | FPR (hard-block) | FPR (block-or-escalate) |
 |---|---|---|---|---|
-| Smoke test (native format) | 100% | 0% | — | 0.725 |
-| Benign traces | — | 2.1% | — | 0.725 |
-| InjecAgent strict | 98.4% | 88.2% | 0.687 | 0.55 |
-| InjecAgent loose | 100% | — | — | 0.55 |
+| InjecAgent DH | 0.90 | 0.633 | — | — |
+| InjecAgent DS | 0.875 | 0.438 | 0.0% | — |
+| InjecAgent (aggregate) | 0.887 | 0.532 | 19% | 38% |
 
-The FPR gap between native format (2.1%) and InjecAgent (88.2%) is a representation
-mismatch — corpus uses tool-call syntax, InjecAgent uses natural-language instructions.
-Fix: dynamic COMPASS-modulated thresholds + per-minister thresholds.
+Latency (GPU, benign steady-state): p50 ~78 ms / p95 ~82 ms.
+
+Notes: hard-block detection is carried by EXECUTOR + NAVIGATOR; VAULT cannot hard-block
+under its 0.75 threshold (escalate-only); CHANNEL is the dominant FPR source. The DS
+hard-block FPR is 0%, but the aggregate hard-block FPR is 19% (38% if escalations count).
+The earlier "98.4% / 88.2%" figures (June 1) were never backed by committed artifacts
+and are superseded by this committed Dell run.
 
 ---
 
@@ -407,7 +413,7 @@ See [TEAM.md](TEAM.md) for full ownership table and workstream split.
 [DONE] ✅  OpenClaw plugin — fixed for OC 2026.4.15
 [DONE] ✅  PR-1 patch spec + vitest tests — complete
 [DONE] ✅  Corpus — 400 patterns across four ministers (100 per minister, kavach_corpus_v1.json)
-[DONE] ✅  InjecAgent benchmark — 1,054 cases, 98.4% recall
+[DONE] ✅  InjecAgent benchmark — 1,054 cases (62 tools × 17 tasks); loose recall 0.90 DH / 0.875 DS, strict 0.633 / 0.438
 [DONE] ✅  Benign FPR gate — 2.1% at threshold 0.725
 [DONE] ✅  Live interception proved on Dell (June 1)
 [DONE] ✅  Paper §1, §2, §4, §6 — submission-ready

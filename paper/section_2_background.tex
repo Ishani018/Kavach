@@ -101,8 +101,10 @@ reported AgentDojo / InjecAgent performance. This table is filled in
 
 The three most widely used agent-security benchmarks are:
 
-\textbf{InjecAgent} \cite{zhan2024injecagent} — 1,054 prompt-injection test cases
-from UIUC (2024). Each case provides a benign user instruction, a tool the agent
+\textbf{InjecAgent} \cite{zhan2024injecagent} — 1,054 prompt-injection test
+cases from UIUC (2024), structured as 62 distinct attacker tools $\times$ 17
+benign user tasks (split into data-harm and data-stealing settings). Each case
+provides a benign user instruction, a tool the agent
 would invoke, a malicious payload in the tool's output, and the expected attacker
 action. The standard reported metric is Attack Success Rate (ASR) at the harness
 level. Kavach runs InjecAgent cold (\S\ref{sec:eval}).

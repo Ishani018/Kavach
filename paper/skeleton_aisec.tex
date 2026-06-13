@@ -50,9 +50,10 @@ trajectory and intent drift. We make three contributions. First, a
 pre-execution plugin hook, so no security plugin can intercept there, and we
 characterize where interception \emph{is} achievable (the embedded runner).
 Second, a \emph{deployment}: live interception on production hardware at
-\TBD\,ms p50, with a representation-mismatch analysis explaining why a corpus
-authored in tool-call syntax yields \TBD\% FPR on natural-language attacks, and
-a hybrid BM25+dense retrieval fix that recovers FPR to \TBD\%. Third, the
+78\,ms p50, with a representation-mismatch analysis explaining why a corpus
+authored in tool-call syntax yields an elevated FPR on natural-language attacks,
+and a hybrid BM25+dense retrieval configuration evaluated at 19\% hard-block FPR
+(38\% block-or-escalate) on InjecAgent. Third, the
 \emph{aggregation frontier}: we show that score-based vote aggregation
 (including a Bayesian variant) is brittle to an adaptive attacker who corrupts
 individual ministers, while a pure-veto aggregator is robust but sacrifices

@@ -27,14 +27,14 @@ rather than optional plugin surface.
 
 \subsection{Live interception}
 \label{sec:live}
-We deploy on a Dell Precision~3660 (NVIDIA RTX~4090), with Gemma\,4~27B served
+We deploy on a Dell Precision~3660 (NVIDIA RTX~4090), with Gemma\,4~26B served
 via Ollama as the agent backbone and \texttt{BAAI/bge-base-en-v1.5} (768-d) as
 the embedding model, resident on the GPU. A staged attack that induces the agent
 to read a credential file and transmit its contents is intercepted before
 execution: the deciding minister returns \textsc{Block}, the call is denied, and
 a provenance-grounded record (technique $\rightarrow$ tactic $\rightarrow$ stage)
 is committed to the hash-chained Ledger. End-to-end interception latency for the
-blocking decision is approximately \TBD\,ms. The plugin fails closed on the
+blocking decision is approximately 78\,ms. The plugin fails closed on the
 tool-call path: a verdict that does not return within the timeout denies the
 call (\texttt{toolCallFailMode = deny}).
 
@@ -45,7 +45,8 @@ tool-call syntax. On the OpenClaw-native benchmark, whose attacks are expressed
 as structured tool calls, Kavach achieves \TBD\% false-positive rate at the
 recall-preserving threshold. On InjecAgent \cite{zhan2024injecagent}, whose
 attacks are expressed as fluent natural-language instructions, the same
-configuration at the same recall yields \TBD\% false-positive rate. The gap is
+configuration yields a 19\% hard-block false-positive rate (38\%
+block-or-escalate) on benign actions evaluated per distinct case. The gap is
 not a tuning artifact: it reflects a representation mismatch between a corpus
 embedded in tool-call/technique register and attacks embedded in
 natural-language register, so benign natural-language actions land near the
@@ -58,22 +59,25 @@ The fix follows from the diagnosis. We add a lexical channel: BM25 over the same
 corpus, fused with dense retrieval by reciprocal-rank fusion for candidate
 selection, with the final confidence computed as the dense cosine similarity
 scaled by a lexical gate (a benign action that is semantically near an attack
-pattern but shares none of its distinctive tokens is discounted). On InjecAgent
-this lowers false-positive rate from \TBD\% to \TBD\% while holding strict recall
-at \TBD\%. The gate floor is a single tunable parameter; Table~\TBD{} reports the
+pattern but shares none of its distinctive tokens is discounted). With this
+hybrid configuration, on InjecAgent Kavach holds strict (hard-\textsc{Block})
+recall at 0.633 (data-harm) / 0.438 (data-stealing) and loose
+(block-or-escalate) recall at 0.90 / 0.875, at a 19\% hard-block false-positive
+rate. The gate floor is a single tunable parameter; Table~\TBD{} reports the
 recall/FPR trade-off across its range.
 
 \subsection{Detection results and cost}
 \label{sec:results}
 Table~\TBD{} reports InjecAgent strict and loose recall and false-positive rate
 under per-minister thresholds with hybrid retrieval, and the OpenClaw-native
-benchmark in clean tool-call register. Per-minister detection rates are uneven
-(EXECUTOR and VAULT carry most attack recall on InjecAgent; NAVIGATOR is a
-trajectory-class detector that the per-call InjecAgent benchmark does not
-exercise, and we show it firing in the staged-attack test of \S\ref{sec:live});
+benchmark in clean tool-call register. Per-minister detection rates are
+uneven, and hard-block detection is carried by EXECUTOR and NAVIGATOR; VAULT and
+CHANNEL act as escalators on this benchmark (VAULT's per-minister threshold sits
+above its observed attack-confidence ceiling, so it contributes escalations
+rather than hard blocks --- see \S\ref{sec:limitations}).
 \S\ref{sec:frontier} reports the minister ablation that motivates the four-way
 split. On cost, the embed-once optimization reduces embedding calls per decision
-from up to nine to one, and measured latency is \TBD\,ms p50 / \TBD\,ms p95 ---
+from up to nine to one, and measured latency is 78\,ms p50 / 83\,ms p95 ---
 an order of magnitude below lifecycle-instrumenting scanners
 (PRISM~\cite{prism2026} $\approx$15.8\,s p95; AgentArmor~\cite{agentarmor2026}
 $\approx$20.9\,s). We report cost jointly with detection rather than in
@@ -110,7 +114,7 @@ on a tampered ledger in the appendix.
 \subsection{Cross-model generalization}
 \label{sec:crossmodel}
 The headline numbers above are measured on the primary configuration
-(Dell~Precision~3660, RTX~4090, Gemma\,4~27B). To test whether parliament
+(Dell~Precision~3660, RTX~4090, Gemma\,4~26B). To test whether parliament
 decisions are driven by the shared semantic corpus rather than by a particular
 agent backbone, we replicate the InjecAgent detection run on a secondary,
 CPU-only configuration (Intel~i5, 16\,GB~RAM) with \texttt{qwen2.5:3b} as the
