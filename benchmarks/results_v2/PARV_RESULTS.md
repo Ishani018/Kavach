@@ -1,13 +1,13 @@
 # Benchmark Results — Parv Dell Run
 # Fill in every field. Leave nothing blank — put N/A if not run, not "TODO".
-# Commit and push to ishani/trajectory-monitor when complete.
+# Commit and push to a branch when complete (main is PR-protected).
 
 > ## Two-configuration setup (read first)
 >
 > Kavach is evaluated on **two** hardware/backbone configurations:
 >
 > - **Primary (Dell — this document):** Dell Precision 3660, RTX 4090,
->   **Gemma4 27B** via Ollama, BGE-base 768-d. These are the **headline numbers**
+>   **Gemma4 26B** via Ollama, BGE-base 768-d. These are the **headline numbers**
 >   the paper reports in §4/§5. *Everything below is the Dell's job to fill in.*
 > - **Secondary (laptop):** Intel i5 / 16 GB / CPU-only, **qwen2.5:3b** via Ollama,
 >   same BGE model and same corpus. Results live in
@@ -27,10 +27,7 @@
 
 Date:
 Hardware: Dell Precision 3660, i9-13900, 128GB, RTX 4090
-Kavach branches tested:
-  - ishani/trajectory-monitor (trajectory v2)
-  - ishani/per-minister-thresholds (FPR fix)
-  - ishani/fix-seed-intent (#9 fix)
+Kavach branch tested: main (all feature branches merged)
 Model used for AgentDojo:
 Parliament port:
 
@@ -63,7 +60,7 @@ Ledger /ledger/votes output for session (paste the 5 rows):
 
 ## Step 4 — InjecAgent with per-minister thresholds
 
-Branch: ishani/per-minister-thresholds
+Branch: main
 Config used (paste parliament/config.yaml per_minister block):
 
 ```
@@ -126,7 +123,7 @@ Timeout breaches (>3000ms): yes / no, count:
 
 ## seed_intent fix verification (#9)
 
-Branch: ishani/fix-seed-intent
+Branch: main
 compass_sim in ledger before fix: null / float
 compass_sim in ledger after fix:  null / float
 Escalation leg (esc) now non-zero in trajectory: yes / no
