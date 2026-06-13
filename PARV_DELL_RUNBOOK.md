@@ -6,7 +6,7 @@ reference that maps each Dell output to the paper finding it fills (F-1 latency,
 F-2 InjecAgent, D-4 AgentDojo) — read this file to run, that one to see why.
 
 - **Hardware:** Dell Precision 3660 · i9-13900 · 128 GB · RTX 4090
-- **Agent model:** Gemma 4 27B via Ollama (fallback: Qwen2.5 32B if Gemma fails tool-calling)
+- **Agent model:** Gemma 4 26B via Ollama (fallback: Qwen2.5 32B if Gemma fails tool-calling)
 - **Server:** `127.0.0.1:8088`, endpoint `POST /hook/parliament`
 - **Goal today:** trajectory live test → InjecAgent (FPR headline) → AgentDojo → dump votes → commit raw outputs.
 
@@ -82,10 +82,10 @@ If every signal is `0.00` at every step → stop, message Ishani.
 
 Make sure the agent model is loaded:
 ```bash
-ollama list          # should show gemma4:27b
+ollama list          # should show gemma4:26b
 ollama ps            # should show it loaded
 # if not:
-ollama run gemma4:27b --keepalive 60m &
+ollama run gemma4:26b --keepalive 60m &
 sleep 30
 ```
 
@@ -205,7 +205,7 @@ python -c "import agentdojo; print(agentdojo.__version__)"
 python - << 'EOF'
 import requests
 resp = requests.post("http://localhost:11434/v1/chat/completions", json={
-    "model": "gemma4:27b",
+    "model": "gemma4:26b",
     "messages": [{"role":"user","content":"What is 2+2? Use the calculator tool."}],
     "tools": [{"type":"function","function":{"name":"calculator","description":"Calculate","parameters":{"type":"object","properties":{"expr":{"type":"string"}}}}}]
 })
@@ -223,48 +223,77 @@ and use `--model ollama_chat/qwen2.5:32b` everywhere below. **Tell Ishani which 
 ```bash
 python -c "from benchmarks.kavach_agentdojo_defense import KavachDefense; print('OK')"
 ```
-If import fails, prefix AgentDojo commands with `PYTHONPATH=.`
+If import fails, prefix the run command with `PYTHONPATH=.`
 
-### 5.4 Workspace suite — WITH Kavach (pilot, ~30 min)
-```bash
-python -m agentdojo.scripts.benchmark \
-  -s workspace \
-  --model ollama_chat/gemma4:27b \
-  --defense KavachDefense \
-  --module-to-load benchmarks.kavach_agentdojo_defense \
-  --attack important_instructions \
-  --max-workers 2 \
-  2>&1 | tee benchmarks/results_v2/agentdojo_dell/workspace_kavach.log
-```
-Targets: benign utility > 40% (baseline ~47.7%), ASR < 5% (baseline ~17.6%).
+> NOTE: the installed AgentDojo CLI (`agentdojo.scripts.benchmark`) has a fixed
+> `--defense` enum and CANNOT load KavachDefense. Use the programmatic driver
+> `benchmarks/run_agentdojo_kavach.py` (below), which inserts KavachDefense into
+> the tools loop and runs both the defended and baseline passes in one go.
 
-### 5.5 Workspace suite — WITHOUT defense (baseline, needed for the comparison)
+### 5.4 🔴 MANDATORY PRE-FLIGHT — confirm the parliament is actually answering
+
+If the parliament can't serve a verdict, KavachDefense **fails open** (the action
+passes through UNSCREENED) and the "with-Kavach" numbers are invalid. `/health`
+returning 200 is **NOT sufficient** — it does not touch the ChromaDB/HNSW index
+that a real query uses. You MUST confirm a real verdict first.
+
 ```bash
-python -m agentdojo.scripts.benchmark \
-  -s workspace \
-  --model ollama_chat/gemma4:27b \
-  --attack important_instructions \
-  --max-workers 2 \
-  2>&1 | tee benchmarks/results_v2/agentdojo_dell/workspace_baseline.log
+# (a) exactly ONE parliament server is running (a 2nd process on the same
+#     .chroma_kavach dir causes "hnsw segment reader: Nothing found on disk" 500s)
+pkill -f "uvicorn parliament"        # kill any stale server
+./kavach_boot.sh --skip-patch        # start exactly one; wait for "ready"
+
+# (b) REAL readiness check — must return a verdict JSON, NOT "Internal Server
+#     Error" / non-JSON:
+curl -s -X POST http://127.0.0.1:8088/hook/parliament \
+  -H "Content-Type: application/json" \
+  -d '{"text":"tool:read_file args:{\"path\":\"x.txt\"}","session_id":"preflight","context":{}}'
 ```
+Expected: a JSON object containing `"verdict": "..."` and `"speaker": {...}`.
+
+**HARD RULE: if this curl does NOT return a verdict JSON, do NOT start the run.**
+Fix the parliament first (ensure one server; if it still 500s, rebuild the index:
+`rm -rf parliament/.chroma_kavach && python corpus_loader.py --rebuild`, then
+restart and re-check). A run launched against a broken parliament produces
+silent fail-open data that looks defended but isn't.
+
+### 5.5 Run workspace suite — WITH Kavach + baseline (pilot, ~30–60 min)
+```bash
+export LOCAL_LLM_PORT=11434           # AgentDojo's local provider reads this
+export KAVACH_URL=http://127.0.0.1:8088
+python benchmarks/run_agentdojo_kavach.py \
+  --suite workspace \
+  --model-id gemma4:26b \
+  --attack important_instructions \
+  --out benchmarks/results_v2/agentdojo_dell \
+  2>&1 | tee benchmarks/results_v2/agentdojo_dell/workspace.log
+```
+The driver runs both the defended and undefended passes and writes
+`agentdojo_summary.json`. Targets: benign utility > 40% (baseline ~47.7%),
+ASR < 5% (baseline ~17.6%).
+
+> 🔴 CHECK THE FAIL-OPEN AUDIT before trusting the numbers. The run prints a
+> banner: `FAIL-OPEN AUDIT: 0/N calls failed open — run is FULLY DEFENDED` is
+> what you want. If it says `*** WARNING: k/N calls FAILED OPEN ***`, the
+> parliament dropped mid-run and those actions were unscreened — the committed
+> `agentdojo_summary.json` will have `run_fully_defended: false`. Fix the
+> parliament and re-run; do not report a partially-defended run as the result.
 
 ### 5.6 Remaining suites — only if workspace looks good (overnight, 4–8 h)
 Run if workspace ASR < 10% and benign utility > 35%:
 ```bash
 for suite in workspace-plus banking travel slack; do
-  echo "=== suite: $suite ===" | tee -a benchmarks/results_v2/agentdojo_dell/full.log
-  python -m agentdojo.scripts.benchmark \
-    -s $suite \
-    --model ollama_chat/gemma4:27b \
-    --defense KavachDefense \
-    --module-to-load benchmarks.kavach_agentdojo_defense \
+  echo "=== suite: $suite ==="
+  python benchmarks/run_agentdojo_kavach.py \
+    --suite "$suite" --model-id gemma4:26b \
     --attack important_instructions \
-    --max-workers 2 \
-    2>&1 | tee -a benchmarks/results_v2/agentdojo_dell/full.log
+    --out "benchmarks/results_v2/agentdojo_dell_$suite" \
+    2>&1 | tee "benchmarks/results_v2/agentdojo_dell_$suite/run.log"
   sleep 30
 done
 ```
-If time is tight, **workspace alone is sufficient for the paper.**
+If time is tight, **workspace alone is sufficient for the paper.** Re-run the
+5.4 pre-flight if the parliament was restarted between suites.
 
 ---
 
@@ -282,7 +311,7 @@ If time is tight, **workspace alone is sufficient for the paper.**
 #    ablations). --model must match the agent backbone you actually used.
 python kavach_eval/export_minister_runs.py \
   --inputs benchmarks/results_v2/injecagent_dell/results.csv \
-  --model gemma-4-27b \
+  --model gemma-4-26b \
   --out minister_runs.jsonl
 
 # 2. 🔴 SANITY CHECK — read this output BEFORE you tear anything down.
@@ -302,7 +331,7 @@ git add benchmarks/results_v2/injecagent_dell/ \
         benchmarks/results_v2/latency/ \
         minister_runs.jsonl \
         parliament/kavach_parliament.db
-git commit -m "data: Dell primary run (Gemma4 27B, RTX 4090) — InjecAgent + AgentDojo + latency + vote dump + ledger"
+git commit -m "data: Dell primary run (Gemma4 26B, RTX 4090) — InjecAgent + AgentDojo + latency + vote dump + ledger"
 git push origin main
 ```
 
@@ -319,7 +348,7 @@ Fill `benchmarks/results_v2/PARV_RESULTS.md`:
 # Benchmark Results — Parv Dell Run
 Date: [DATE]
 Hardware: Dell Precision 3660, i9-13900, 128GB, RTX 4090
-Agent model: [gemma4:27b or qwen2.5:32b — whichever passed the tool-call test]
+Agent model: [gemma4:26b or qwen2.5:32b — whichever passed the tool-call test]
 Branch: main @ [git rev-parse --short HEAD]
 
 ## Pre-flight
