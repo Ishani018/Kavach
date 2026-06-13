@@ -38,3 +38,7 @@ plugin/dist/
 .DS_Store
 Thumbs.db
 temp_readme.txt
+
+# Local scratch (never commit)
+.claude/
+verify_logs/
