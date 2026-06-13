@@ -45,21 +45,25 @@ We present Kavach, an OpenClaw-native runtime monitor that intercepts every
 agent tool call \emph{before execution}, scores its semantic intent against a
 curated corpus of attack-pattern descriptions across four specialized
 ministers (EXECUTOR / VAULT / CHANNEL / NAVIGATOR), and tracks session-level
-trajectory and intent drift. We make three contributions. First, a
+trajectory and intent drift. We make four contributions. First, a
 \emph{measurement}: we show that OpenClaw's gateway execution path exposes no
 pre-execution plugin hook, so no security plugin can intercept there, and we
 characterize where interception \emph{is} achievable (the embedded runner).
 Second, a \emph{deployment}: live interception on production hardware at
-78\,ms p50, with a representation-mismatch analysis explaining why a corpus
-authored in tool-call syntax yields an elevated FPR on natural-language attacks,
-and a hybrid BM25+dense retrieval configuration evaluated at 19\% hard-block FPR
-(38\% block-or-escalate) on InjecAgent. Third, the
+78\,ms p50, with taxonomy-grounded provenance folded into a hash-chained ledger,
+a representation-mismatch analysis explaining why a corpus authored in tool-call
+syntax yields an elevated FPR on natural-language attacks, and a hybrid
+BM25+dense retrieval configuration evaluated at 19\% hard-block FPR (38\%
+block-or-escalate) on InjecAgent. Third, the
 \emph{aggregation frontier}: we show that score-based vote aggregation
 (including a Bayesian variant) is brittle to an adaptive attacker who corrupts
 individual ministers, while a pure-veto aggregator is robust but sacrifices
 benign utility; we quantify the FPR/robustness frontier and propose a tuned
-hybrid (Bayesian decision path with a veto floor). All artifacts are
-reproducible offline; the trajectory monitor and aggregator require no GPU.
+hybrid (Bayesian decision path with a veto floor). Fourth, a
+\emph{contamination-controlled evaluation}: a blind-written corpus, InjecAgent
+run cold, and a benign false-positive gate measured before attack recall, with
+cost reported jointly with detection. All artifacts are reproducible offline;
+the trajectory monitor and aggregator require no GPU.
 \end{abstract}
 
 \maketitle
