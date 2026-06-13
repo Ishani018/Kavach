@@ -125,6 +125,14 @@ try:
             self._call_count  = 0
             self._block_count = 0
             self._traj_blocks = 0
+            # Auditability: every call where the parliament did NOT return a
+            # usable verdict (timeout, unreachable, HTTP error, bad JSON) is a
+            # fail-OPEN — the action passed through UNSCREENED. We record the
+            # count and the affected call indices so a run with fail-opens is
+            # salvageable (we know which calls were really defended) instead of
+            # silently invalid.
+            self._failopen_count = 0
+            self._failopen_calls: list[int] = []
 
         def query(
             self,
@@ -160,6 +168,10 @@ try:
                     },
                     timeout=KAVACH_TIMEOUT,
                 )
+                # A non-200 (e.g. parliament 500 from a ChromaDB query error)
+                # must count as fail-open, not a silent ALLOW. raise_for_status
+                # routes it into the except handler below.
+                resp.raise_for_status()
                 result    = resp.json()
                 verdict   = result.get("verdict", "ALLOW")
                 traj_risk = result.get("traj_risk") or 0.0
@@ -193,9 +205,15 @@ try:
                 )
 
             except requests.exceptions.Timeout:
-                log.warning("[KavachDefense] parliament timeout — failing open")
+                self._failopen_count += 1
+                self._failopen_calls.append(self._call_count)
+                log.warning("[KavachDefense] call=%d parliament timeout — FAILING OPEN "
+                            "(action UNSCREENED)", self._call_count)
             except Exception as exc:
-                log.warning("[KavachDefense] parliament unreachable: %s — failing open", exc)
+                self._failopen_count += 1
+                self._failopen_calls.append(self._call_count)
+                log.warning("[KavachDefense] call=%d parliament unreachable: %s — FAILING OPEN "
+                            "(action UNSCREENED)", self._call_count, exc)
 
             # ALLOW or fail-open: pass through unchanged
             return query, runtime, env, messages, extra_args
@@ -233,13 +251,24 @@ try:
                     return f"tool:{name} args:{args}"
             return query
 
-        def summary(self) -> dict[str, int]:
-            """Return block summary for logging at end of benchmark run."""
+        def summary(self) -> dict:
+            """Block + fail-open summary for the end-of-run report.
+
+            `failopen_count` / `failopen_calls` make a run auditable: if any
+            calls failed open, those actions were NOT screened by Kavach, so the
+            'defended' numbers for them are invalid. A nonzero count means the
+            run is only partially defended — surface it loudly.
+            """
+            screened = self._call_count - self._failopen_count
             return {
-                "total_calls":   self._call_count,
-                "blocks":        self._block_count,
-                "traj_blocks":   self._traj_blocks,
-                "allows":        self._call_count - self._block_count,
+                "total_calls":     self._call_count,
+                "screened_calls":  screened,
+                "blocks":          self._block_count,
+                "traj_blocks":     self._traj_blocks,
+                "allows":          screened - self._block_count,
+                "failopen_count":  self._failopen_count,
+                "failopen_calls":  list(self._failopen_calls),
+                "fully_defended":  self._failopen_count == 0,
             }
 
 except ImportError:

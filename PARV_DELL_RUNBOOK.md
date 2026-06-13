@@ -223,48 +223,77 @@ and use `--model ollama_chat/qwen2.5:32b` everywhere below. **Tell Ishani which 
 ```bash
 python -c "from benchmarks.kavach_agentdojo_defense import KavachDefense; print('OK')"
 ```
-If import fails, prefix AgentDojo commands with `PYTHONPATH=.`
+If import fails, prefix the run command with `PYTHONPATH=.`
 
-### 5.4 Workspace suite — WITH Kavach (pilot, ~30 min)
-```bash
-python -m agentdojo.scripts.benchmark \
-  -s workspace \
-  --model ollama_chat/gemma4:27b \
-  --defense KavachDefense \
-  --module-to-load benchmarks.kavach_agentdojo_defense \
-  --attack important_instructions \
-  --max-workers 2 \
-  2>&1 | tee benchmarks/results_v2/agentdojo_dell/workspace_kavach.log
-```
-Targets: benign utility > 40% (baseline ~47.7%), ASR < 5% (baseline ~17.6%).
+> NOTE: the installed AgentDojo CLI (`agentdojo.scripts.benchmark`) has a fixed
+> `--defense` enum and CANNOT load KavachDefense. Use the programmatic driver
+> `benchmarks/run_agentdojo_kavach.py` (below), which inserts KavachDefense into
+> the tools loop and runs both the defended and baseline passes in one go.
 
-### 5.5 Workspace suite — WITHOUT defense (baseline, needed for the comparison)
+### 5.4 🔴 MANDATORY PRE-FLIGHT — confirm the parliament is actually answering
+
+If the parliament can't serve a verdict, KavachDefense **fails open** (the action
+passes through UNSCREENED) and the "with-Kavach" numbers are invalid. `/health`
+returning 200 is **NOT sufficient** — it does not touch the ChromaDB/HNSW index
+that a real query uses. You MUST confirm a real verdict first.
+
 ```bash
-python -m agentdojo.scripts.benchmark \
-  -s workspace \
-  --model ollama_chat/gemma4:27b \
-  --attack important_instructions \
-  --max-workers 2 \
-  2>&1 | tee benchmarks/results_v2/agentdojo_dell/workspace_baseline.log
+# (a) exactly ONE parliament server is running (a 2nd process on the same
+#     .chroma_kavach dir causes "hnsw segment reader: Nothing found on disk" 500s)
+pkill -f "uvicorn parliament"        # kill any stale server
+./kavach_boot.sh --skip-patch        # start exactly one; wait for "ready"
+
+# (b) REAL readiness check — must return a verdict JSON, NOT "Internal Server
+#     Error" / non-JSON:
+curl -s -X POST http://127.0.0.1:8088/hook/parliament \
+  -H "Content-Type: application/json" \
+  -d '{"text":"tool:read_file args:{\"path\":\"x.txt\"}","session_id":"preflight","context":{}}'
 ```
+Expected: a JSON object containing `"verdict": "..."` and `"speaker": {...}`.
+
+**HARD RULE: if this curl does NOT return a verdict JSON, do NOT start the run.**
+Fix the parliament first (ensure one server; if it still 500s, rebuild the index:
+`rm -rf parliament/.chroma_kavach && python corpus_loader.py --rebuild`, then
+restart and re-check). A run launched against a broken parliament produces
+silent fail-open data that looks defended but isn't.
+
+### 5.5 Run workspace suite — WITH Kavach + baseline (pilot, ~30–60 min)
+```bash
+export LOCAL_LLM_PORT=11434           # AgentDojo's local provider reads this
+export KAVACH_URL=http://127.0.0.1:8088
+python benchmarks/run_agentdojo_kavach.py \
+  --suite workspace \
+  --model-id gemma4:26b \
+  --attack important_instructions \
+  --out benchmarks/results_v2/agentdojo_dell \
+  2>&1 | tee benchmarks/results_v2/agentdojo_dell/workspace.log
+```
+The driver runs both the defended and undefended passes and writes
+`agentdojo_summary.json`. Targets: benign utility > 40% (baseline ~47.7%),
+ASR < 5% (baseline ~17.6%).
+
+> 🔴 CHECK THE FAIL-OPEN AUDIT before trusting the numbers. The run prints a
+> banner: `FAIL-OPEN AUDIT: 0/N calls failed open — run is FULLY DEFENDED` is
+> what you want. If it says `*** WARNING: k/N calls FAILED OPEN ***`, the
+> parliament dropped mid-run and those actions were unscreened — the committed
+> `agentdojo_summary.json` will have `run_fully_defended: false`. Fix the
+> parliament and re-run; do not report a partially-defended run as the result.
 
 ### 5.6 Remaining suites — only if workspace looks good (overnight, 4–8 h)
 Run if workspace ASR < 10% and benign utility > 35%:
 ```bash
 for suite in workspace-plus banking travel slack; do
-  echo "=== suite: $suite ===" | tee -a benchmarks/results_v2/agentdojo_dell/full.log
-  python -m agentdojo.scripts.benchmark \
-    -s $suite \
-    --model ollama_chat/gemma4:27b \
-    --defense KavachDefense \
-    --module-to-load benchmarks.kavach_agentdojo_defense \
+  echo "=== suite: $suite ==="
+  python benchmarks/run_agentdojo_kavach.py \
+    --suite "$suite" --model-id gemma4:26b \
     --attack important_instructions \
-    --max-workers 2 \
-    2>&1 | tee -a benchmarks/results_v2/agentdojo_dell/full.log
+    --out "benchmarks/results_v2/agentdojo_dell_$suite" \
+    2>&1 | tee "benchmarks/results_v2/agentdojo_dell_$suite/run.log"
   sleep 30
 done
 ```
-If time is tight, **workspace alone is sufficient for the paper.**
+If time is tight, **workspace alone is sufficient for the paper.** Re-run the
+5.4 pre-flight if the parliament was restarted between suites.
 
 ---
 

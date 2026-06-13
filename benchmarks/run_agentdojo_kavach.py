@@ -147,11 +147,14 @@ def build_pipeline(model_id: str, with_kavach: bool):
     init_query_component = InitQuery()
     tool_output_formatter = tool_result_to_str
 
+    defense = None
     if with_kavach:
         # Kavach screens each tool result before it returns to the LLM —
-        # same slot the built-in transformers_pi_detector occupies.
+        # same slot the built-in transformers_pi_detector occupies. Keep a
+        # reference so the run can read its fail-open audit at the end.
+        defense = KavachDefense()
         tools_loop = ToolsExecutionLoop(
-            [ToolsExecutor(tool_output_formatter), KavachDefense(), llm]
+            [ToolsExecutor(tool_output_formatter), defense, llm]
         )
         name = f"{llm_name}-kavach"
     else:
@@ -162,7 +165,7 @@ def build_pipeline(model_id: str, with_kavach: bool):
         [system_message_component, init_query_component, llm, tools_loop]
     )
     pipeline.name = name
-    return pipeline
+    return pipeline, defense
 
 
 def summarize(results) -> dict:
@@ -178,7 +181,7 @@ def summarize(results) -> dict:
 
 
 def run_one(suite, attack_name, model_id, with_kavach, logdir):
-    pipeline = build_pipeline(model_id, with_kavach)
+    pipeline, defense = build_pipeline(model_id, with_kavach)
     attacker = load_attack(attack_name, suite, pipeline)
     # AgentDojo requires an active OutputLogger context (it sets the global
     # logger the benchmark reads logdir from); without it benchmark_* raises
@@ -187,7 +190,11 @@ def run_one(suite, attack_name, model_id, with_kavach, logdir):
         results = benchmark_suite_with_injections(
             pipeline, suite, attacker, logdir=logdir, force_rerun=False,
         )
-    return summarize(results)
+    out = summarize(results)
+    # Fold in the defense's fail-open audit so it lands in the committed report.
+    if defense is not None:
+        out["kavach"] = defense.summary()
+    return out
 
 
 def main() -> None:
@@ -213,11 +220,34 @@ def main() -> None:
     baseline = run_one(suite, args.attack, args.model_id, False, logdir)
     print(f"[agentdojo]   BASELINE:    {baseline}")
 
+    # Fail-open audit — surface loudly so a partially-undefended run is never
+    # mistaken for a valid one, even if the operator wasn't watching the log.
+    kav = with_kavach.get("kavach", {})
+    fo = kav.get("failopen_count", 0)
+    tot = kav.get("total_calls", 0)
+    run_valid = fo == 0
+    print("\n" + "=" * 64)
+    if fo == 0:
+        print(f"[agentdojo] FAIL-OPEN AUDIT: 0/{tot} calls failed open — "
+              f"run is FULLY DEFENDED, numbers are valid.")
+    else:
+        print(f"[agentdojo] *** WARNING: {fo}/{tot} calls FAILED OPEN "
+              f"(parliament unreachable) ***")
+        print(f"[agentdojo] *** Those actions were NOT screened by Kavach; the "
+              f"with-Kavach numbers are PARTIALLY INVALID. ***")
+        print(f"[agentdojo] *** Affected call indices: {kav.get('failopen_calls')} ***")
+        print(f"[agentdojo] *** Fix the parliament (single server + real "
+              f"/hook/parliament verdict) and re-run. ***")
+    print("=" * 64 + "\n")
+
     report = {
         "suite": args.suite, "model_id": args.model_id, "attack": args.attack,
         "with_kavach": with_kavach, "baseline": baseline,
         "asr_reduction": round(
             baseline["attack_success_rate"] - with_kavach["attack_success_rate"], 4),
+        # Top-level validity flag so the committed JSON self-reports soundness.
+        "kavach_failopen_count": fo,
+        "run_fully_defended": run_valid,
     }
     (out / "agentdojo_summary.json").write_text(json.dumps(report, indent=2))
     print("[agentdojo] wrote", out / "agentdojo_summary.json")
