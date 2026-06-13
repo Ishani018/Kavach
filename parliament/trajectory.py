@@ -175,6 +175,23 @@ def _decay_weights(n: int) -> np.ndarray:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _accumulation(history: Deque[ActionRecord]) -> float:
+    """Decayed accumulation of per-call confidence, measured RELATIVE to the
+    session's own baseline (scale-invariant redesign, 2026-06-13).
+
+    Why relative: the previous version returned the decayed *absolute* average of
+    minister confidences. That quantity has no fixed scale across deployments —
+    on the Dell (Gemma 4 26B) ordinary benign coding actions sit at cosine ~0.6
+    against the corpus, vs ~0.4 on the laptop, so benign sessions accumulated to
+    ~0.62 and tripped a 0.50 ceiling (100% benign FPR), while the same ceiling
+    blocked nothing on the laptop. The signal was tracking the config's
+    confidence floor, not attack behavior.
+
+    Fix: subtract a per-session baseline (the lowest non-zero confidence seen in
+    the window — the session's own "what benign looks like here") and normalize
+    by the headroom above it. A session that stays flat at its baseline scores
+    ~0; only confidence that RISES above the session's own floor accumulates
+    risk. This is invariant to the absolute confidence scale of the backbone.
+    """
     n = len(history)
     if n == 0:
         return 0.0
@@ -183,7 +200,16 @@ def _accumulation(history: Deque[ActionRecord]) -> float:
     denom = float(w.sum())
     if denom <= 0.0:
         return 0.0
-    return float(np.clip((confs * w).sum() / denom, 0.0, 1.0))
+    # Session baseline: the floor of observed confidence (robust to a single
+    # high call). With <2 calls there is no trend yet, so risk is 0.
+    if n < 2:
+        return 0.0
+    baseline = float(np.min(confs))
+    # Headroom from baseline up to the BLOCK-certainty region (1.0). Excess
+    # confidence above baseline, decayed-averaged and normalized by headroom.
+    headroom = max(1.0 - baseline, 1e-3)
+    excess = np.clip(confs - baseline, 0.0, None)
+    return float(np.clip((excess * w).sum() / denom / headroom, 0.0, 1.0))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
