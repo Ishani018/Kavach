@@ -6,7 +6,7 @@ reference that maps each Dell output to the paper finding it fills (F-1 latency,
 F-2 InjecAgent, D-4 AgentDojo) — read this file to run, that one to see why.
 
 - **Hardware:** Dell Precision 3660 · i9-13900 · 128 GB · RTX 4090
-- **Agent model:** Gemma 4 27B via Ollama (fallback: Qwen2.5 32B if Gemma fails tool-calling)
+- **Agent model:** Gemma 4 26B via Ollama (fallback: Qwen2.5 32B if Gemma fails tool-calling)
 - **Server:** `127.0.0.1:8088`, endpoint `POST /hook/parliament`
 - **Goal today:** trajectory live test → InjecAgent (FPR headline) → AgentDojo → dump votes → commit raw outputs.
 
@@ -82,10 +82,10 @@ If every signal is `0.00` at every step → stop, message Ishani.
 
 Make sure the agent model is loaded:
 ```bash
-ollama list          # should show gemma4:27b
+ollama list          # should show gemma4:26b
 ollama ps            # should show it loaded
 # if not:
-ollama run gemma4:27b --keepalive 60m &
+ollama run gemma4:26b --keepalive 60m &
 sleep 30
 ```
 
@@ -205,7 +205,7 @@ python -c "import agentdojo; print(agentdojo.__version__)"
 python - << 'EOF'
 import requests
 resp = requests.post("http://localhost:11434/v1/chat/completions", json={
-    "model": "gemma4:27b",
+    "model": "gemma4:26b",
     "messages": [{"role":"user","content":"What is 2+2? Use the calculator tool."}],
     "tools": [{"type":"function","function":{"name":"calculator","description":"Calculate","parameters":{"type":"object","properties":{"expr":{"type":"string"}}}}}]
 })
@@ -311,7 +311,7 @@ If time is tight, **workspace alone is sufficient for the paper.** Re-run the
 #    ablations). --model must match the agent backbone you actually used.
 python kavach_eval/export_minister_runs.py \
   --inputs benchmarks/results_v2/injecagent_dell/results.csv \
-  --model gemma-4-27b \
+  --model gemma-4-26b \
   --out minister_runs.jsonl
 
 # 2. 🔴 SANITY CHECK — read this output BEFORE you tear anything down.
@@ -331,7 +331,7 @@ git add benchmarks/results_v2/injecagent_dell/ \
         benchmarks/results_v2/latency/ \
         minister_runs.jsonl \
         parliament/kavach_parliament.db
-git commit -m "data: Dell primary run (Gemma4 27B, RTX 4090) — InjecAgent + AgentDojo + latency + vote dump + ledger"
+git commit -m "data: Dell primary run (Gemma4 26B, RTX 4090) — InjecAgent + AgentDojo + latency + vote dump + ledger"
 git push origin main
 ```
 
@@ -348,7 +348,7 @@ Fill `benchmarks/results_v2/PARV_RESULTS.md`:
 # Benchmark Results — Parv Dell Run
 Date: [DATE]
 Hardware: Dell Precision 3660, i9-13900, 128GB, RTX 4090
-Agent model: [gemma4:27b or qwen2.5:32b — whichever passed the tool-call test]
+Agent model: [gemma4:26b or qwen2.5:32b — whichever passed the tool-call test]
 Branch: main @ [git rev-parse --short HEAD]
 
 ## Pre-flight
