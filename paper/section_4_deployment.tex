@@ -41,17 +41,21 @@ call (\texttt{toolCallFailMode = deny}).
 \subsection{Representation mismatch: an instructive negative result}
 \label{sec:repmismatch}
 Our corpus is authored in the register of MITRE technique descriptions and
-tool-call syntax. On the OpenClaw-native benchmark, whose attacks are expressed
-as structured tool calls, Kavach achieves \TBD\% false-positive rate at the
-recall-preserving threshold. On InjecAgent \cite{zhan2024injecagent}, whose
-attacks are expressed as fluent natural-language instructions, the same
-configuration yields a 19\% hard-block false-positive rate (38\%
-block-or-escalate) on benign actions evaluated per distinct case. The gap is
-not a tuning artifact: it reflects a representation mismatch between a corpus
-embedded in tool-call/technique register and attacks embedded in
-natural-language register, so benign natural-language actions land near the
-corpus in embedding space. We report this because it is the kind of deployment
-lesson that a purely benchmark-simulated evaluation would hide.
+tool-call syntax. On InjecAgent \cite{zhan2024injecagent}, whose attacks are
+expressed as fluent natural-language instructions, this configuration yields a
+19\% hard-block false-positive rate (38\% block-or-escalate) on benign actions
+evaluated per distinct case --- higher than the corpus's tool-call register
+would suggest. We attribute this elevated false-positive rate to a
+\emph{representation mismatch}: the corpus is embedded in tool-call/technique
+register while InjecAgent's benign actions are phrased as natural language, so
+benign natural-language actions land near attack patterns in embedding space
+despite sharing no malicious intent. This is an attribution grounded in how the
+corpus was authored rather than a measured cross-register comparison: a
+controlled evaluation on benign traffic expressed in the corpus's own tool-call
+register would be expected to show a markedly lower false-positive rate, and we
+identify that native-register measurement as a direct test of this hypothesis,
+left to future work. We report the mismatch because it is the kind of deployment
+lesson a purely benchmark-simulated evaluation would hide.
 
 \subsection{Hybrid retrieval recovers the false-positive rate}
 \label{sec:hybridresults}
@@ -69,8 +73,8 @@ recall/FPR trade-off across its range.
 \subsection{Detection results and cost}
 \label{sec:results}
 Table~\TBD{} reports InjecAgent strict and loose recall and false-positive rate
-under per-minister thresholds with hybrid retrieval, and the OpenClaw-native
-benchmark in clean tool-call register. Per-minister detection rates are
+under per-minister thresholds with hybrid retrieval. Per-minister detection
+rates are
 uneven, and hard-block detection is carried by EXECUTOR and NAVIGATOR; VAULT and
 CHANNEL act as escalators on this benchmark (VAULT's per-minister threshold sits
 above its observed attack-confidence ceiling, so it contributes escalations
