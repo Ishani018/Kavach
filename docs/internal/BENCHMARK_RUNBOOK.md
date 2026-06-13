@@ -75,6 +75,22 @@ curl -s http://127.0.0.1:8088/ledger/verify | python3 -m json.tool
 ```
 Save the JSON/screenshot as the tamper-evidence artifact.
 
+### PENDING 4 — Re-validate the CHANNEL pattern tightening (HYPOTHESIS)
+Four over-broad CHANNEL patterns (CHAN-010/011/042/057) were rewritten to key on
+*exfil intent* rather than the bare transport (git/gist/SMS/email) — branch
+`channel-pattern-tighten`, commit `5050c18`. A local embedding-margin check
+supports the direction, but the FPR improvement is **unmeasured**. On the next
+Dell InjecAgent run, verify TWO things:
+1. **Benign hard-blocks drop.** These 4 patterns caused all 120 of CHANNEL's
+   benign hard-blocks pre-change (30 each); expect markedly fewer, and confirm
+   the aggregate hard-block FPR moves **below the current 19%**.
+2. **CHAN-011 / CHAN-042 still match their real exfil attacks** (34 and 17
+   respectively at escalate level pre-change) — i.e. the tightening did not kill
+   attack-level detection. CHAN-010/057 caught zero attacks, so no check needed.
+
+Until this re-run confirms both: the paper's reported FPR stays **19% hard-block**
+as-is. Do NOT update any reported FPR based on the local embedding check alone.
+
 ### ⚠️ Step-3 staged trajectory live test — NEEDS ISHANI'S DECISION (do not blind-run)
 The original runbook had a staged 5-step attack to show `traj_risk` climbing to
 a hard-block. **The trajectory ceiling was since redesigned** (scale-invariant
