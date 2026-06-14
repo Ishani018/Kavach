@@ -80,6 +80,8 @@ import numpy as np
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
+from kavach_eval.threat_intel.intel_loader import get_relevant_techniques
+
 # ── Kavach scorer imports (the real production scorer) ────────────────────────
 try:
     from parliament.ministers import (
@@ -706,9 +708,9 @@ class Paraphraser:
         }
 
 
-class LLMParaphraser:
+class ThreatIntelParaphraser:
     """
-    LLM-based paraphraser using local Ollama.
+    LLM-based paraphraser using local Ollama and RAG with Threat Intel.
     """
 
     def __init__(self, n_per_seed: int = 5) -> None:
@@ -719,13 +721,17 @@ class LLMParaphraser:
         self.requests = requests
 
     def generate(self, text: str) -> dict[str, list[str]]:
+        techniques = get_relevant_techniques(text, num_samples=self._n)
+        techniques_str = "\n".join(f"- {t}" for t in techniques)
+
         prompt = (
             f"You are a penetration tester. Given the following attack description or command, "
-            f"generate {self._n} genuinely malicious paraphrases that mean the exact same thing "
-            f"but are worded or structured differently. Do not just swap synonyms, but use semantically "
-            f"equivalent attacks expressed differently.\n\n"
+            f"generate {self._n} genuinely malicious and highly evasive paraphrases.\n"
+            f"You MUST implement the attack using the following specific obfuscation techniques and LOLBAS methods:\n"
+            f"{techniques_str}\n\n"
             f"Original attack: {text}\n\n"
-            f"Output exactly {self._n} paraphrases, one per line. Do not include numbering, bullet points, or any extra text."
+            f"Output exactly {self._n} paraphrases, one per line. Do not include numbering, bullet points, or any extra text. "
+            f"Only output the raw malicious command or attack string without markdown formatting."
         )
         try:
             resp = self.requests.post(self.url, json={
@@ -739,12 +745,14 @@ class LLMParaphraser:
             cleaned = []
             for line in lines:
                 line = re.sub(r"^(\d+\.|-|\*)\s*", "", line).strip()
+                line = re.sub(r'^["\']|["\']$', "", line).strip()
+                line = re.sub(r'^`+|`+$', "", line).strip()
                 if line:
                     cleaned.append(line)
-            return {"llm_rewrite": cleaned[:self._n]}
+            return {"threat_intel_rewrite": cleaned[:self._n]}
         except Exception as e:
-            log.error(f"LLM paraphrasing failed for seed '{text[:30]}...': {e}")
-            return {"llm_rewrite": []}
+            log.error(f"Threat Intel paraphrasing failed for seed '{text[:30]}...': {e}")
+            return {"threat_intel_rewrite": []}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -948,16 +956,93 @@ def _parliament_verdict(scans: dict[str, MinisterScan]) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Checkpointing — one JSONL line per completed SEED, so a crash mid-run loses at
+# most the in-progress seed, not the whole run. The final write_outputs() is
+# unchanged; this is pure insurance, enabled per-run via --resume.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _seed_key(seed: Seed) -> str:
+    """Stable identity for a seed (pattern + level), used to skip on resume."""
+    return f"{seed.pattern_id}::{seed.level}"
+
+
+def _pr_to_dict(pr: ParaphraseResult) -> dict:
+    """JSON-safe view of a ParaphraseResult, preserving everything _build_report
+    reads (the owning minister's confidence is kept so examples rehydrate)."""
+    s = pr.seed
+    own = pr.minister_scans.get(s.minister)
+    return {
+        "seed": {"pattern_id": s.pattern_id, "minister": s.minister,
+                 "level": s.level, "text": s.text,
+                 "category": s.category, "source": s.source},
+        "paraphrase": pr.paraphrase, "stage": pr.stage,
+        "maliciousness": pr.maliciousness,
+        "speaker_verdict": pr.speaker_verdict,
+        "is_evasion": pr.is_evasion,
+        "is_bm25_gate_evasion": pr.is_bm25_gate_evasion,
+        "own_conf": (own.confidence if own else None),
+        "dense_sim": pr.dense_sims.get(s.minister),
+    }
+
+
+def _pr_from_dict(d: dict) -> ParaphraseResult:
+    """Rehydrate a ParaphraseResult from a checkpoint line. Rebuilds a minimal
+    MinisterScan for the owning minister so report aggregation works unchanged."""
+    sd = d["seed"]
+    seed = Seed(pattern_id=sd["pattern_id"], minister=sd["minister"],
+                level=sd["level"], text=sd["text"],
+                category=sd.get("category", ""), source=sd.get("source", ""))
+    pr = ParaphraseResult(seed=seed, paraphrase=d["paraphrase"],
+                          stage=d["stage"], maliciousness=d["maliciousness"])
+    pr.speaker_verdict = d.get("speaker_verdict", "ALLOW")
+    pr.is_evasion = d.get("is_evasion", False)
+    pr.is_bm25_gate_evasion = d.get("is_bm25_gate_evasion", False)
+    if d.get("own_conf") is not None:
+        pr.minister_scans[seed.minister] = MinisterScan(
+            minister=seed.minister, verdict=pr.speaker_verdict,
+            confidence=d["own_conf"], matched_id=None, matched_text=None,
+            matched_level=None)
+    if d.get("dense_sim") is not None:
+        pr.dense_sims[seed.minister] = d["dense_sim"]
+    return pr
+
+
+def _load_checkpoint(path: Path) -> tuple[set[str], list[ParaphraseResult], list[ParaphraseResult]]:
+    """Load a checkpoint: returns (done_seed_keys, kept, ambiguous)."""
+    done: set[str] = set()
+    kept: list[ParaphraseResult] = []
+    ambiguous: list[ParaphraseResult] = []
+    if not path.exists():
+        return done, kept, ambiguous
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rec = json.loads(line)
+            done.add(rec["seed_key"])
+            for d in rec.get("kept", []):
+                kept.append(_pr_from_dict(d))
+            for d in rec.get("ambiguous", []):
+                ambiguous.append(_pr_from_dict(d))
+    return done, kept, ambiguous
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Main evaluation loop
 # ──────────────────────────────────────────────────────────────────────────────
 
 def run_evasion_loop(
     seeds:      list[Seed],
-    paraphraser: Paraphraser | LLMParaphraser,
+    paraphraser: Paraphraser | ThreatIntelParaphraser,
     scorer:     KavachScorer,
     guard:      MaliciousnessGuard,
     thresholds: dict[str, dict],
     verbose:    bool = False,
+    checkpoint_path: Path | None = None,
+    done_keys:  set[str] | None = None,
+    kept:       list[ParaphraseResult] | None = None,
+    ambiguous:  list[ParaphraseResult] | None = None,
 ) -> tuple[list[ParaphraseResult], list[ParaphraseResult]]:
     """
     Main loop:
@@ -967,16 +1052,27 @@ def run_evasion_loop(
       - Determine parliament-level verdict.
       - Flag BM25-gate evasions.
 
+    If `checkpoint_path` is given, one JSONL line per completed seed is appended
+    after that seed is scored; seeds whose key is in `done_keys` are skipped
+    (resume). `kept`/`ambiguous` may be pre-seeded with rehydrated checkpoint
+    results so the final report is complete.
+
     Returns (kept_results, ambiguous_results).
     """
-    kept:      list[ParaphraseResult] = []
-    ambiguous: list[ParaphraseResult] = []
+    kept      = kept if kept is not None else []
+    ambiguous = ambiguous if ambiguous is not None else []
+    done_keys = done_keys or set()
 
     total   = len(seeds)
     for seed_idx, seed in enumerate(seeds):
+        if _seed_key(seed) in done_keys:
+            continue
         if verbose or seed_idx % 20 == 0:
             log.info("[%d/%d] Seed %s %s (%s)",
                      seed_idx + 1, total, seed.pattern_id, seed.level, seed.minister)
+
+        seed_kept: list[ParaphraseResult] = []
+        seed_ambiguous: list[ParaphraseResult] = []
 
         stage_paraphrases = paraphraser.generate(seed.text)
 
@@ -991,7 +1087,7 @@ def run_evasion_loop(
                 )
 
                 if maliciousness == "AMBIGUOUS":
-                    ambiguous.append(pr)
+                    seed_ambiguous.append(pr)
                     continue
 
                 # Score through real Kavach scorer
@@ -1022,7 +1118,20 @@ def run_evasion_loop(
                         and hybrid_conf < th_block
                     )
 
-                kept.append(pr)
+                seed_kept.append(pr)
+
+        # Seed fully processed — merge into the running totals and append one
+        # checkpoint line (insurance: a crash now loses at most the NEXT seed).
+        kept.extend(seed_kept)
+        ambiguous.extend(seed_ambiguous)
+        if checkpoint_path is not None:
+            rec = {
+                "seed_key":  _seed_key(seed),
+                "kept":      [_pr_to_dict(p) for p in seed_kept],
+                "ambiguous": [_pr_to_dict(p) for p in seed_ambiguous],
+            }
+            with checkpoint_path.open("a", encoding="utf-8") as cf:
+                cf.write(json.dumps(rec) + "\n")
 
     return kept, ambiguous
 
@@ -1377,6 +1486,17 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use Qwen LLM via Ollama for paraphrasing instead of templated swaps.",
     )
+    ap.add_argument(
+        "--use-threat-intel",
+        action="store_true",
+        help="Use RAG-augmented ThreatIntelParaphraser instead of basic templated swaps.",
+    )
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from the newest checkpoint_*.jsonl in --out-dir (skip "
+             "already-completed seeds). Without it, the run starts fresh.",
+    )
     return ap.parse_args()
 
 
@@ -1425,9 +1545,9 @@ def main() -> None:
             )
 
     # ── Build paraphraser + guard ─────────────────────────────────────────────
-    if args.use_llm:
-        paraphraser = LLMParaphraser(n_per_seed=args.n_per_seed)
-        paraphraser_name = "qwen2.5:3b_ollama"
+    if args.use_threat_intel or args.use_llm:
+        paraphraser = ThreatIntelParaphraser(n_per_seed=args.n_per_seed)
+        paraphraser_name = "qwen2.5:3b_ollama_threat_intel"
         n_per_seed_total = args.n_per_seed  # 1 stage
     else:
         paraphraser = Paraphraser(n_per_seed=args.n_per_seed)
@@ -1443,6 +1563,25 @@ def main() -> None:
         len(seeds), n_per_seed_total, n_expected,
     )
 
+    # ── Checkpoint setup (insurance against a crashed long run) ───────────────
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    done_keys: set[str] = set()
+    ck_kept: list[ParaphraseResult] = []
+    ck_ambiguous: list[ParaphraseResult] = []
+    if args.resume:
+        existing = sorted(args.out_dir.glob("checkpoint_*.jsonl"))
+        if existing:
+            checkpoint_path = existing[-1]   # newest
+            done_keys, ck_kept, ck_ambiguous = _load_checkpoint(checkpoint_path)
+            log.info("Resuming from %s — %d completed seeds, %d kept, %d ambiguous",
+                     checkpoint_path.name, len(done_keys), len(ck_kept), len(ck_ambiguous))
+        else:
+            checkpoint_path = args.out_dir / f"checkpoint_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+            log.info("--resume given but no checkpoint found — starting fresh: %s",
+                     checkpoint_path.name)
+    else:
+        checkpoint_path = args.out_dir / f"checkpoint_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+
     # ── Run evaluation ────────────────────────────────────────────────────────
     t0 = time.perf_counter()
     kept, ambiguous = run_evasion_loop(
@@ -1452,6 +1591,10 @@ def main() -> None:
         guard       = guard,
         thresholds  = thresholds,
         verbose     = args.verbose,
+        checkpoint_path = checkpoint_path,
+        done_keys   = done_keys,
+        kept        = ck_kept,
+        ambiguous   = ck_ambiguous,
     )
     elapsed = time.perf_counter() - t0
     log.info("Evaluation complete in %.1fs — %d kept, %d ambiguous",
@@ -1478,6 +1621,11 @@ def main() -> None:
 
     print_report(report)
     write_outputs(report, kept, ambiguous, args.out_dir)
+
+    # Run completed successfully — the final report supersedes the checkpoint.
+    if checkpoint_path is not None and checkpoint_path.exists():
+        checkpoint_path.unlink()
+        log.info("Run complete — removed checkpoint %s", checkpoint_path.name)
 
 
 if __name__ == "__main__":
