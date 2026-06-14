@@ -838,10 +838,35 @@ class SeedLoader:
                  len(seeds), len(ministers), len(levels))
 
         if max_seeds is not None and len(seeds) > max_seeds:
-            # Sample evenly: take every Nth seed
-            step = max(1, len(seeds) // max_seeds)
-            seeds = seeds[::step][:max_seeds]
-            log.info("Capped to %d seeds (--max-seeds %d)", len(seeds), max_seeds)
+            # Per-level quota sampling: guarantee ≥ floor(max_seeds / n_levels)
+            # seeds per level so that no level is accidentally dropped when N is
+            # small relative to the total pool (e.g. --max-seeds 10 with 1200 seeds).
+            from collections import defaultdict
+            per_level: dict[str, list[Seed]] = defaultdict(list)
+            for s in seeds:
+                per_level[s.level].append(s)
+
+            n_levels     = max(1, len(per_level))
+            level_quota  = max(1, max_seeds // n_levels)
+            sampled: list[Seed] = []
+            for lvl_seeds in per_level.values():
+                step = max(1, len(lvl_seeds) // level_quota)
+                sampled.extend(lvl_seeds[::step][:level_quota])
+
+            # If rounding left room, top up from remaining unsampled seeds
+            remaining = max_seeds - len(sampled)
+            if remaining > 0:
+                sampled_ids = {id(s) for s in sampled}
+                extras = [s for s in seeds if id(s) not in sampled_ids]
+                step   = max(1, len(extras) // remaining)
+                sampled.extend(extras[::step][:remaining])
+
+            seeds = sampled[:max_seeds]
+            log.info(
+                "Capped to %d seeds (--max-seeds %d) — per-level: %s",
+                len(seeds), max_seeds,
+                {lvl: sum(1 for s in seeds if s.level == lvl) for lvl in per_level},
+            )
 
         return seeds
 
