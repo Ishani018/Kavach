@@ -116,6 +116,18 @@ decides whether/how to re-stage this before it runs.
 
 ---
 
+## Red Team Evasion v0
+
+- **Paraphraser**: templated (no LLM)
+- **Scale**: 1200 seeds × 15 paraphrases
+- **Evaluated**: 5925
+- **Ambiguous**: 1479
+- **Evasion Rate**: 0.0% across all ministers/levels/stages
+- **BM25-gate evasions**: 0
+- **Note**: Laptop-measured — Dell is canonical, numbers may shift. Qwen upgrade pending.
+
+---
+
 ## Reference (all in docs/internal/)
 - §4→artifact map: `GPU_RUNBOOK_ADDENDUM.md`
 - Audit verdicts: `AUDIT_VERIFICATION.md`
