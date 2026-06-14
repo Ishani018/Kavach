@@ -80,6 +80,8 @@ import numpy as np
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
+from kavach_eval.threat_intel.intel_loader import get_relevant_techniques
+
 # ── Kavach scorer imports (the real production scorer) ────────────────────────
 try:
     from parliament.ministers import (
@@ -706,9 +708,9 @@ class Paraphraser:
         }
 
 
-class LLMParaphraser:
+class ThreatIntelParaphraser:
     """
-    LLM-based paraphraser using local Ollama.
+    LLM-based paraphraser using local Ollama and RAG with Threat Intel.
     """
 
     def __init__(self, n_per_seed: int = 5) -> None:
@@ -719,13 +721,17 @@ class LLMParaphraser:
         self.requests = requests
 
     def generate(self, text: str) -> dict[str, list[str]]:
+        techniques = get_relevant_techniques(text, num_samples=self._n)
+        techniques_str = "\n".join(f"- {t}" for t in techniques)
+
         prompt = (
             f"You are a penetration tester. Given the following attack description or command, "
-            f"generate {self._n} genuinely malicious paraphrases that mean the exact same thing "
-            f"but are worded or structured differently. Do not just swap synonyms, but use semantically "
-            f"equivalent attacks expressed differently.\n\n"
+            f"generate {self._n} genuinely malicious and highly evasive paraphrases.\n"
+            f"You MUST implement the attack using the following specific obfuscation techniques and LOLBAS methods:\n"
+            f"{techniques_str}\n\n"
             f"Original attack: {text}\n\n"
-            f"Output exactly {self._n} paraphrases, one per line. Do not include numbering, bullet points, or any extra text."
+            f"Output exactly {self._n} paraphrases, one per line. Do not include numbering, bullet points, or any extra text. "
+            f"Only output the raw malicious command or attack string without markdown formatting."
         )
         try:
             resp = self.requests.post(self.url, json={
@@ -739,12 +745,14 @@ class LLMParaphraser:
             cleaned = []
             for line in lines:
                 line = re.sub(r"^(\d+\.|-|\*)\s*", "", line).strip()
+                line = re.sub(r'^["\']|["\']$', "", line).strip()
+                line = re.sub(r'^`+|`+$', "", line).strip()
                 if line:
                     cleaned.append(line)
-            return {"llm_rewrite": cleaned[:self._n]}
+            return {"threat_intel_rewrite": cleaned[:self._n]}
         except Exception as e:
-            log.error(f"LLM paraphrasing failed for seed '{text[:30]}...': {e}")
-            return {"llm_rewrite": []}
+            log.error(f"Threat Intel paraphrasing failed for seed '{text[:30]}...': {e}")
+            return {"threat_intel_rewrite": []}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1377,6 +1385,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use Qwen LLM via Ollama for paraphrasing instead of templated swaps.",
     )
+    ap.add_argument(
+        "--use-threat-intel",
+        action="store_true",
+        help="Use RAG-augmented ThreatIntelParaphraser instead of basic templated swaps.",
+    )
     return ap.parse_args()
 
 
@@ -1425,9 +1438,9 @@ def main() -> None:
             )
 
     # ── Build paraphraser + guard ─────────────────────────────────────────────
-    if args.use_llm:
-        paraphraser = LLMParaphraser(n_per_seed=args.n_per_seed)
-        paraphraser_name = "qwen2.5:3b_ollama"
+    if args.use_threat_intel or args.use_llm:
+        paraphraser = ThreatIntelParaphraser(n_per_seed=args.n_per_seed)
+        paraphraser_name = "qwen2.5:3b_ollama_threat_intel"
         n_per_seed_total = args.n_per_seed  # 1 stage
     else:
         paraphraser = Paraphraser(n_per_seed=args.n_per_seed)
