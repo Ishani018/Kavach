@@ -706,6 +706,47 @@ class Paraphraser:
         }
 
 
+class LLMParaphraser:
+    """
+    LLM-based paraphraser using local Ollama.
+    """
+
+    def __init__(self, n_per_seed: int = 5) -> None:
+        self._n = n_per_seed
+        self.url = "http://localhost:11434/api/generate"
+        self.model = "qwen2.5:3b"
+        import requests
+        self.requests = requests
+
+    def generate(self, text: str) -> dict[str, list[str]]:
+        prompt = (
+            f"You are a penetration tester. Given the following attack description or command, "
+            f"generate {self._n} genuinely malicious paraphrases that mean the exact same thing "
+            f"but are worded or structured differently. Do not just swap synonyms, but use semantically "
+            f"equivalent attacks expressed differently.\n\n"
+            f"Original attack: {text}\n\n"
+            f"Output exactly {self._n} paraphrases, one per line. Do not include numbering, bullet points, or any extra text."
+        )
+        try:
+            resp = self.requests.post(self.url, json={
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False
+            }, timeout=60)
+            resp.raise_for_status()
+            content = resp.json().get("response", "")
+            lines = [line.strip() for line in content.split("\n") if line.strip()]
+            cleaned = []
+            for line in lines:
+                line = re.sub(r"^(\d+\.|-|\*)\s*", "", line).strip()
+                if line:
+                    cleaned.append(line)
+            return {"llm_rewrite": cleaned[:self._n]}
+        except Exception as e:
+            log.error(f"LLM paraphrasing failed for seed '{text[:30]}...': {e}")
+            return {"llm_rewrite": []}
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # MaliciousnessGuard
 # ──────────────────────────────────────────────────────────────────────────────
@@ -722,6 +763,10 @@ _ATTACK_TOKENS = {
     "replac", "append", "enumerat", "scan", "probe", "listen", "connect",
     "bind", "pivot", "lateral", "privilege", "privesc",
 
+    # Threat-actor / adversary terms (previously missing — caused L3 AMBIGUOUS FP)
+    "attack", "attacker", "adversar", "threat", "malici", "malicious",
+    "exploit", "payload", "weaponiz",
+
     # Credential/secret nouns
     "credential", "secret", "password", "token", "key", "auth",
     "passphrase", "passw", "apikey", "api_key",
@@ -736,6 +781,12 @@ _ATTACK_TOKENS = {
     "shadow", "passwd", "profile", ".ssh", ".aws", "credential",
     "config", "bytecode", "pyc", "pycache", "docker", "kubectl",
     "container", "kubernetes", "lambda", "serverless", "iam", "sts",
+
+    # L3 surface-specific terms (previously missing — caused JNDI/polkit AMBIGUOUS FP)
+    "jndi", "ldap", "lookup", "rmi", "log4j", "deserializ",
+    "polkit", "pam", "sudoer", "crontab", "initd", "systemd",
+    "ptrace", "setuid", "setgid", "capabilit",
+    "injection", "traversal", "overflow", "corrupt",
 }
 
 
@@ -762,18 +813,22 @@ class MaliciousnessGuard:
     as a genuine evasion attempt.
 
     Decision:
-        KEEP      — paraphrase shares ≥1 attack-domain stem with the original.
-        AMBIGUOUS — no attack-domain overlap; paraphrase may have drifted benign.
+        KEEP      — paraphrase contains ≥1 attack-domain stem.
+        AMBIGUOUS — paraphrase has zero attack-domain content; may have drifted
+                    benign. Written to human-review file, excluded from count.
 
-    AMBIGUOUS items are excluded from the evasion count and written to the
-    human-review file instead.
+    Design note: we check para_tokens only (not the intersection with the
+    original). The original seed is always malicious by construction — it comes
+    directly from the Kavach corpus. We only need to verify that the paraphrase
+    itself still looks attack-domain. This avoids false AMBIGUOUS flags when
+    the surface_obfusc stage replaces L3 tool names with generic descriptions
+    that don't share lexical tokens with the original but are still malicious
+    (e.g. 'attacker' → 'the threat actor': 'threat' is an attack token).
     """
 
-    def check(self, original: str, paraphrase: str) -> str:
-        orig_tokens  = _token_overlap(original)
-        para_tokens  = _token_overlap(paraphrase)
-        shared       = orig_tokens & para_tokens
-        return "KEEP" if shared else "AMBIGUOUS"
+    def check(self, original: str, paraphrase: str) -> str:  # noqa: ARG002
+        para_tokens = _token_overlap(paraphrase)
+        return "KEEP" if para_tokens else "AMBIGUOUS"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -898,7 +953,7 @@ def _parliament_verdict(scans: dict[str, MinisterScan]) -> str:
 
 def run_evasion_loop(
     seeds:      list[Seed],
-    paraphraser: Paraphraser,
+    paraphraser: Paraphraser | LLMParaphraser,
     scorer:     KavachScorer,
     guard:      MaliciousnessGuard,
     thresholds: dict[str, dict],
@@ -1317,6 +1372,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Log every seed being processed.",
     )
+    ap.add_argument(
+        "--use-llm",
+        action="store_true",
+        help="Use Qwen LLM via Ollama for paraphrasing instead of templated swaps.",
+    )
     return ap.parse_args()
 
 
@@ -1365,11 +1425,18 @@ def main() -> None:
             )
 
     # ── Build paraphraser + guard ─────────────────────────────────────────────
-    paraphraser = Paraphraser(n_per_seed=args.n_per_seed)
+    if args.use_llm:
+        paraphraser = LLMParaphraser(n_per_seed=args.n_per_seed)
+        paraphraser_name = "qwen2.5:3b_ollama"
+        n_per_seed_total = args.n_per_seed  # 1 stage
+    else:
+        paraphraser = Paraphraser(n_per_seed=args.n_per_seed)
+        paraphraser_name = "templated"
+        n_per_seed_total = args.n_per_seed * 3   # 3 stages
+
     guard       = MaliciousnessGuard()
 
     # ── Compute expected paraphrase count (for ETA logging) ──────────────────
-    n_per_seed_total = args.n_per_seed * 3   # 3 stages
     n_expected       = len(seeds) * n_per_seed_total
     log.info(
         "Starting evasion loop: %d seeds × %d paraphrases/seed ≈ %d total",
@@ -1399,6 +1466,7 @@ def main() -> None:
         "levels":      levels_filter,
         "thresholds":  thresholds,
         "elapsed_s":   round(elapsed, 1),
+        "paraphraser": paraphraser_name,
     }
     report = _build_report(
         kept        = kept,

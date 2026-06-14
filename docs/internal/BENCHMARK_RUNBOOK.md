@@ -126,6 +126,15 @@ decides whether/how to re-stage this before it runs.
 - **BM25-gate evasions**: 0
 - **Note**: Laptop-measured — Dell is canonical, numbers may shift. Qwen upgrade pending.
 
+### Qwen LLM Paraphraser (Smoke Test)
+
+- **Paraphraser**: qwen2.5:3b_ollama
+- **Scale**: 10 seeds × 3 paraphrases
+- **Evaluated**: 22
+- **Ambiguous**: 8
+- **Evasion Rate**: 0.0% across all ministers/levels/stages
+- **BM25-gate evasions**: 0
+
 ---
 
 ## Reference (all in docs/internal/)
