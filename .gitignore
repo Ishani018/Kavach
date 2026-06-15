@@ -22,6 +22,12 @@ corpus_v2/rejects.json
 compass_calibration.json
 compass_histogram.png
 
+# Vendored Atomic Red Team repo (237 MB of real attack-command files — triggers
+# antivirus, bloats git). We keep only the distilled atomic_index.json + loader.
+# Re-clone from github.com/redcanaryco/atomic-red-team if the index needs rebuilding.
+kavach_eval/threat_intel/atomic-red-team/
+kavach_eval/threat_intel/technique_db/
+
 # Python
 __pycache__/
 *.pyc
