@@ -48,3 +48,4 @@ temp_readme.txt
 # Local scratch (never commit)
 .claude/
 verify_logs/
+chroma_store/
