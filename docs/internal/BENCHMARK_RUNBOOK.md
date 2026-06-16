@@ -32,8 +32,21 @@ Aggregate (per distinct case): loose recall 0.887, strict 0.532, hard-block FPR
 ### PENDING 1 — AgentDojo + KavachDefense  ← main remaining task
 Not yet committed (no `benchmarks/results_v2/agentdojo_*`). Run with the
 hardened programmatic driver (the AgentDojo CLI's `--defense` enum cannot load
-KavachDefense). For the laptop run on Gemma 4 26B, use the standalone laptop
-runbook Ishani provides; the core commands:
+KavachDefense). For the laptop run on Gemma 4 26B, follow this section (it is the
+current self-contained runbook — the older separate `PARV_DELL_RUNBOOK` was
+removed in commit `9aaa89a`); the core commands:
+
+> 🔴 **MANDATORY before anything else — rebuild the ChromaDB.** The corpus
+> changed since the last build: **CHAN-101** (lolbin_substitution, bitsadmin
+> exfil family) was admitted to `kavach_corpus_v1.json` in commit `6f73061`.
+> The live ChromaDB does **not** pick up corpus edits automatically. Even if you
+> already have a built `parliament/.chroma_kavach`, rebuild it now — otherwise
+> CHAN-101 is invisible to your run and your results won't reflect the validated
+> fix:
+> ```bash
+> rm -rf parliament/.chroma_kavach && python corpus_loader.py --rebuild
+> ```
+> Confirm CHANNEL shows **303** docs after rebuild (101 patterns × 3 levels), not 300.
 
 ```bash
 # 0. one server + MANDATORY real readiness check (NOT just /health)
@@ -60,6 +73,19 @@ python benchmarks/run_agentdojo_kavach.py \
 were unscreened — fix the parliament and re-run. Targets: ASR < 5% (vs ~17.6%
 baseline), benign utility > 40%. Label the output honestly (`_gemma_laptop`, not
 `_dell`).
+
+#### Interpreting evasions: the BM25 gate floor
+If a LOLBIN-style action slips through in your AgentDojo run (certutil, mshta,
+bitsadmin, IEX, regsvr32, …), the likely cause is Kavach's lexical gate, not a
+dense-embedding miss. Confidence is computed as
+`hybrid_conf = dense_sim × lexical_gate`, where `lexical_gate` floors at
+`GATE_FLOOR = 0.65` (`parliament/ministers.py`) when the action shares no
+distinctive tokens with the matched pattern. So a tool the corpus never names by
+keyword can be semantically recognized (high `dense_sim`) yet still ALLOW because
+the gate discounts the score below threshold. This is a characterized failure
+class — see `kavach_eval/R2_FINDINGS.md` (R2: 11/13 LOLBINs evade via this gate,
+anchor example `certutil` dense 0.586 → hybrid 0.515 < 0.55). Read borderline
+AgentDojo misses through this lens before treating them as detector failures.
 
 ### PENDING 2 — OpenClaw-native benchmark
 `native_results.json` does not exist; §4's native-format FPR is still `\TBD`.
@@ -90,6 +116,71 @@ Dell InjecAgent run, verify TWO things:
 
 Until this re-run confirms both: the paper's reported FPR stays **19% hard-block**
 as-is. Do NOT update any reported FPR based on the local embedding check alone.
+
+### PENDING 5 — corpus_agent re-run with Gemma 4 26B (OPTIONAL, lower priority than AgentDojo)
+The corpus-improvement agent (`kavach_eval/corpus_agent/`) proposes new corpus
+patterns for red-teamer evasions and gates them through a 3-part anti-poisoning
+validator. In repeatability testing the **proposer is the bottleneck**:
+`qwen2.5:3b` (laptop default) passes only **~1/28** attempts across full runs,
+and the one pass (CHAN-101) never reproduced. The validation gate is sound; the
+weak link is generation quality. Your Gemma 4 26B hardware can test whether
+proposer pass-rate scales with model size — the experiment that would make the
+generation half of the closed loop a defensible paper claim:
+```bash
+python kavach_eval/corpus_agent/agent.py --minister CHANNEL \
+  --model gemma4:26b --measure-closure
+```
+Run this only **after** AgentDojo (PENDING 1) — it is a bonus, not a blocker. The
+agent never writes the live corpus; survivors are staged for human review.
+
+> **Diagnostics:** `tools/pattern_inspector.py` (CLI) and the new web UI
+> (`tools/pattern_inspector_server.py` + `tools/pattern_inspector_web.html`,
+> `python tools/pattern_inspector_server.py` → http://127.0.0.1:8077) let you
+> type any tool-call and see per-minister `dense_sim × lexical_gate = confidence`
+> against the real pipeline — useful for inspecting *why* a specific AgentDojo
+> action scored the way it did during your run.
+
+---
+
+## Priority queue beyond AgentDojo (optional, time-permitting)
+
+AgentDojo (PENDING 1) is the priority. If time permits on your hardware, these
+benefit specifically from Gemma 4 26B (a much stronger model than the laptop's
+qwen2.5:3b) or from a second machine running in parallel. Ranked.
+
+1. **Full LLM red-team re-run with Gemma 4 26B**
+   ```bash
+   python kavach_eval/redteam_evasion_v0.py --use-llm --model gemma4:26b
+   ```
+   Why: the current headline numbers (3.36% evasion, CHANNEL 8.43%) came from
+   `qwen2.5:3b` at N≈82 with 18 Qwen timeouts. Gemma gives stronger paraphrases
+   and a larger effective N — turns the laptop hypothesis into a publishable
+   population number.
+
+2. **corpus_agent repeatability with Gemma 4 26B, across all available ministers**
+   ```bash
+   python kavach_eval/corpus_agent/agent.py --minister CHANNEL --model gemma4:26b --measure-closure
+   # repeat for VAULT and EXECUTOR with their available evasions
+   ```
+   Why: `qwen2.5:3b` passes only ~1/28 attempts in repeatability testing; this
+   tests whether proposer quality scales with model size. Note the sample sizes
+   in the current evasion report: **CHANNEL has 7 evasions** to work with, but
+   **VAULT and EXECUTOR have only 1 each** — do not over-read a single-evasion
+   pass/fail for those two; they are directional at best until more evasions exist.
+
+3. **OpenClaw-native benchmark** — `native_results.json` is currently missing and
+   §4's native-format FPR is still `\TBD`. Parallelizable on your machine
+   independent of AgentDojo (different harness, no contention).
+
+4. **InjecAgent re-run with CHAN-101 + tightened CHANNEL patterns** — Dell/Gemma-
+   canonical confirmation that the FPR drop holds. The laptop regression check
+   already showed 0% CHANNEL evasion after CHAN-101, but that is the templated
+   red-teamer, **not** the InjecAgent benchmark — this is the canonical re-measure.
+
+> **🔒 HARD FREEZE:** anything touching the live decision path — issue #9
+> activation, dynamic COMPASS thresholds, new ministers (SUPPLY / LEAKAGE) — is
+> **post-July-24 only**. Do not activate or merge these before submission; they
+> would invalidate already-locked benchmark numbers.
 
 ### ⚠️ Step-3 staged trajectory live test — NEEDS ISHANI'S DECISION (do not blind-run)
 The original runbook had a staged 5-step attack to show `traj_risk` climbing to
