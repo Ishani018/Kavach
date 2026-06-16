@@ -14,6 +14,14 @@ The single-best verdict is computed by calling
 function's dense + RRF + lexical-gate math (reusing its own helpers) to show more
 than the one match it returns.
 
+The top-3 output shows `lexical_gate` as its own column — i.e.
+`confidence = dense_sim × lexical_gate` (the R2 gate mechanism, `GATE_FLOOR=0.65`)
+— so you can see a high-dense match get floored below threshold by zero lexical
+overlap, rather than only seeing the final confidence. At import time the tool
+also runs a lightweight consistency check and prints a `WARNING` to stderr if its
+mirror logic looks stale versus `parliament/ministers.py` (renamed/removed helpers
+or an out-of-range `_GATE_FLOOR`); re-verify the top-3 math before trusting it.
+
 > **Disclaimer (also printed on every run):** scores here GUIDE pattern work but
 > are NOT a substitute for the Dell benchmark. Any FPR/recall improvement is a
 > hypothesis until re-measured on the Dell. This tool is for diagnosis and
