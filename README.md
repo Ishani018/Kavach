@@ -21,7 +21,7 @@ Supervisor: Prof. Rajesh Banginwar
 
 ---
 
-## TL;DR for a reviewer
+## TL;DR
 
 Kavach sits between an LLM agent and the tools it calls. Before any tool executes, Kavach embeds the proposed action with a sentence-embedding model and scores it against a curated **401-pattern attack corpus** through a **"parliament" of four specialist detectors** (ministers). A deterministic **Speaker** combines their verdicts — *any one* minister at BLOCK is sufficient to block — and a **COMPASS** module independently checks whether the action still matches the user's original intent. Every decision is written to a **SHA-256 hash-chained ledger**.
 
