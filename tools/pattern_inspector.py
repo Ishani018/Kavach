@@ -56,6 +56,42 @@ from parliament.ministers import (  # noqa: E402
     _GATE_FLOOR,
 )
 
+
+# ── Mirror drift-check (Enhancement 2) ───────────────────────────────────────
+# topk_hybrid_matches reimplements ministers.py's dense+RRF+gate math. If that
+# module's helpers/constants are renamed, removed, or change shape, the import
+# above fails loudly already. This adds a value/shape sanity check for SILENT
+# drift (e.g. _GATE_FLOOR meaning changes, a helper stops being callable).
+def _check_mirror_consistency() -> None:
+    import parliament.ministers as _m
+    problems = []
+    for name in ("_tokenize", "_rrf_fuse", "build_bm25_index", "run_minister_hybrid"):
+        fn = getattr(_m, name, None)
+        if fn is None or not callable(fn):
+            problems.append(f"{name} missing or not callable")
+    if not isinstance(_RRF_K, (int, float)):
+        problems.append(f"_RRF_K not numeric (got {type(_RRF_K).__name__})")
+    if not isinstance(_GATE_FLOOR, float) or not (0.0 <= _GATE_FLOOR <= 1.0):
+        problems.append(f"_GATE_FLOOR out of [0,1] or non-float (got {_GATE_FLOOR!r})")
+    # _tokenize should return a list of tokens for a simple string
+    try:
+        toks = _m._tokenize("read /etc/passwd")
+        if not isinstance(toks, (list, tuple)):
+            problems.append(f"_tokenize returned {type(toks).__name__}, expected list/tuple")
+    except Exception as e:
+        problems.append(f"_tokenize raised {e!r}")
+    if problems:
+        print(
+            "  WARNING: pattern_inspector's mirror logic may be stale vs\n"
+            "  parliament/ministers.py — re-verify before trusting top-3 scores.\n"
+            "  Details: " + "; ".join(problems),
+            file=sys.stderr,
+        )
+
+
+_check_mirror_consistency()
+
+
 # Must match parliament/server.py:_COLL_NAMES exactly.
 COLL_NAMES = {
     "EXECUTOR":  "kavach_executor",
@@ -236,13 +272,14 @@ def topk_hybrid_matches(
     chroma_ids = res["ids"][0]
     similarities = [max(0.0, 1.0 - d) for d in distances]  # chroma cosine -> sim
 
-    def candidate(i: int, conf: float) -> dict:
+    def candidate(i: int, conf: float, gate: float | None = None) -> dict:
         meta = metadatas[i] or {}
         return {
             "pattern_id": meta.get("pattern_id"),
             "level":      meta.get("level"),
             "category":   meta.get("category", ""),
             "dense_sim":  round(similarities[i], 4),
+            "lexical_gate": round(gate, 4) if gate is not None else None,
             "confidence": round(conf, 4),
             "text":       documents[i],
         }
@@ -250,7 +287,7 @@ def topk_hybrid_matches(
     # ── Dense-only fallback (matches run_minister -> run_minister_hybrid path) ──
     if bm25_index is None:
         order = sorted(range(len(similarities)), key=lambda i: similarities[i], reverse=True)
-        return [candidate(i, similarities[i]) for i in order[:k]]
+        return [candidate(i, similarities[i], gate=1.0) for i in order[:k]]
 
     # ── Hybrid: dense order + BM25 global ranks -> RRF selection (mirror) ──
     dense_order = sorted(range(len(similarities)), key=lambda i: similarities[i], reverse=True)
@@ -275,7 +312,7 @@ def topk_hybrid_matches(
         else:
             gate = _GATE_FLOOR + (1.0 - _GATE_FLOOR) * min(1.0, max(0.0, bm25_sel) / bm25_qmax)
         conf = min(1.0, similarities[chroma_idx] * gate)
-        out.append(candidate(chroma_idx, conf))
+        out.append(candidate(chroma_idx, conf, gate=gate))
     return out
 
 
@@ -306,8 +343,10 @@ def cmd_inspect(pipe: LivePipeline, cfg: dict, text: str) -> None:
         for rank, c in enumerate(top, 1):
             v = verdict_for(c["confidence"], th)
             flag = {"BLOCK": "!!", "ESCALATE": " ~", "ALLOW": "  "}[v]
+            gate_str = f"{c['lexical_gate']:.4f}" if c.get("lexical_gate") is not None else "  n/a "
             print(f"     {flag}#{rank} {c['pattern_id']} [{c['level']}] "
-                  f"conf={c['confidence']:.4f} (dense={c['dense_sim']:.4f}) -> {v}")
+                  f"conf={c['confidence']:.4f} (dense={c['dense_sim']:.4f} "
+                  f"x gate={gate_str}) -> {v}")
             print(f"        L1: {_clip(c['text'], 160)}")
         print()
 
