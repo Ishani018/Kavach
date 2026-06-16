@@ -140,6 +140,48 @@ agent never writes the live corpus; survivors are staged for human review.
 > against the real pipeline — useful for inspecting *why* a specific AgentDojo
 > action scored the way it did during your run.
 
+---
+
+## Priority queue beyond AgentDojo (optional, time-permitting)
+
+AgentDojo (PENDING 1) is the priority. If time permits on your hardware, these
+benefit specifically from Gemma 4 26B (a much stronger model than the laptop's
+qwen2.5:3b) or from a second machine running in parallel. Ranked.
+
+1. **Full LLM red-team re-run with Gemma 4 26B**
+   ```bash
+   python kavach_eval/redteam_evasion_v0.py --use-llm --model gemma4:26b
+   ```
+   Why: the current headline numbers (3.36% evasion, CHANNEL 8.43%) came from
+   `qwen2.5:3b` at N≈82 with 18 Qwen timeouts. Gemma gives stronger paraphrases
+   and a larger effective N — turns the laptop hypothesis into a publishable
+   population number.
+
+2. **corpus_agent repeatability with Gemma 4 26B, across all available ministers**
+   ```bash
+   python kavach_eval/corpus_agent/agent.py --minister CHANNEL --model gemma4:26b --measure-closure
+   # repeat for VAULT and EXECUTOR with their available evasions
+   ```
+   Why: `qwen2.5:3b` passes only ~1/28 attempts in repeatability testing; this
+   tests whether proposer quality scales with model size. Note the sample sizes
+   in the current evasion report: **CHANNEL has 7 evasions** to work with, but
+   **VAULT and EXECUTOR have only 1 each** — do not over-read a single-evasion
+   pass/fail for those two; they are directional at best until more evasions exist.
+
+3. **OpenClaw-native benchmark** — `native_results.json` is currently missing and
+   §4's native-format FPR is still `\TBD`. Parallelizable on your machine
+   independent of AgentDojo (different harness, no contention).
+
+4. **InjecAgent re-run with CHAN-101 + tightened CHANNEL patterns** — Dell/Gemma-
+   canonical confirmation that the FPR drop holds. The laptop regression check
+   already showed 0% CHANNEL evasion after CHAN-101, but that is the templated
+   red-teamer, **not** the InjecAgent benchmark — this is the canonical re-measure.
+
+> **🔒 HARD FREEZE:** anything touching the live decision path — issue #9
+> activation, dynamic COMPASS thresholds, new ministers (SUPPLY / LEAKAGE) — is
+> **post-July-24 only**. Do not activate or merge these before submission; they
+> would invalidate already-locked benchmark numbers.
+
 ### ⚠️ Step-3 staged trajectory live test — NEEDS ISHANI'S DECISION (do not blind-run)
 The original runbook had a staged 5-step attack to show `traj_risk` climbing to
 a hard-block. **The trajectory ceiling was since redesigned** (scale-invariant
