@@ -128,6 +128,16 @@ class PatternProposer:
                 log.warning("[propose] unparseable JSON (attempt %d) for evasion %s",
                             attempt, evasion_id)
                 continue
+            # Normalize: qwen2.5:3b sometimes returns a schema field as a LIST
+            # (e.g. multiple L3_surface examples) instead of a string. Coerce the
+            # three required fields to strings defensively so the validation check
+            # and the .strip() calls below never crash on a non-string.
+            for _k in ("L1_intent", "L2_mechanism", "L3_surface"):
+                _v = obj.get(_k)
+                if isinstance(_v, list):
+                    obj[_k] = ", ".join(str(x) for x in _v)
+                elif _v is not None and not isinstance(_v, str):
+                    obj[_k] = str(_v)
             # Require the embedding/mechanism fields; we overwrite id/source ourselves.
             if not all(obj.get(k, "").strip() for k in ("L1_intent", "L2_mechanism", "L3_surface")):
                 log.warning("[propose] missing required fields (attempt %d) for %s",
