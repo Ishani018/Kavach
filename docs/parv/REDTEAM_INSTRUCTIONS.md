@@ -74,7 +74,7 @@ should generate more realistic and diverse LOLBIN/technique substitutions.
 
 ### 1. Get the branch and set git identity
 ```bash
-git pull origin redteam-parv-enhanced
+git pull origin parv-results
 git config user.name "Parv Parmar"
 git config user.email "parvparmar23@gmail.com"
 ```
@@ -290,7 +290,7 @@ It prints "Resuming from N completed seeds" — verify N looks right.
 4. **NEVER write to kavach_corpus_v1.json or anything under parliament/.**
    Pure evaluation tool. Read-only on corpus and ministers.
 
-5. **NEVER push to main.** Push ONLY to redteam-parv-enhanced.
+5. **NEVER push to main.** Push ONLY to parv-results.
 
 6. **Every result is laptop-measured / hypothesis until Dell-confirmed.**
    State this in every commit message and in the report notes field.
@@ -331,8 +331,8 @@ Laptop-measured hypothesis; Dell canonical.
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
 
-git push origin redteam-parv-enhanced
-# Then message Ishani: "pushed to redteam-parv-enhanced — [brief result]"
+git push origin parv-results
+# Then message Ishani: "pushed to parv-results — [brief result]"
 ```
 
 ## If something breaks
@@ -346,7 +346,7 @@ git push origin redteam-parv-enhanced
 - Anything unclear → **message Ishani BEFORE changing anything**
 
 ## What success looks like
-A committed report on redteam-parv-enhanced showing:
+A committed report on parv-results showing:
 - Semantic-RAG evasion rate vs Ishani's keyword-RAG baseline (3.36% overall,
   CHANNEL 8.43%) — higher means better technique retrieval finds deeper blind spots
 - Does evasion spread beyond CHANNEL to EXECUTOR/NAVIGATOR with better retrieval?

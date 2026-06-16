@@ -35,7 +35,7 @@ feedback loop find MORE evasions, and does it spread beyond CHANNEL?
 - Parliament server: running, preflight-confirmed (verdict JSON returned)
 - KavachScorer: imports cleanly
 - ChromaDB: installed
-- Branch: redteam-parv-enhanced (push here only, never to main)
+- Branch: parv-results (push here only, never to main)
 - Git identity set: Parv Parmar / parvparmar23@gmail.com
 
 ## The script's current flags (important — some I have to ADD)
@@ -69,7 +69,7 @@ and `--retrieval-mode keyword/semantic` as NEW flags in Upgrade 1. So:
 - Output JSON must match existing schema + add:
   enhanced / model_used / retrieval_method / upgrade_level / evasion_by_round
 - NEVER write to kavach_corpus_v1.json or parliament/ — read-only eval tool
-- NEVER push to main — redteam-parv-enhanced only
+- NEVER push to main — parv-results only
 - Always nohup + & (never run attached to terminal)
 - Always smoke test 10 seeds before full 1200-seed run
 - If run dies → --resume flag, don't restart from scratch
@@ -81,7 +81,7 @@ and `--retrieval-mode keyword/semantic` as NEW flags in Upgrade 1. So:
 ## How to work with me
 Show me the plan for each upgrade before writing code. Show diffs before
 committing. Run 10-seed smoke, show me the output, get my approval before
-launching 1200 seeds. Push to redteam-parv-enhanced when done and message
+launching 1200 seeds. Push to parv-results when done and message
 Ishani with the result summary.
 
 Start by reading:
