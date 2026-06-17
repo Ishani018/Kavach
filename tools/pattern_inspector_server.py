@@ -30,6 +30,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 import uvicorn
 
+import json
+import numpy as np
+
 # Reuse the EXISTING inspector logic — do not reimplement scoring.
 from tools.pattern_inspector import (  # noqa: E402
     LivePipeline,
@@ -42,8 +45,12 @@ from tools.pattern_inspector import (  # noqa: E402
     _clip,
     MinisterScan,
 )
+# The REAL production Speaker — final verdict combination.
+from parliament.speaker import combine_verdicts  # noqa: E402
 
 MINISTERS = ("EXECUTOR", "VAULT", "CHANNEL", "NAVIGATOR")
+ROUTER_PATH = REPO_ROOT / "kavach_router_config.json"
+COMPASS_CALIB_PATH = REPO_ROOT / "compass_calibration.json"
 HTML_PATH = Path(__file__).resolve().parent / "pattern_inspector_web.html"
 HOST = "127.0.0.1"
 PORT = 8077
@@ -62,7 +69,32 @@ def _startup() -> None:
     _STATE["cfg"] = cfg
     _STATE["pipe"] = LivePipeline(cfg)
     _STATE["corpus"] = load_corpus_index()
+
+    # Router descriptions (kavach_router_config.json -> routing_corpus). Embed each
+    # description ONCE at startup so /simulate never re-embeds them per request.
+    # _STATE["router_emb"] = {minister: [(desc, vec), ...]} for the 4 scoring ministers.
+    pipe = _STATE["pipe"]
+    router_emb: dict = {}
+    if ROUTER_PATH.exists():
+        rc = json.loads(ROUTER_PATH.read_text()).get("routing_corpus", {})
+        for minister in MINISTERS:
+            descs = rc.get(minister, []) or []
+            router_emb[minister] = [(d, pipe.embed_query(d)) for d in descs]
+        n = sum(len(v) for v in router_emb.values())
+        print(f"[setup] cached {n} router-description embeddings "
+              f"({', '.join(f'{m}:{len(router_emb[m])}' for m in MINISTERS)})",
+              file=sys.stderr)
+    else:
+        print(f"[setup] WARNING: {ROUTER_PATH} not found — /simulate routing disabled",
+              file=sys.stderr)
+    _STATE["router_emb"] = router_emb
+
     print(f"\n  Pattern Inspector web UI ready → http://{HOST}:{PORT}\n", file=sys.stderr)
+
+
+def _cosine(a, b) -> float:
+    """Cosine over already-normalized BGE vectors (mirrors server.py _cosine)."""
+    return float(np.dot(a, b) / ((np.linalg.norm(a) * np.linalg.norm(b)) or 1.0))
 
 
 # ── Scoring assembly (reuses run_minister_hybrid + topk_hybrid_matches) ──────
@@ -164,6 +196,116 @@ def inspect(req: InspectReq):
 @app.get("/corpus")
 def corpus(minister: str = "ALL", q: str = ""):
     return {"minister": minister, "q": q, "results": _corpus_search(minister, q)}
+
+
+class SimulateReq(BaseModel):
+    intent: str = ""
+    action: str
+
+
+@app.post("/simulate")
+def simulate(req: SimulateReq):
+    """Full parliament pipeline on (intent, action). Wraps the REAL pipeline:
+    COMPASS drift (mirror of server _compass_drift), semantic router (mirror of
+    server _route, cached embeddings), run_minister_hybrid per activated
+    minister, and combine_verdicts (the real Speaker)."""
+    action = (req.action or "").strip()
+    if not action:
+        return JSONResponse({"error": "empty action"}, status_code=400)
+    pipe = _STATE["pipe"]
+    cfg = _STATE["cfg"]
+    th_cfg = cfg["thresholds"]
+    action_vec = pipe.embed_query(action)
+
+    # ── Stage 1: COMPASS drift (mirror server.py _compass_drift) ──
+    intent = (req.intent or "").strip()
+    if intent:
+        intent_vec = pipe.embed_query(intent)
+        compass_sim = _cosine(intent_vec, action_vec)
+        seeded = True
+    else:
+        compass_sim = 1.0  # no intent seeded → 1.0, exactly like the server
+        seeded = False
+    compass_drift = compass_sim < float(th_cfg["compass_drift"])
+
+    # ── Stage 2: semantic router (mirror server.py _route, cached embeddings) ──
+    router_min = float(th_cfg["router_min"])
+    router_emb = _STATE.get("router_emb", {})
+    routing = []
+    for minister in MINISTERS:
+        pairs = router_emb.get(minister, [])
+        max_sim = max((_cosine(action_vec, vec) for _, vec in pairs), default=0.0)
+        routing.append({"minister": minister, "max_sim": round(max_sim, 4),
+                        "activated": max_sim >= router_min})
+    activated = [r["minister"] for r in routing if r["activated"]] or list(MINISTERS)
+
+    # ── Stage 3: run_minister_hybrid on activated ministers (REAL) ──
+    scans, per_min = [], []
+    for minister in activated:
+        th = minister_thresholds(cfg, minister)
+        scan: MinisterScan = run_minister_hybrid(
+            minister, action, pipe.collections[minister], pipe.bm25[minister],
+            pipe.embed_query, th, query_vec=action_vec,
+        )
+        scans.append(scan)
+        top = topk_hybrid_matches(minister, action, pipe.collections[minister],
+                                  pipe.bm25[minister], action_vec, k=1)
+        per_min.append({
+            "minister":     minister,
+            "verdict":      scan.verdict,
+            "confidence":   round(scan.confidence, 4),
+            "matched_id":   scan.matched_id,
+            "dense_sim":    top[0]["dense_sim"] if top else None,
+            "lexical_gate": top[0]["lexical_gate"] if top else None,
+            "block":        th["block"],
+            "top_text":     _clip(top[0]["text"], 180) if top else None,
+        })
+
+    # ── Stage 4: combine_verdicts (the REAL production Speaker) ──
+    speaker_th = {"block": float(th_cfg["block"]), "grey": float(th_cfg["grey"]),
+                  "compass_drift": float(th_cfg["compass_drift"])}
+    sv = combine_verdicts(minister_results=scans, compass_drift=compass_drift,
+                          compass_sim=compass_sim, thresholds=speaker_th, traj_risk=0.0)
+
+    return {
+        "intent": intent, "action": action,
+        "compass": {"sim": round(compass_sim, 4), "drift": compass_drift,
+                    "threshold": float(th_cfg["compass_drift"]), "seeded": seeded},
+        "routing": {"router_min": router_min, "ministers": routing, "activated": activated},
+        "ministers": per_min,
+        "verdict": {"final": sv.verdict, "decided_by": sv.decided_by,
+                    "confidence": round(sv.confidence, 4), "reason": sv.reason,
+                    "blocks": sv.blocks, "escalates": sv.escalates, "allows": sv.allows,
+                    "dynamic_threshold_active": sv.dynamic_threshold_active},
+    }
+
+
+class SimilarityReq(BaseModel):
+    text_a: str
+    text_b: str
+
+
+@app.post("/similarity")
+def similarity(req: SimilarityReq):
+    """Raw BGE cosine between two arbitrary phrases (real pipe.embed_query)."""
+    a = (req.text_a or "").strip()
+    b = (req.text_b or "").strip()
+    if not a or not b:
+        return JSONResponse({"error": "both text_a and text_b required"}, status_code=400)
+    pipe = _STATE["pipe"]
+    sim = _cosine(pipe.embed_query(a), pipe.embed_query(b))
+    return {"text_a": a, "text_b": b, "cosine": round(sim, 4)}
+
+
+@app.get("/compass/calibration")
+def compass_calibration():
+    """Serve the precomputed COMPASS calibration (threshold, tpr, fpr, youden_j,
+    distributions, sweep). No recomputation."""
+    if not COMPASS_CALIB_PATH.exists():
+        return JSONResponse(
+            {"error": f"compass_calibration.json not found at {COMPASS_CALIB_PATH}"},
+            status_code=404)
+    return json.loads(COMPASS_CALIB_PATH.read_text())
 
 
 if __name__ == "__main__":
