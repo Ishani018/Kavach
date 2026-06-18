@@ -80,8 +80,8 @@ def _parse_tolerant(completion: str):
     try:
         params = _json.loads(raw)
         tool_calls = [_FunctionCall(function=fn, args=params)]
-    except Exception:
-        print(f"[debug] broken JSON after tolerant parse: {raw!r}")
+    except Exception as e:
+        print(f"[debug] broken JSON after tolerant parse: {raw!r}. Completion: {completion!r}. Error: {e}")
         return default
     return _ChatAssistantMessage(
         role="assistant",
@@ -169,8 +169,8 @@ def build_pipeline(model_id: str, with_kavach: bool):
 
 
 def summarize(results) -> dict:
-    util = results.utility_results
-    sec  = results.security_results
+    util = results["utility_results"]
+    sec  = results["security_results"]
     n_util = len(util) or 1
     n_sec  = len(sec) or 1
     return {

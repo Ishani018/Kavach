@@ -195,7 +195,7 @@ try:
                     # would carry the injection) with the refusal.
                     if messages:
                         last = dict(messages[-1])
-                        last["content"] = refusal
+                        last["content"] = [{"type": "text", "content": refusal}]
                         messages[-1] = last
                     return refusal, runtime, env, messages, extra_args
 
