@@ -92,6 +92,12 @@ def _parse_tolerant(completion: str):
         if i != -1:
             end = min(end, i)
     raw = completion[start:end].strip().rstrip(">").strip()
+    # Gemma often wraps output in a markdown code block (```json ... ```).
+    # Strip everything after the last "}" so trailing backticks don't break
+    # json.loads() — e.g. '{"to": "..."}\n```' → '{"to": "..."}'.
+    last_brace = raw.rfind("}")
+    if last_brace != -1:
+        raw = raw[:last_brace + 1]
     try:
         params = _json.loads(raw)
         tool_calls = [_FunctionCall(function=fn, args=params)]
