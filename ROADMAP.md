@@ -151,7 +151,7 @@ Assign to: Ishani
 
 **The problem:** All ministers use a single block=0.725 threshold. The sweep shows 
 VAULT has FPR=70.6% — it needs a much higher threshold. Using one threshold for all
-is the primary cause of the 88.2% FPR on InjecAgent.
+was the primary cause of the elevated FPR on InjecAgent. (Per-minister thresholds are now implemented in `config.yaml`; the committed Dell run reports 19% hard-block FPR.)
 
 **The fix:** 20 lines in `parliament/config.yaml`. Change the thresholds block from
 a single value to per-minister values matching the Youden J sweep:
@@ -181,8 +181,8 @@ def _get_minister_thresholds(minister: str) -> dict:
 
 Branch: `ishani/per-minister-thresholds`
 PR: closes #3
-Expected outcome: FPR drops from 88.2% → ~30-40% on InjecAgent. Recall may drop
-slightly — that tradeoff is acceptable and honest to report.
+Outcome (committed Dell run): hard-block FPR is 19% with per-minister thresholds +
+hybrid retrieval (DS hard-block FPR 0%). Recall: loose 0.887 / strict 0.532.
 
 ### 1.4 AgentDojo adapter (issue #5 — Parv owns Dell run, Ishani writes the code)
 
@@ -334,7 +334,7 @@ which is what it was always supposed to be.
 ### 2.3 InjecAgent with per-minister thresholds (week 2)
 - Pull `ishani/per-minister-thresholds` when pushed
 - Run `python benchmarks/injecagent_runner.py --full`
-- Target: FPR drops from 88.2% → ≤40%. Report exact numbers.
+- Committed Dell result: hard-block FPR 19% (DS 0%). Report exact numbers from `results_v2/`.
 
 ### 2.4 AgentDojo (week 2-3)
 - Install AgentDojo and Inspect Evals harness
@@ -434,8 +434,8 @@ If AgentDojo numbers aren't ready by July 10 (internal deadline to allow paper r
 
 The paper can claim:
 
-1. **Single-hook semantic interception:** 98.4% recall on InjecAgent (existing), ≤5% ASR on AgentDojo (needs Phase 2)
-2. **Low latency:** measured p50=826ms / p95=1649ms vs PRISM's ~15.8s p95 — an order of magnitude faster; sub-second p95 remains a TARGET (not yet measured post embed-once), claim only measured numbers in the paper
+1. **Single-hook semantic interception:** InjecAgent loose recall 0.887 / strict 0.532 (committed Dell run), ≤5% ASR on AgentDojo (needs Phase 2)
+2. **Low latency:** measured p50 ~78 ms / p95 ~83 ms (committed, post embed-once) vs PRISM's ~15.8 s p95 — two orders of magnitude faster
 3. **Session-level enforcement:** trajectory ceiling fires for multi-step attacks — denial echo catches causality laundering (ARM threat model), cross-minister escalation catches VAULT→CHANNEL chains (AgentDoG taxonomy)
 4. **Low FPR:** ≤5% after per-minister thresholds (needs Phase 1.3 + Phase 2.3)
 5. **OpenClaw-native:** the only semantic embedding-based monitor targeting OpenClaw's embedded-mode hook — distinct from PRISM (heuristic+LLM scanner), AgentWatcher (rule-based), and LlamaFirewall (not OpenClaw-specific)

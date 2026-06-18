@@ -99,18 +99,21 @@ Last updated: June 1, 2026 (post lab session).
 
 ---
 
-## Current Benchmark Numbers (June 1, 2026)
+## Current Benchmark Numbers (committed Dell run — `benchmarks/results_v2/`)
+
+> The earlier June-1 figures (98.4% strict / 100% loose / 88.2% FPR / 2.1% benign / 826 ms)
+> were **never backed by committed artifacts and are superseded** by the committed Dell run
+> below. Do not cite the old numbers.
 
 | Metric | Value | Notes |
 |---|---|---|
-| InjecAgent strict recall | 98.4% | threshold=0.55 |
-| InjecAgent loose recall | 100% | zero attacks allowed through |
-| InjecAgent FPR | 88.2% | representation mismatch — see FINDINGS.md |
-| InjecAgent F1 | 0.687 | at threshold=0.55 |
-| Benign FPR (native format) | 2.1% | threshold=0.725 |
-| Parliament p50 latency | 826ms | RTX 4090, BGE bge-base-en-v1.5 |
-| Parliament p95 latency | 1649ms | first-call CUDA warm-up dominates |
-| Smoke test | PASS (7/7) | threshold=0.71 |
+| InjecAgent loose recall (block-or-escalate) | 0.887 | DH 0.90 / DS 0.875 |
+| InjecAgent strict recall (hard-block) | 0.532 | DH 0.633 / DS 0.438 |
+| InjecAgent hard-block FPR | 19% | DH 23.5% / **DS 0.0%** |
+| InjecAgent block-or-escalate FPR | 38% | per distinct action |
+| Parliament p50 latency | ~78 ms | RTX 4090, bge-base-en-v1.5 (steady state) |
+| Parliament p95 latency | ~83 ms | DH p95 84.6 / DS p95 82.9 |
+| Smoke test | PASS (7/7) | `parliament/smoke_test.py` |
 
 ---
 

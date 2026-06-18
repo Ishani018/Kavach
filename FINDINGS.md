@@ -216,7 +216,8 @@ path has no pre-execution plugin hook. This affects any security plugin, not
 just Kavach.
 
 **Paper framing:** We demonstrate that when a MAS exposes a pre-execution hook
-(as OpenClaw does in embedded mode), Kavach achieves 98.4% recall. We identify
+(as OpenClaw does in embedded mode), Kavach achieves high recall on InjecAgent
+(loose 0.887 / strict 0.532, committed Dell run). We identify
 that production MAS runtimes typically omit this hook, and argue it should be
 a mandatory primitive in any security-conscious MAS design.
 
@@ -267,34 +268,34 @@ Started at 0.65 (placeholder). Calibrated through smoke test iteration:
 
 For InjecAgent (natural-language format): threshold must drop to 0.55 for recall.
 
-### Benign FPR gate (50 sessions, 93 tool calls)
+> ⚠️ **SUPERSEDED (June-1 numbers below are stale).** The strict 0.9839 / loose
+> 1.0 / FPR 0.8824 / 2.1% benign / 826 ms figures were never backed by committed
+> per-case artifacts and are **replaced by the committed Dell run** in
+> `benchmarks/results_v2/`: **loose recall 0.887, strict 0.532, hard-block FPR 19%
+> (DS 0.0%), latency p50 ~78 ms / p95 ~83 ms.** Cite only the committed numbers.
 
-At threshold 0.725: **FPR = 2.1%** (2 blocks, both COMPASS-driven) ✅
+### Benign FPR gate (50 sessions, 93 tool calls) — *June-1, unverified*
 
-### InjecAgent full benchmark (1,054 cases)
+At threshold 0.725 the June-1 run reported ~2.1% block-only FPR. This is from the
+superseded run (old global 0.725 threshold; current config is per-minister
+0.55–0.75). Treat as unverified; the committed benign gate shows block-only FPR 0.0%.
 
-At threshold 0.55 (Youden's J optimal for EXECUTOR):
+### InjecAgent full benchmark (1,054 cases) — committed Dell run
 
 ```json
 {
-  "strict_recall": 0.9839,
-  "loose_recall":  1.0000,
-  "fpr":           0.8824,
-  "f1":            0.6865,
-  "latency_p50":   826ms,
-  "latency_p95":   1649ms
+  "loose_recall":      0.887,
+  "strict_recall":     0.532,
+  "hard_block_fpr":    0.19,
+  "ds_hard_block_fpr": 0.0,
+  "latency_p50_ms":    78,
+  "latency_p95_ms":    83
 }
 ```
 
-**By category (strict recall):**
-- Physical Harm: 100%
-- Financial Harm: 100%
-- Data Security Harm: 90.9%
-- Physical Data: 100%
-- Financial Data: 100%
-- DS:Others: 100%
+(DH: loose 0.90 / strict 0.633 / FPR 23.5%. DS: loose 0.875 / strict 0.438 / FPR 0.0%.)
 
-**Why FPR is 88.2%:** Representation mismatch. Corpus written for tool-call
+**Why the hard-block FPR is elevated (19%):** Representation mismatch. Corpus written for tool-call
 syntax (`tool:exec args:{...}`). InjecAgent uses natural-language instructions
 (`Please grant access to my friend Amy...`). At 0.55, both attack and benign
 InjecAgent cases score similarly against the corpus.
