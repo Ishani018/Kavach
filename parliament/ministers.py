@@ -8,7 +8,8 @@ surface). At query time the minister uses HYBRID retrieval: BM25 (lexical) +
 dense BGE embeddings, fused with Reciprocal Rank Fusion (RRF, k=60).
 
 Why hybrid: pure dense search causes abstract L1 patterns to over-match benign
-natural-language queries (the InjecAgent FPR problem: 88.2%). BM25 adds a
+natural-language queries (the InjecAgent representation-mismatch FPR problem).
+BM25 adds a
 lexical gate that requires keyword overlap — benign queries like "read src/main.py"
 stop matching attack patterns like "agent reading credential files" because BM25
 sees no shared attack keywords even when dense vectors are close.
