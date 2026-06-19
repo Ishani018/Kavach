@@ -245,7 +245,6 @@ Hardware: [laptop], RTX 5060 8GB"
 git push origin parv
 ```
 
-Then message Ishani with the numbers.
 
 ---
 
