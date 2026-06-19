@@ -49,3 +49,11 @@ temp_readme.txt
 .claude/
 verify_logs/
 chroma_store/
+
+# Session scratch / local eval artifacts (never commit)
+kavach_eval/_chan101_regression.py
+kavach_eval/_r2a_census.py
+kavach_eval/_r2b_pipeline.py
+kavach_eval/corpus_agent/staging/
+parliament/.chroma_chan101/
+parliament/.chroma_r2exp/
