@@ -3,7 +3,7 @@
 **Date of failed run:** 2026-06-18  
 **Run by:** Parv (parvparmar23@gmail.com)  
 **Model used:** `gemma2:9b` (via Ollama, laptop)  
-**Branch with raw results:** `parv` (originally `parv-docs-point-to-results`, commit `91b19db`)
+**Branch:** `parv` — this is the single branch for all your work. Pull it, run on it, push results back to it.
 
 ---
 
@@ -150,29 +150,45 @@ For context, here are the targets from `PARV_RESULTS.md` (what a working run loo
 
 ## What to do for Run 2
 
-### Step 0 — Pull the latest script
+### Step 0 — Pull the parv branch
 
-The parser fix and all improvements are already on the `parv` branch. Pull it:
+Everything you need is on the `parv` branch — the fixed script, the post-mortem, and all the latest from main. Pull it:
 
 ```bash
+git fetch origin
 git checkout parv
 git pull origin parv
 ```
 
+The `run_agentdojo_kavach.py` script now has a completely rewritten parser. It uses a proper **balanced JSON extractor** that tracks brace depth through strings and escape sequences — this handles all the edge cases Gemma throws at it:
+- Markdown ` ```json ``` ` wrappers stripped before extraction
+- Balanced `{...}` found by tracking depth (not string search)
+- Unescaped `"` inside string values repaired automatically
+- Missing closing brace(s) appended if model truncated the object
+- No-arg calls (`<function=get_channels></function>`) handled as `{}`
+
 ### Step 1 — Always run the sanity check first
 
-This takes about 5 minutes and verifies your environment is working before committing to a multi-hour run. It pings Ollama, checks the model is available, pings Kavach, and does a live test tool call to confirm the parser can extract it successfully.
+This takes about 5 minutes and verifies your environment is working before committing to a multi-hour run. It pings Ollama, checks the model is available, pings Kavach, and sends a real test tool call to verify the parser can extract it successfully.
 
 ```bash
+# Replace <model> with whatever model you're using
 python benchmarks/run_agentdojo_kavach.py \
-    --suite workspace \
-    --model-id gemma2:9b \
+    --model-id <model> \
     --sanity
 ```
 
-If you see `⚠️ No tool call parsed` in the output → the parser still has issues with this model in your environment. Either debug further or switch models before running the full benchmark.
+You'll see output like:
+```
+[pre-flight] Ollama at localhost:11434 ...    ✅
+[pre-flight] Model '<model>' in Ollama ...   ✅
+[pre-flight] Kavach parliament at :8088 ...  ✅
+[pre-flight] Testing tool-call format ...    ✅  parsed: FunctionCall(function='send_email', args={...})
+```
 
-If everything shows green checkmarks → you're good to start the full run.
+If the last line shows `⚠️ No tool call parsed` → stop. The parser still can't handle this model's format. Message Ishani before running anything further.
+
+If everything shows ✅ → you're good to start the full run.
 
 ### Step 2 — Model choice for your RTX 5060 (8GB VRAM)
 
@@ -245,14 +261,16 @@ The single time Kavach was called during the Run 1 benchmark — the one valid t
 
 ---
 
-## Files changed since Run 1
+## What's fixed on the parv branch (vs Run 1)
 
 | File | What changed |
 |---|---|
-| `benchmarks/run_agentdojo_kavach.py` | Parser fix (markdown trim) + pre-flight checks + live progress monitor + early-abort warning |
-| `benchmarks/results_v2/agentdojo_gemma_laptop/FINDINGS_AND_PLAN.md` | Full technical findings from Run 1 analysis |
-| `benchmarks/results_v2/AGENTDOJO_RUN1_POSTMORTEM.md` | This file |
+| `benchmarks/run_agentdojo_kavach.py` | Full parser rewrite: balanced JSON extractor, unescaped-quote repair, missing-brace fallback, markdown fence stripper, parse-fail counter |
+| `benchmarks/run_agentdojo_kavach.py` | Pre-flight checks (`--sanity` flag), live progress every 10 pairs, early-abort at 30 pairs with 0% utility |
+| `benchmarks/results_v2/agentdojo_gemma_laptop/FINDINGS_AND_PLAN.md` | Full technical findings from Run 1 |
+| `benchmarks/results_v2/AGENTDOJO_RUN1_POSTMORTEM.md` | This file — instructions for Run 2 |
+| `benchmarks/results_v2/agentdojo_slack_llama_laptop/` | Ishani's smoke test (slack suite, 3 baseline pairs — sanity reference) |
 
 ---
 
-*Written by Ishani + Antigravity after full analysis of Run 1 commit `91b19db`. — 2026-06-18*
+*Written by Ishani + Antigravity after full analysis of Run 1 commit `91b19db`. Updated 2026-06-19 with robust parser from `fix-agentdojo-gemma-parser`.*
