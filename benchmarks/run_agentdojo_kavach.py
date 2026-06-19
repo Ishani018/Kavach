@@ -109,6 +109,42 @@ def _repair_unescaped_quotes(raw: str):
     return "".join(out)
 
 
+def _extract_first_json_object(text: str):
+    """Return the first balanced {...} JSON object in text, or None.
+
+    Robust to markdown code fences, a trailing bare '>' or '</function>', and
+    surrounding prose — we scan for the first '{' and track brace depth (while
+    respecting strings) to find its matching '}'.
+    """
+    depth = 0
+    in_str = False
+    esc = False
+    start = -1
+    for i, ch in enumerate(text):
+        if start == -1:
+            if ch == "{":
+                start = i
+                depth = 1
+            continue
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+    return None
+
+
 def _parse_tolerant(completion: str):
     global _parse_fail_count
     default = _ChatAssistantMessage(
@@ -120,28 +156,23 @@ def _parse_tolerant(completion: str):
     if not open_match:
         return default
     fn = open_match.group(1).strip()
-    start = open_match.end()
-    # Prefer the explicit "</function>" closer; only fall back to a bare ">" if
-    # there is no closing tag (avoids cutting on a ">" that lives inside a JSON
-    # value such as a URL or an inequality).
-    closer_i = completion.find("</function>", start)
-    if closer_i != -1:
-        raw = completion[start:closer_i]
-    else:
-        gt = completion.find(">", start)
-        raw = completion[start:gt] if gt != -1 else completion[start:]
-    raw = raw.strip()
-    # Strip a leading markdown ```json fence and trailing ``` if present.
-    raw = _re.sub(r"^```(?:json)?\s*", "", raw)
-    raw = _re.sub(r"\s*```$", "", raw).strip()
-    # Parameterless tool calls (e.g. '<function=get_channels></function>') leave
-    # raw empty — that's a VALID no-arg call, not a failure. Treat as {}.
-    if raw in ("", "{}"):
-        raw = "{}"
-    # Many local models OMIT the closing brace before </function>
-    # — e.g. '{"city": "Paris"' → append the missing brace(s).
-    elif raw.startswith("{") and raw.count("{") > raw.count("}"):
-        raw = raw + "}" * (raw.count("{") - raw.count("}"))
+    tail = completion[open_match.end():]
+    # Strip markdown code fences, then pull the first balanced JSON object —
+    # tolerant of bare '>' / '</function>' / ``` fences / surrounding text.
+    tail = tail.replace("```json", " ").replace("```", " ")
+    raw = _extract_first_json_object(tail)
+    if raw is None:
+        # No balanced JSON found — could be a no-arg call or a truncated object.
+        stripped = _re.sub(r"</function>", "", tail).strip().rstrip(">").strip()
+        stripped = _re.sub(r"^```(?:json)?\s*", "", stripped)
+        stripped = _re.sub(r"\s*```$", "", stripped).strip()
+        if stripped in ("", "{}"):
+            raw = "{}"
+        elif stripped.startswith("{") and stripped.count("{") > stripped.count("}"):
+            # Model omitted closing brace(s) — append them.
+            raw = stripped + "}" * (stripped.count("{") - stripped.count("}"))
+        else:
+            raw = stripped if stripped else "{}"
     try:
         params = _json.loads(raw)
         tool_calls = [_FunctionCall(function=fn, args=params)]
