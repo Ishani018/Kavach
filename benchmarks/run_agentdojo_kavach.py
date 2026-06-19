@@ -73,6 +73,42 @@ _parse_fail_count = 0
 _PARSE_FAIL_WARN_AT = 10  # warn after this many consecutive parse failures
 
 
+def _repair_unescaped_quotes(raw: str):
+    """Re-escape double-quotes that appear INSIDE JSON string values.
+
+    Models often emit args like {"content": "he said "hi" to me"} — the inner
+    quotes are unescaped and break json.loads. We walk the string and treat a
+    '"' as a structural delimiter only when it is followed by JSON structure
+    (`:`, `,`, `}`, `]`, or end) or preceded by structure (`{`, `,`, `:`, `[`);
+    any other '"' inside a value is escaped to \\". Returns the repaired string,
+    or None if it doesn't even look like a JSON object.
+    """
+    if not raw.startswith("{"):
+        return None
+    out = []
+    n = len(raw)
+    in_str = False
+    for i, ch in enumerate(raw):
+        if ch != '"':
+            out.append(ch)
+            continue
+        if not in_str:
+            in_str = True
+            out.append(ch)
+            continue
+        # We are inside a string and hit a '"'. Decide: closing quote or literal?
+        j = i + 1
+        while j < n and raw[j] in " \t\n\r":
+            j += 1
+        nxt = raw[j] if j < n else ""
+        if nxt in (":", ",", "}", "]", ""):
+            in_str = False          # structural closing quote
+            out.append(ch)
+        else:
+            out.append('\\"')        # literal quote inside a value — escape it
+    return "".join(out)
+
+
 def _parse_tolerant(completion: str):
     global _parse_fail_count
     default = _ChatAssistantMessage(
@@ -85,27 +121,25 @@ def _parse_tolerant(completion: str):
         return default
     fn = open_match.group(1).strip()
     start = open_match.end()
-    # Accept "</function>" OR a bare ">" as the closer; take the earliest.
-    end = len(completion)
-    for closer in ("</function>", ">"):
-        i = completion.find(closer, start)
-        if i != -1:
-            end = min(end, i)
-    raw = completion[start:end].strip().rstrip(">").strip()
-    # Gemma often wraps output in a markdown code block (```json ... ```).
-    # Strip everything after the last "}" so trailing backticks don't break
-    # json.loads() — e.g. '{"to": "..."}\n```' → '{"to": "..."}'.
-    last_brace = raw.rfind("}")
-    if last_brace != -1:
-        raw = raw[:last_brace + 1]
+    # Prefer the explicit "</function>" closer; only fall back to a bare ">" if
+    # there is no closing tag (avoids cutting on a ">" that lives inside a JSON
+    # value such as a URL or an inequality).
+    closer_i = completion.find("</function>", start)
+    if closer_i != -1:
+        raw = completion[start:closer_i]
+    else:
+        gt = completion.find(">", start)
+        raw = completion[start:gt] if gt != -1 else completion[start:]
+    raw = raw.strip()
+    # Strip a leading markdown ```json fence and trailing ``` if present.
+    raw = _re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = _re.sub(r"\s*```$", "", raw).strip()
     # Parameterless tool calls (e.g. '<function=get_channels></function>') leave
     # raw empty — that's a VALID no-arg call, not a failure. Treat as {}.
-    if raw == "" or raw == "{}":
+    if raw in ("", "{}"):
         raw = "{}"
-    # Many local models (qwen2.5, gemma) OMIT the closing brace before the
-    # </function> tag — e.g. '<function=f>{"city": "Paris"</function>' yields
-    # raw='{"city": "Paris"'. Repair an unbalanced object by appending the
-    # missing closing brace(s) so json.loads() succeeds.
+    # Many local models OMIT the closing brace before </function>
+    # — e.g. '{"city": "Paris"' → append the missing brace(s).
     elif raw.startswith("{") and raw.count("{") > raw.count("}"):
         raw = raw + "}" * (raw.count("{") - raw.count("}"))
     try:
@@ -113,6 +147,23 @@ def _parse_tolerant(completion: str):
         tool_calls = [_FunctionCall(function=fn, args=params)]
         _parse_fail_count = 0  # reset on success
     except Exception as e:
+        # Repair pass: models frequently emit string VALUES containing unescaped
+        # double-quotes (e.g. echoing a Kavach block message verbatim as content),
+        # which breaks json.loads with 'unterminated string'. Re-escape inner
+        # quotes that are not JSON structure, then retry once.
+        repaired = _repair_unescaped_quotes(raw)
+        if repaired is not None:
+            try:
+                params = _json.loads(repaired)
+                tool_calls = [_FunctionCall(function=fn, args=params)]
+                _parse_fail_count = 0
+                return _ChatAssistantMessage(
+                    role="assistant",
+                    content=[_text_block(completion.strip())],
+                    tool_calls=tool_calls,
+                )
+            except Exception:
+                pass
         _parse_fail_count += 1
         print(f"[debug] broken JSON after tolerant parse: {raw!r}. Completion: {completion!r}. Error: {e}")
         if _parse_fail_count == _PARSE_FAIL_WARN_AT:
