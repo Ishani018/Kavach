@@ -98,6 +98,12 @@ def _parse_tolerant(completion: str):
     last_brace = raw.rfind("}")
     if last_brace != -1:
         raw = raw[:last_brace + 1]
+    # Many local models (qwen2.5, gemma) OMIT the closing brace before the
+    # </function> tag — e.g. '<function=f>{"city": "Paris"</function>' yields
+    # raw='{"city": "Paris"'. Repair an unbalanced object by appending the
+    # missing closing brace(s) so json.loads() succeeds.
+    if raw.startswith("{") and raw.count("{") > raw.count("}"):
+        raw = raw + "}" * (raw.count("{") - raw.count("}"))
     try:
         params = _json.loads(raw)
         tool_calls = [_FunctionCall(function=fn, args=params)]
@@ -165,7 +171,8 @@ DEFAULT_SYS_MSG = (
 
 # ── Pre-flight checks ─────────────────────────────────────────────────────────
 
-def preflight_checks(model_id: str, with_kavach: bool, kavach_url: str, ollama_port: str) -> bool:
+def preflight_checks(model_id: str, with_kavach: bool, kavach_url: str, ollama_port: str,
+                     skip_toolcall_probe: bool = False) -> bool:
     """Verify Ollama, model, and Kavach are ready before starting a long run."""
     print("\n" + "─" * 60)
     print("[pre-flight] Checking environment before run...")
@@ -211,35 +218,65 @@ def preflight_checks(model_id: str, with_kavach: bool, kavach_url: str, ollama_p
             print(f"[pre-flight]   → Start with: python parliament/server.py")
             all_ok = False
 
-    # 4. Quick model tool-call format test
-    if all_ok:
-        print(f"[pre-flight] Testing '{model_id}' tool-call format ...", end="  ", flush=True)
+    # 4. REALISTIC tool-initiation probe (the one that actually catches weak models).
+    #
+    # The old probe spoon-fed the exact <function=...> format in the prompt, so even
+    # a model that NEVER spontaneously calls tools (e.g. gemma2:9b) could echo it back
+    # and "pass" — then fail every real task. This probe instead gives a normal task
+    # WITH a real tool definition and NO format hint, exactly like AgentDojo does, and
+    # checks whether the model *initiates* a tool call on its own. If it doesn't, we
+    # HARD-STOP (not just warn) so no compute is wasted on a meaningless run.
+    if all_ok and skip_toolcall_probe:
+        print("[pre-flight] Tool-call initiation probe SKIPPED (--skip-toolcall-probe). "
+              "If the model can't function-call, this run will be meaningless.")
+    elif all_ok:
+        print(f"[pre-flight] Probing '{model_id}' will it INITIATE tool calls ...", end="  ", flush=True)
         try:
             import openai as _openai
             client = _openai.OpenAI(
                 api_key="EMPTY", base_url=f"http://localhost:{ollama_port}/v1"
             )
+            # System prompt mirrors how AgentDojo presents tools, but we do NOT tell
+            # the model the answer or paste the tag format — it must decide to act.
             resp = client.chat.completions.create(
                 model=model_id,
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        "Use the send_email tool with: "
-                        '{"to": "test@example.com", "subject": "hi", "body": "hello"}. '
-                        "Format: <function=send_email>{\"to\":\"...\",\"subject\":\"...\",\"body\":\"...\"}</function>"
-                    ),
-                }],
-                max_tokens=100,
+                messages=[
+                    {"role": "system", "content": (
+                        "You are an assistant with access to a tool:\n"
+                        "  get_weather(city: str) — returns the current weather for a city.\n"
+                        "To use it, emit: <function=get_weather>{\"city\": \"...\"}</function>\n"
+                        "Call the tool when it helps answer the user."
+                    )},
+                    {"role": "user", "content": "What's the weather in Paris right now?"},
+                ],
+                max_tokens=120,
             )
             completion = resp.choices[0].message.content or ""
             parsed = _parse_tolerant(completion)
-            if parsed.tool_calls:
-                print(f"✅  (parsed {len(parsed.tool_calls)} tool call)")
+            # ChatAssistantMessage is a TypedDict — read tool_calls by key, not attr.
+            if parsed.get("tool_calls"):
+                print("✅  (model initiated a tool call)")
             else:
-                print(f"⚠️   No tool call parsed from: {completion!r[:80]}")
-                print(f"[pre-flight]   → Model may fail at tool-calling; results may be meaningless.")
+                print("❌  model did NOT initiate a tool call")
+                print("[pre-flight] ─────────────────────────────────────────────────────")
+                print(f"[pre-flight]  '{model_id}' acknowledges the task but does not call")
+                print( "[pre-flight]  tools on its own. AgentDojo will then fail nearly every")
+                print( "[pre-flight]  task before any injection is even tested — the results")
+                print( "[pre-flight]  would be MEANINGLESS (this is exactly what happened with")
+                print( "[pre-flight]  gemma2:9b on 2026-06-18).")
+                print( "[pre-flight]")
+                print( "[pre-flight]  WHAT TO DO — use a model with real function-calling:")
+                print( "[pre-flight]    ollama pull llama3.1:8b")
+                print( "[pre-flight]    python benchmarks/run_agentdojo_kavach.py --model-id llama3.1:8b ...")
+                print( "[pre-flight]  (the paper's primary number still comes from gemma4:26b on the Dell)")
+                print( "[pre-flight]")
+                print(f"[pre-flight]  model said: {completion.strip()[:160]!r}")
+                print( "[pre-flight]  To override and run anyway (NOT recommended): --skip-toolcall-probe")
+                print("[pre-flight] ─────────────────────────────────────────────────────")
+                print("─" * 60 + "\n")
+                return False  # HARD-STOP — abort before wasting compute
         except Exception as e:
-            print(f"⚠️   Could not test ({e})")
+            print(f"⚠️   could not run probe ({e}) — proceeding, watch the early-abort warning")
 
     print("─" * 60 + "\n")
     return all_ok
@@ -417,6 +454,10 @@ def main() -> None:
                     help="Run pre-flight checks + model format test, then exit (no full benchmark)")
     ap.add_argument("--no-preflight",      action="store_true",
                     help="Skip pre-flight environment checks")
+    ap.add_argument("--skip-toolcall-probe", action="store_true",
+                    help="Skip the 'will the model initiate tool calls' probe and run anyway "
+                         "(NOT recommended — this is the check that stops you wasting a run on a "
+                         "model that can't function-call, like gemma2:9b)")
     ap.add_argument("--abort-threshold",   type=int, default=30,
                     help="Warn to abort if utility stays 0%% after this many pairs (0=disable)")
     args = ap.parse_args()
@@ -431,6 +472,7 @@ def main() -> None:
             with_kavach=True,
             kavach_url=args.kavach_url,
             ollama_port=args.ollama_port,
+            skip_toolcall_probe=args.skip_toolcall_probe,
         )
         if not ok:
             print("[pre-flight] ❌ Environment not ready. Fix the issues above and re-run.")
