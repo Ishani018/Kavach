@@ -98,11 +98,15 @@ def _parse_tolerant(completion: str):
     last_brace = raw.rfind("}")
     if last_brace != -1:
         raw = raw[:last_brace + 1]
+    # Parameterless tool calls (e.g. '<function=get_channels></function>') leave
+    # raw empty — that's a VALID no-arg call, not a failure. Treat as {}.
+    if raw == "" or raw == "{}":
+        raw = "{}"
     # Many local models (qwen2.5, gemma) OMIT the closing brace before the
     # </function> tag — e.g. '<function=f>{"city": "Paris"</function>' yields
     # raw='{"city": "Paris"'. Repair an unbalanced object by appending the
     # missing closing brace(s) so json.loads() succeeds.
-    if raw.startswith("{") and raw.count("{") > raw.count("}"):
+    elif raw.startswith("{") and raw.count("{") > raw.count("}"):
         raw = raw + "}" * (raw.count("{") - raw.count("}"))
     try:
         params = _json.loads(raw)
@@ -307,21 +311,14 @@ class LiveProgressMonitor(threading.Thread):
         self.total = 0
         self._last_reported = 0
         self._abort_warned = False
-        # Kavach-screening watchdog: snapshot the parliament ledger total at start.
-        # If tasks complete but this count never rises, Kavach is NOT being called
-        # (0 screened tool calls) — the with-Kavach numbers would be meaningless.
+        # Kavach-screening watchdog: count how many completed results show the agent
+        # issuing at least one tool call. If tasks complete but NONE issue a tool
+        # call, the agent's calls never reach Kavach (0 screened) — the with-Kavach
+        # numbers would be meaningless. Detected from result JSONs because the
+        # parliament's live ledger-count endpoints do not increment reliably.
         self.kavach_url = kavach_url
-        self._ledger_start = self._ledger_total() if kavach_url else None
+        self._toolcall_results = 0
         self._kavach_warned = False
-
-    def _ledger_total(self) -> int | None:
-        if not self.kavach_url:
-            return None
-        try:
-            with urllib.request.urlopen(f"{self.kavach_url}/ledger/votes?limit=1", timeout=5) as r:
-                return int(json.loads(r.read()).get("total", 0))
-        except Exception:
-            return None
 
     def stop(self):
         self._stop.set()
@@ -339,6 +336,11 @@ class LiveProgressMonitor(threading.Thread):
                         self.utility_pass += 1
                     if data["security"]:
                         self.security_pass += 1
+                    # Did the agent issue at least one tool call? (proves its calls
+                    # reach Kavach in the with-Kavach run.)
+                    if any(m.get("role") == "assistant" and m.get("tool_calls")
+                           for m in data.get("messages", [])):
+                        self._toolcall_results += 1
             except Exception:
                 pass
 
@@ -356,20 +358,20 @@ class LiveProgressMonitor(threading.Thread):
 
     def _check_early_abort(self):
         # ── Kavach-screening watchdog (the "are we getting 0 Kavach calls?" check) ──
-        # Fires EARLY: if tasks are completing but the parliament ledger total has
-        # not risen, the agent's tool calls are not reaching Kavach at all — so the
-        # with-Kavach run is screening nothing and its security numbers are fake.
-        if (not self._kavach_warned and self.kavach_url and self._ledger_start is not None
-                and self.total >= max(3, self.abort_threshold // 4)):
-            now = self._ledger_total()
-            if now is not None and now <= self._ledger_start:
+        # Fires EARLY: if tasks are completing but no completed result shows the
+        # agent ever issuing a tool call, the agent's calls are not reaching Kavach
+        # at all — the with-Kavach security numbers would be fake. (We detect this
+        # from the result JSONs rather than the ledger, whose live count endpoints
+        # do not increment reliably.)
+        if (not self._kavach_warned and self.kavach_url
+                and self.total >= max(5, self.abort_threshold // 4)):
+            if self._toolcall_results == 0:
                 self._kavach_warned = True
                 print("\n" + "🛑 " * 18)
-                print(f"[kavach-abort] {self.total} tasks done but the parliament ledger")
-                print(f"[kavach-abort] total has NOT risen (start={self._ledger_start}, now={now}).")
+                print(f"[kavach-abort] {self.total} tasks done but NONE issued a tool call.")
                 print( "[kavach-abort] → Kavach is screening 0 tool calls. The agent is not")
-                print( "[kavach-abort]   sending tool calls to the parliament, so any")
-                print( "[kavach-abort]   'with-Kavach' security number is MEANINGLESS.")
+                print( "[kavach-abort]   calling tools, so any 'with-Kavach' security number")
+                print( "[kavach-abort]   is MEANINGLESS.")
                 print( "[kavach-abort] ──────────────────────────────────────────────────")
                 print( "[kavach-abort] Press Ctrl+C now. Check: is the parliament URL right")
                 print( "[kavach-abort] (--kavach-url), is the agent actually calling tools,")
