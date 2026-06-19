@@ -294,7 +294,8 @@ class LiveProgressMonitor(threading.Thread):
     """
     REPORT_EVERY = 10  # print tally every N new files
 
-    def __init__(self, logdir: Path, abort_threshold: int, poll_interval: float = 5.0):
+    def __init__(self, logdir: Path, abort_threshold: int, poll_interval: float = 5.0,
+                 kavach_url: str | None = None):
         super().__init__(daemon=True)
         self.logdir = logdir
         self.abort_threshold = abort_threshold
@@ -306,6 +307,21 @@ class LiveProgressMonitor(threading.Thread):
         self.total = 0
         self._last_reported = 0
         self._abort_warned = False
+        # Kavach-screening watchdog: snapshot the parliament ledger total at start.
+        # If tasks complete but this count never rises, Kavach is NOT being called
+        # (0 screened tool calls) — the with-Kavach numbers would be meaningless.
+        self.kavach_url = kavach_url
+        self._ledger_start = self._ledger_total() if kavach_url else None
+        self._kavach_warned = False
+
+    def _ledger_total(self) -> int | None:
+        if not self.kavach_url:
+            return None
+        try:
+            with urllib.request.urlopen(f"{self.kavach_url}/ledger/votes?limit=1", timeout=5) as r:
+                return int(json.loads(r.read()).get("total", 0))
+        except Exception:
+            return None
 
     def stop(self):
         self._stop.set()
@@ -339,6 +355,27 @@ class LiveProgressMonitor(threading.Thread):
         )
 
     def _check_early_abort(self):
+        # ── Kavach-screening watchdog (the "are we getting 0 Kavach calls?" check) ──
+        # Fires EARLY: if tasks are completing but the parliament ledger total has
+        # not risen, the agent's tool calls are not reaching Kavach at all — so the
+        # with-Kavach run is screening nothing and its security numbers are fake.
+        if (not self._kavach_warned and self.kavach_url and self._ledger_start is not None
+                and self.total >= max(3, self.abort_threshold // 4)):
+            now = self._ledger_total()
+            if now is not None and now <= self._ledger_start:
+                self._kavach_warned = True
+                print("\n" + "🛑 " * 18)
+                print(f"[kavach-abort] {self.total} tasks done but the parliament ledger")
+                print(f"[kavach-abort] total has NOT risen (start={self._ledger_start}, now={now}).")
+                print( "[kavach-abort] → Kavach is screening 0 tool calls. The agent is not")
+                print( "[kavach-abort]   sending tool calls to the parliament, so any")
+                print( "[kavach-abort]   'with-Kavach' security number is MEANINGLESS.")
+                print( "[kavach-abort] ──────────────────────────────────────────────────")
+                print( "[kavach-abort] Press Ctrl+C now. Check: is the parliament URL right")
+                print( "[kavach-abort] (--kavach-url), is the agent actually calling tools,")
+                print( "[kavach-abort] and did the model pass the tool-call probe?")
+                print("🛑 " * 18 + "\n", flush=True)
+
         if self._abort_warned:
             return
         if self.total >= self.abort_threshold and self.utility_pass == 0:
@@ -413,12 +450,16 @@ def summarize(results) -> dict:
 
 
 def run_one(suite, attack_name, model_id, with_kavach, logdir,
-            abort_threshold: int, ollama_port: str = "8000"):
+            abort_threshold: int, ollama_port: str = "8000", kavach_url: str | None = None):
     pipeline, defense = build_pipeline(model_id, with_kavach, ollama_port)
     attacker = load_attack(attack_name, suite, pipeline)
 
-    # Start live progress monitor
-    monitor = LiveProgressMonitor(logdir, abort_threshold=abort_threshold)
+    # Start live progress monitor. Pass kavach_url ONLY for the with-Kavach
+    # condition so the "0 Kavach calls" watchdog watches the right run.
+    monitor = LiveProgressMonitor(
+        logdir, abort_threshold=abort_threshold,
+        kavach_url=kavach_url if with_kavach else None,
+    )
     monitor.start()
 
     try:
@@ -497,6 +538,7 @@ def main() -> None:
         suite, args.attack, args.model_id, True, logdir,
         abort_threshold=args.abort_threshold,
         ollama_port=args.ollama_port,
+        kavach_url=args.kavach_url,
     )
     print(f"[agentdojo]   WITH Kavach: {with_kavach}")
 
