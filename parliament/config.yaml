@@ -17,7 +17,7 @@ thresholds:
     EXECUTOR: 0.55
     VAULT: 0.75
     CHANNEL: 0.6
-    NAVIGATOR: 0.6
+    NAVIGATOR: 0.7
   drift_factor: 0.3
   clip_upper: 0.0
   clip_lower: -0.15

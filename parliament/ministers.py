@@ -68,7 +68,8 @@ class MinisterScan:
 
 def _tokenize(text: str) -> list[str]:
     """Simple whitespace + punctuation tokenizer for BM25."""
-    return re.findall(r"[a-zA-Z0-9_/.-]+", text.lower())
+    tokens = re.findall(r"[a-zA-Z0-9_/.-]+", text.lower())
+    return [t for t in tokens if t not in ("tool", "args")]
 
 
 def build_bm25_index(collection) -> dict | None:
@@ -111,7 +112,7 @@ _RRF_K = 60  # Standard RRF constant (Robertson et al.)
 
 # Lexical-gate floor: multiplier applied to dense similarity when the query
 # shares no informative tokens with the matched attack pattern. Sweepable.
-_GATE_FLOOR = float(os.environ.get("KAVACH_BM25_GATE_FLOOR", "0.65"))
+_GATE_FLOOR = float(os.environ.get("KAVACH_BM25_GATE_FLOOR", "0.50"))
 
 
 def _rrf_fuse(

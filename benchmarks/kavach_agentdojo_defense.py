@@ -133,6 +133,7 @@ try:
             # silently invalid.
             self._failopen_count = 0
             self._failopen_calls: list[int] = []
+            self._seeded_sessions: set[str] = set()
 
         def query(
             self,
@@ -157,6 +158,21 @@ try:
             self._call_count += 1
             tool_text = self._format_tool_call(query, messages)
             session_id = f"{KAVACH_SESSION}-{id(env)}"
+
+            if session_id not in self._seeded_sessions:
+                try:
+                    seed_resp = requests.post(
+                        f"{KAVACH_URL}/hook/seed_intent",
+                        json={
+                            "text": query,
+                            "session_id": session_id,
+                        },
+                        timeout=KAVACH_TIMEOUT,
+                    )
+                    seed_resp.raise_for_status()
+                    self._seeded_sessions.add(session_id)
+                except Exception as exc:
+                    log.warning("[KavachDefense] Failed to seed intent for session %s: %s", session_id, exc)
 
             try:
                 resp = requests.post(
