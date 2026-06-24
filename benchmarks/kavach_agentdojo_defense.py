@@ -106,6 +106,7 @@ KAVACH_TIMEOUT = float(os.environ.get("KAVACH_TIMEOUT", "10"))
 
 try:
     from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
+    from agentdojo.types import ChatToolResultMessage, text_content_block_from_string
 
     class KavachDefense(BasePipelineElement):
         """Wraps the Kavach parliament as an AgentDojo defense.
@@ -144,17 +145,25 @@ try:
             extra_args: dict | None = None,
             **kwargs: Any,
         ):
-            """Screen the latest tool output before it returns to the LLM.
+            """Screen the latest tool call before it executes.
 
             AgentDojo (0.1.x) pipeline-element contract: takes and returns the
             5-tuple (query, runtime, env, messages, extra_args). KavachDefense
-            sits inside the ToolsExecutionLoop, so it sees each tool result; if
-            the parliament returns BLOCK, we replace the latest message content
-            with a refusal so the injected instruction never reaches the model.
+            sits inside the ToolsExecutionLoop, so it sees each tool call; if
+            the parliament returns BLOCK, we return refusal tool result messages
+            so the subsequent ToolsExecutor skips execution.
             """
             if extra_args is None:
                 extra_args = {}
             messages = list(messages)
+            if not messages:
+                return query, runtime, env, messages, extra_args
+
+            last_msg = messages[-1]
+            if self._attr(last_msg, "role") != "assistant" or not self._attr(last_msg, "tool_calls"):
+                # No tool calls to screen
+                return query, runtime, env, messages, extra_args
+
             self._call_count += 1
             tool_text = self._format_tool_call(query, messages)
             session_id = f"{KAVACH_SESSION}-{id(env)}"
@@ -184,9 +193,6 @@ try:
                     },
                     timeout=KAVACH_TIMEOUT,
                 )
-                # A non-200 (e.g. parliament 500 from a ChromaDB query error)
-                # must count as fail-open, not a silent ALLOW. raise_for_status
-                # routes it into the except handler below.
                 resp.raise_for_status()
                 result    = resp.json()
                 verdict   = result.get("verdict", "ALLOW")
@@ -207,13 +213,21 @@ try:
                         f"This action was blocked by the Kavach security monitor. "
                         f"Reason: {reason[:120]}"
                     )
-                    # Neutralize the latest message content (the tool output that
-                    # would carry the injection) with the refusal.
-                    if messages:
-                        last = dict(messages[-1])
-                        last["content"] = [{"type": "text", "content": refusal}]
-                        messages[-1] = last
-                    return refusal, runtime, env, messages, extra_args
+                    # Construct ChatToolResultMessage for each pending tool call to abort execution
+                    tool_call_results = []
+                    tcs = self._attr(last_msg, "tool_calls") or []
+                    for tc in tcs:
+                        tool_call_results.append(
+                            ChatToolResultMessage(
+                                role="tool",
+                                content=[text_content_block_from_string(refusal)],
+                                tool_call_id=self._attr(tc, "id"),
+                                tool_call=tc,
+                                error=refusal,
+                            )
+                        )
+                    messages = [*messages, *tool_call_results]
+                    return query, runtime, env, messages, extra_args
 
                 log.debug(
                     "[KavachDefense] %s call=%d traj_risk=%.3f",
