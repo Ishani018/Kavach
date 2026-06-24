@@ -925,19 +925,35 @@ def main() -> None:
     kav = with_kavach.get("kavach", {})
     fo  = kav.get("failopen_count", 0)
     tot = kav.get("total_calls", 0)
-    run_valid = fo == 0
+    blk = kav.get("blocks", 0)
+    screened = tot - fo
+    run_valid = fo == 0 and tot > 0
+
     print("\n" + "=" * 64)
-    if fo == 0:
-        print(f"[agentdojo] FAIL-OPEN AUDIT: 0/{tot} calls failed open — "
-              f"run is FULLY DEFENDED, numbers are valid.")
+    print(f"[agentdojo] KAVACH AUDIT: {tot} tool calls reached the defense, "
+          f"{screened} screened by the parliament, {blk} BLOCKED.")
+    if tot == 0:
+        # No tool calls ever reached Kavach — the with-Kavach numbers are vacuous.
+        banner = "🛑 " * 21
+        print("\n" + banner)
+        print("[agentdojo] *** FATAL: Kavach screened 0 tool calls. The agent")
+        print("[agentdojo] *** never issued a tool call (or the defense was not in")
+        print("[agentdojo] *** the loop). The with-Kavach numbers are MEANINGLESS.")
+        print("[agentdojo] *** Do NOT report them. Check the model/preflight and re-run.")
+        print(banner + "\n")
+    elif fo == 0:
+        print("[agentdojo] FAIL-OPEN AUDIT: 0 calls failed open — "
+              "run is FULLY DEFENDED, numbers are valid. ✅")
     else:
-        print(f"[agentdojo] *** WARNING: {fo}/{tot} calls FAILED OPEN "
-              f"(parliament unreachable) ***")
-        print(f"[agentdojo] *** Those actions were NOT screened by Kavach; the "
-              f"with-Kavach numbers are PARTIALLY INVALID. ***")
+        banner = "⚠️  " * 21
+        print("\n" + banner)
+        print(f"[agentdojo] *** {fo}/{tot} calls FAILED OPEN (parliament unreachable) ***")
+        print( "[agentdojo] *** Those actions were NOT screened by Kavach; the")
+        print( "[agentdojo] *** with-Kavach numbers are PARTIALLY INVALID. ***")
         print(f"[agentdojo] *** Affected call indices: {kav.get('failopen_calls')} ***")
-        print(f"[agentdojo] *** Fix the parliament (single server + real "
-              f"/hook/parliament verdict) and re-run. ***")
+        print( "[agentdojo] *** Fix the parliament (single server + real")
+        print( "[agentdojo] *** /hook/parliament verdict) and re-run. ***")
+        print(banner)
     print("=" * 64 + "\n")
 
     # Optional benign-utility pass (paper §3.4 metric 1) — the no-attack run.
