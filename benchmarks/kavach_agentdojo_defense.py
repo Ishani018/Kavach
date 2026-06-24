@@ -166,6 +166,29 @@ try:
 
             self._call_count += 1
             tool_text = self._format_tool_call(query, messages)
+
+            # IMPOSSIBLE-TO-MISS GUARD (bug #1 regression detector): if the action
+            # we are about to send Kavach is the empty/unknown placeholder, the
+            # tool call was not extracted correctly and the parliament is screening
+            # NOTHING — every downstream security number would be fake. Abort the
+            # whole run loudly rather than silently producing meaningless results.
+            if "tool:unknown" in tool_text or tool_text.strip().endswith("args:{}"):
+                self._garbage_calls = getattr(self, "_garbage_calls", 0) + 1
+                if self._garbage_calls <= 3:
+                    log.error("[KavachDefense] EMPTY ACTION sent to parliament: %r", tool_text)
+                if self._garbage_calls >= 5:
+                    banner = "🛑 " * 20
+                    raise RuntimeError(
+                        "\n" + banner + "\n"
+                        "[KAVACH FATAL] _format_tool_call produced an EMPTY action "
+                        f"({tool_text!r}) for {self._garbage_calls} calls.\n"
+                        "Kavach is screening NOTHING — bug #1 has regressed (the tool\n"
+                        "call is not being extracted from AgentDojo's FunctionCall).\n"
+                        "ALL security numbers from this run would be FAKE. Aborting.\n"
+                        "Fix _format_tool_call (use tc.function / tc.args) before re-running.\n"
+                        + banner
+                    )
+
             session_id = f"{KAVACH_SESSION}-{id(env)}"
 
             if session_id not in self._seeded_sessions:
@@ -258,27 +281,34 @@ try:
         def _format_tool_call(self, query: str, messages: list) -> str:
             """Format the pending tool call as a parliament-scorable string.
 
-            AgentDojo (0.1.x) passes pydantic ChatMessage objects whose
-            tool_calls are FunctionCall objects (attribute access), not dicts.
-            We handle both shapes so the adapter works across versions.
+            BUG-#1 FIX: AgentDojo's FunctionCall exposes `.function` (the tool
+            NAME, a str) and `.args` (the argument dict) — there is NO `.name`
+            or `.arguments`. The previous code read `fn.name`/`fn.arguments`,
+            so every call reached the parliament as `tool:unknown args:{}` and
+            Kavach screened an empty action. We now read `.function`/`.args`
+            directly, with a dict-shaped fallback for other AgentDojo versions.
             """
+            import json as _json
             for msg in reversed(messages):
                 role = self._attr(msg, "role")
                 tcs = self._attr(msg, "tool_calls")
                 if role == "assistant" and tcs:
                     tc = tcs[0]
-                    # FunctionCall in this version exposes .function (name) and
-                    # .args; older dict shape nests under "function".
-                    fn = self._attr(tc, "function")
-                    if fn is not None:
-                        name = self._attr(fn, "name", "unknown")
-                        args = self._attr(fn, "arguments", "{}")
-                    else:
-                        name = self._attr(tc, "function", None) or \
-                               self._attr(tc, "name", "unknown")
-                        args = self._attr(tc, "args", None) or \
-                               self._attr(tc, "arguments", "{}")
-                    return f"tool:{name} args:{args}"
+                    # Correct field names for AgentDojo 0.1.x FunctionCall.
+                    name = self._attr(tc, "function", None)
+                    args = self._attr(tc, "args", None)
+                    # Fallbacks for older/dict shapes (function nested under a
+                    # 'function' object, or args under 'arguments').
+                    if name is None:
+                        fn = self._attr(tc, "function_obj", None)
+                        name = self._attr(fn, "name", "unknown") if fn else "unknown"
+                    if args is None:
+                        args = self._attr(tc, "arguments", {}) or {}
+                    try:
+                        args_str = _json.dumps(args, default=str, ensure_ascii=False)
+                    except Exception:
+                        args_str = str(args)
+                    return f"tool:{name} args:{args_str}"
             return query
 
         def summary(self) -> dict:
