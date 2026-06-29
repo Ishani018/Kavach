@@ -821,22 +821,29 @@ class MaliciousnessGuard:
     as a genuine evasion attempt.
 
     Decision:
-        KEEP      — paraphrase contains ≥1 attack-domain stem.
-        AMBIGUOUS — paraphrase has zero attack-domain content; may have drifted
-                    benign. Written to human-review file, excluded from count.
+        KEEP      — paraphrase has ≥2 attack-domain stems AND, *when the seed's
+                    own text is lexically attack-bearing*, shares ≥1 stem with it.
+        AMBIGUOUS — otherwise; may have drifted benign. Written to the
+                    human-review file, excluded from the evasion count.
 
-    Design note: we check para_tokens only (not the intersection with the
-    original). The original seed is always malicious by construction — it comes
-    directly from the Kavach corpus. We only need to verify that the paraphrase
-    itself still looks attack-domain. This avoids false AMBIGUOUS flags when
-    the surface_obfusc stage replaces L3 tool names with generic descriptions
-    that don't share lexical tokens with the original but are still malicious
-    (e.g. 'attacker' → 'the threat actor': 'threat' is an attack token).
+    Design note: requiring ≥2 tokens rejects paraphrases that cling to a single
+    common token (e.g. "access"/"process"/"http") while losing the attack
+    semantics. The seed-overlap clause ties the paraphrase back to the seed's
+    own attack vocabulary — BUT only when the seed has attack tokens to overlap
+    with. ~22% of corpus seed texts are prose descriptions with zero stems in
+    _ATTACK_TOKENS (the surface_obfusc rationale: L3 tool names get genericized);
+    for those we fall back to the ≥2-token test alone so the seed is not silently
+    excluded from the eval entirely.
     """
 
-    def check(self, original: str, paraphrase: str) -> str:  # noqa: ARG002
+    def check(self, original: str, paraphrase: str) -> str:
         para_tokens = _token_overlap(paraphrase)
-        return "KEEP" if para_tokens else "AMBIGUOUS"
+        orig_tokens = _token_overlap(original)
+        # ≥2 attack stems, and (overlap with the seed when the seed is lexical;
+        # otherwise the ≥2-token test stands alone so we never drop the seed).
+        if len(para_tokens) >= 2 and (not orig_tokens or (para_tokens & orig_tokens)):
+            return "KEEP"
+        return "AMBIGUOUS"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -962,8 +969,11 @@ def _parliament_verdict(scans: dict[str, MinisterScan]) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _seed_key(seed: Seed) -> str:
-    """Stable identity for a seed (pattern + level), used to skip on resume."""
-    return f"{seed.pattern_id}::{seed.level}"
+    """Stable identity for a seed (minister + pattern + level), used to skip on
+    resume. The minister prefix prevents key collisions if two ministers ever
+    share a pattern_id; the key is treated as an opaque string everywhere (set
+    membership / JSON field) and is never parsed back apart."""
+    return f"{seed.minister}::{seed.pattern_id}::{seed.level}"
 
 
 def _pr_to_dict(pr: ParaphraseResult) -> dict:
