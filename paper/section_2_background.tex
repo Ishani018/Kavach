@@ -52,7 +52,7 @@ prompt-injection benchmarks \cite{zhan2024injecagent}.
 \paragraph{Plan-time / chain-of-thought guardrails} operate on the agent's
 reasoning trace before it commits to an action. AlignmentCheck \cite{saxe2025llamafirewall}
 uses Llama 4 Maverick or Llama 3.3 70B to audit the chain-of-thought, reducing
-AgentDojo ASR from 17.6\% baseline to 2.89\% standalone. DRIFT \cite{drift2026}
+AgentDojo ASR from 0.18 to 0.0289 (an 84\% reduction) standalone. DRIFT \cite{drift2026}
 chains a Secure Planner, Dynamic Validator, and Injection Isolator across the
 plan representation. These guardrails are powerful but expensive (full LLM
 inference) and cannot inspect the \emph{resolved arguments} of a tool call,
@@ -73,8 +73,8 @@ labels, then enforce policies statically. CaMeL \cite{debenedetti2025camel}
 (dual-LLM, custom interpreter, 77\% task completion with provable security on
 AgentDojo), FIDES \cite{costa2025fides} (multi-agent IFC with confidentiality and
 integrity labels), and RTBAS \cite{zhong2025rtbas} (attention-based saliency
-screener, 98\% attack prevention, 2\% utility loss on AgentDojo) belong to this
-family. Their strength is provability; their limitation is that they cannot
+screener that prevents 100\% of policy-violating attacks with under 2\% utility
+loss on AgentDojo) belong to this family. Their strength is provability; their limitation is that they cannot
 detect attacks whose data provenance is correctly labeled but whose argument
 content is semantically malicious.
 
@@ -91,6 +91,17 @@ sub-20 ms). Trajectory Guard \cite{advani2026trajectoryguard} uses a Siamese
 Recurrent Autoencoder (AAAI 2026). Kavach's COMPASS oracle belongs to this
 family at the session level: a single cosine comparison between the seeded
 user intent and each proposed agent action.
+
+Across these categories, the tool-call boundary is the only enforcement point at
+which the \emph{resolved runtime arguments} of an action are available for
+inspection before that action executes. Input-time and plan-time guards see only
+declared intent --- the user message or the agent's reasoning trace --- not the
+concrete arguments the call will run with; output-time guards observe the action
+only after it has executed, too late to prevent it; and information-flow guards
+enforce data provenance rather than the semantics of the argument content. This
+is Kavach's enforcement point, and it is structurally unreachable by guards in
+the other categories: they fire at boundaries where the resolved-argument view
+does not yet, or no longer, exists.
 
 Table~\ref{tab:guardrail-comparison} places Kavach in context on five axes:
 enforcement boundary, mechanism, corpus extensibility, verdict combination, and
@@ -109,11 +120,12 @@ would invoke, a malicious payload in the tool's output, and the expected attacke
 action. The standard reported metric is Attack Success Rate (ASR) at the harness
 level. Kavach runs InjecAgent cold (\S\ref{sec:eval}).
 
-\textbf{AgentDojo} \cite{debenedetti2024agentdojo} — 629 scenarios (as of the
-most recent public release) across user tasks and injected attacker goals, in five
-environments (banking, travel, workspace, e-commerce, SlackBot). The standard
-metrics are ASR (lower is better) and utility score (higher is better for benign
-tasks). We defer AgentDojo to future work due to its environmental complexity.
+\textbf{AgentDojo} \cite{debenedetti2024agentdojo} — 97 user tasks and 629
+security test cases across four environments: workspace, Slack, banking, and
+travel. The standard metrics are ASR (lower is better) and utility score (higher
+is better for benign tasks). We run AgentDojo cold on the Slack suite (20 user
+tasks $\times$ 5 injection tasks, the ``important instructions'' attack); results
+are reported in \S\ref{sec:frontier}.
 
 A methodological note: running InjecAgent before measuring benign false-positive
 rate produces precision numbers that conflate detector quality with detector

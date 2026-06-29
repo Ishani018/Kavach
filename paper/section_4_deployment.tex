@@ -43,9 +43,10 @@ call (\texttt{toolCallFailMode = deny}).
 Our corpus is authored in the register of MITRE technique descriptions and
 tool-call syntax. On InjecAgent \cite{zhan2024injecagent}, whose attacks are
 expressed as fluent natural-language instructions, this configuration yields a
-19\% hard-block false-positive rate (38\% block-or-escalate) on benign actions
-evaluated per distinct case --- higher than the corpus's tool-call register
-would suggest. We attribute this elevated false-positive rate to a
+23.5\% hard-block false-positive rate on the data-harm setting (0.0\% on
+data-stealing) on benign actions evaluated per distinct case --- higher than the
+corpus's tool-call register would suggest, and concentrated almost entirely in
+one setting. We attribute this elevated false-positive rate to a
 \emph{representation mismatch}: the corpus is embedded in tool-call/technique
 register while InjecAgent's benign actions are phrased as natural language, so
 benign natural-language actions land near attack patterns in embedding space
@@ -57,18 +58,25 @@ identify that native-register measurement as a direct test of this hypothesis,
 left to future work. We report the mismatch because it is the kind of deployment
 lesson a purely benchmark-simulated evaluation would hide.
 
-\subsection{Hybrid retrieval recovers the false-positive rate}
+\subsection{Hybrid retrieval recovers recall at a controlled false-positive rate}
 \label{sec:hybridresults}
-The fix follows from the diagnosis. We add a lexical channel: BM25 over the same
-corpus, fused with dense retrieval by reciprocal-rank fusion for candidate
-selection, with the final confidence computed as the dense cosine similarity
-scaled by a lexical gate (a benign action that is semantically near an attack
-pattern but shares none of its distinctive tokens is discounted). With this
-hybrid configuration, on InjecAgent Kavach holds strict (hard-\textsc{Block})
-recall at 0.633 (data-harm) / 0.438 (data-stealing) and loose
-(block-or-escalate) recall at 0.90 / 0.875, at a 19\% hard-block false-positive
-rate. The gate floor is a single tunable parameter; Table~\TBD{} reports the
-recall/FPR trade-off across its range.
+The fix follows from the diagnosis. Under dense-only retrieval the lexical
+channel is absent and benign and attack actions are separated only by embedding
+proximity; adding the lexical channel both sharpens recall on attacks that share
+distinctive tokens with the corpus and discounts benign actions that are merely
+semantically near an attack pattern. We add BM25 over the same corpus, fused with
+dense retrieval by reciprocal-rank fusion for candidate selection, with the final
+confidence computed as the dense cosine similarity scaled by a lexical gate (a
+benign action that is semantically near an attack pattern but shares none of its
+distinctive tokens is discounted). With this hybrid configuration, on InjecAgent
+Kavach holds strict (hard-\textsc{Block}) recall at 0.633 (data-harm) / 0.438
+(data-stealing) and loose (block-or-escalate) recall at 0.90 / 0.875. The
+residual false-positive rate (23.5\% hard-block on data-harm, 0.0\% on
+data-stealing) is a corpus-quality property addressed separately --- a small
+number of over-broad CHANNEL patterns account for it (\S\ref{sec:limitations})
+--- rather than a property of the retrieval fusion, which recovers recall. The
+gate floor is a single tunable parameter; Table~\TBD{} reports the recall/FPR
+trade-off across its range.
 
 \subsection{Detection results and cost}
 \label{sec:results}

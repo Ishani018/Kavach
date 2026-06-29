@@ -25,9 +25,10 @@ enabling attacker-chosen scripts to run before the user could approve them.
 CVE-2026-21852 allowed exfiltration of the user's API key via a malicious
 \texttt{ANTHROPIC\_BASE\_URL} override in \texttt{.claude/settings.json} —
 redirecting traffic to an attacker-controlled server and exfiltrating credentials
-as a side effect of normal agent operation. Both were discovered by Check Point
-Research (disclosed February 2026) and subsequently patched
-\cite{checkpoint2026claudecode}.
+as a side effect of normal agent operation. CVE-2025-59536 was disclosed on
+October 3, 2025 and CVE-2026-21852 on January 21, 2026; Check Point Research
+published a consolidated analysis in February 2026, and both were subsequently
+patched \cite{checkpoint2026claudecode}.
 
 \textbf{CVE-2025-68664} (LangChain Core, disclosed December 2025). A
 serialization-injection vulnerability in the \texttt{dumps()}/\texttt{dumpd()}
@@ -42,8 +43,9 @@ vulnerability, CVE-2025-68665, affected the LangChain JavaScript SDK.
 on the refresh endpoint led to account takeover and remote code execution via
 the platform's built-in code-execution feature. This is not a patched historical
 incident: CrowdSec documented \emph{active exploitation in the wild beginning
-January 23, 2026} \cite{crowdsec2026langflow}. The vulnerability is not yet on
-the CISA Known Exploited Vulnerabilities catalog as of May 2026.
+January 23, 2026} \cite{crowdsec2026langflow}. CISA subsequently added
+CVE-2025-34291 to its Known Exploited Vulnerabilities catalog on May 21, 2026,
+with a federal remediation deadline of June 4, 2026.
 
 These four cases share a structure: none of them exploited the language model's
 reasoning. Each was exploited at the harness layer — configuration parsing,
@@ -133,10 +135,16 @@ interceptor achieving 0\% attack success rate on AgentDojo under explicit
 rules. Kavach is complementary to both. MXC reduces blast radius but cannot
 reason about intent: an agent authorized to read credential files and make
 HTTP calls can be semantically manipulated into exfiltrating those credentials
-via indirect injection while remaining within its MXC policy. ClawGuard's
-authors acknowledge this gap, noting that content-misleading attacks are
-difficult to intercept without system-level semantic monitoring
-\cite{clawguard2026}. Kavach occupies precisely this semantic layer.
+via indirect injection while remaining within its MXC policy. ClawGuard's 0\%
+AgentDojo result is measured against that benchmark's already-low attack-success
+baseline (0.6--3.1\% on the suites we run), and its automatic rule-derivation
+component is described as unevaluated future work, so the result reflects
+hand-authored rules rather than a generalizing detector. ClawGuard's authors
+acknowledge this gap, noting that content-misleading attacks are difficult to
+intercept without system-level semantic monitoring \cite{clawguard2026}; a
+semantic attack-pattern corpus that requires no per-deployment rule authoring is
+precisely the generalization gap Kavach's design addresses. Kavach occupies
+precisely this semantic layer.
 Three papers published in early 2026 require explicit positioning. DeepContext
 \cite{albrethsen2026deepcontext} proposes an intent-distance oracle over turn
 embeddings (F1 0.84, sub-20 ms), conceptually adjacent to Kavach's COMPASS
@@ -164,7 +172,7 @@ argue (\S\ref{sec:related}) that they enforce at different boundaries
 along the temporal axis and a comprehensive deployment runs both.
 
 \paragraph{Reproducibility.}
-The corpus (400 attack-pattern descriptions + 100 COMPASS calibration pairs),
+The corpus (401 attack-pattern descriptions + 100 COMPASS calibration pairs),
 the parliament service, the OpenClaw plugin and upstream PR-1, the benchmark
 harness, and the calibration protocol are all open-source and shipped with the
 paper. The reproducibility checklist in our supplementary material specifies the
