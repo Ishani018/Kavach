@@ -134,6 +134,41 @@ python kavach_eval/corpus_agent/agent.py \
 
 ---
 
+## 4.5. Improvement loop — full closed loop  (run AFTER section 3 + 4)
+
+> **Requires:** parliament up, the red-team evasion report from **section 3**,
+> and **gemma4:26b** pulled in Ollama.
+
+This is the full automated remediation loop:
+**red-team → corpus_agent → fix-check → delta → human approval → corpus grows → repeat.**
+
+```bash
+# 1. Dry-run first — confirms whether evasions actually exist (writes nothing).
+python kavach_eval/improvement_loop.py \
+  --dry-run --minister CHANNEL --model gemma4:26b --verbose
+
+# 2. If the dry-run shows n_evaded > 0, run for real:
+python kavach_eval/improvement_loop.py \
+  --minister CHANNEL --model gemma4:26b --verbose
+```
+
+- The loop **stops automatically** when: evasion hits 0 / no candidate passes the
+  anti-poisoning gate / no candidate actually fixes its evasion / the delta stops
+  improving / you decline approval. There is **no max-iterations counter** — it
+  stops when there is nothing left to safely fix.
+- **Approve carefully.** Each `yes` **appends** patterns to `kavach_corpus_v1.json`
+  permanently. The loop is **append-only** — it never edits or deletes existing
+  patterns, and never touches the production ChromaDB until you approve.
+- **Ground-truth backup:** `kavach_corpus_v1_ORIGINAL.json` is the frozen pre-loop
+  corpus (401 patterns). Always recoverable from git:
+  ```bash
+  git show origin/main:kavach_corpus_v1_ORIGINAL.json
+  ```
+- **Results to commit** → `parv-results` branch:
+  `kavach_eval/improvement_loop_audit.jsonl` + the updated `kavach_corpus_v1.json`.
+
+---
+
 ## 5. Committing results
 
 > All results go to **`parv-results`**, NOT `main`, NOT `parv`.
