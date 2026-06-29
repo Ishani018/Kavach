@@ -274,7 +274,7 @@ def merge(args: argparse.Namespace) -> None:
             "VAULT":     "kavach_vault",
             "CHANNEL":   "kavach_channel",
             "NAVIGATOR": "kavach_navigator",
-            "COMPASS":   "kavach_compass",
+            "COMPASS":   "kavach_compass_calibration",
         },
     }
 

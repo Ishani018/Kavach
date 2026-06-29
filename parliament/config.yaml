@@ -1,86 +1,26 @@
-# parliament/config.yaml
-# ───────────────────────────────────────────────────────────────────
-# Kavach Parliament configuration. Loaded verbatim by parliament/server.py at
-# startup (_load_config); the values below ARE what the live server uses.
-# Calibration scripts (threshold_sweep.py, compass_calibrator.py) compute optimal
-# values and write them to *_calibration.json; those numbers must be copied INTO
-# this file to take effect — the server does NOT read the calibration JSONs at
-# runtime. Keep this file in sync with the latest calibration before any run.
-# ───────────────────────────────────────────────────────────────────
-
 embed_model: BAAI/bge-base-en-v1.5
-
-query_prefix: "Represent this sentence for searching relevant passages: "
-
+query_prefix: 'Represent this sentence for searching relevant passages: '
 chroma_path: ./parliament/.chroma_kavach
-
 router_config_path: ./kavach_router_config.json
-
 ministers:
-  - EXECUTOR
-  - VAULT
-  - CHANNEL
-  - NAVIGATOR
-
+- EXECUTOR
+- VAULT
+- CHANNEL
+- NAVIGATOR
 compass_collection: COMPASS
-
-# ───────────────────────────────────────────────────────────────────
-# Thresholds
-# ───────────────────────────────────────────────────────────────────
 thresholds:
-  block:         0.55   # base block — overridden per minister by per_minister below
-  grey:          0.50   # ≥ this and < block → minister ESCALATEs
-  compass_drift: 0.585  # < this → COMPASS drift detected. Youden's-J optimal from
-                        # compass_calibration.json (TPR 0.86 / FPR 0.14, J=0.72).
-                        # Was 0.40 (TPR 0.22, barely fires) — stale; the live server
-                        # runs 0.585. Re-run compass_calibrator.py to regenerate.
-  router_min:    0.40   # >= this → minister activated for this query
-
-  # Per-minister block thresholds from threshold_sweep.py Youden's J output.
-  # These override the global block value for each minister individually.
-  #
-  # Sweep results (InjecAgent, threshold = Youden J optimal):
-  #   EXECUTOR: TPR 0.903, FPR 0.471 @ 0.55 — keep low, strongest minister
-  #   VAULT:    TPR 0.839, FPR 0.706 @ 0.55 — corpus too broad, raised to cut FPR
-  #   CHANNEL:  TPR 0.516, FPR 0.235 @ 0.60
-  #   NAVIGATOR:TPR 0.371, FPR 0.294 @ 0.60
+  block: 0.55
+  grey: 0.5
+  compass_drift: 0.585
+  router_min: 0.4
   per_minister:
-    EXECUTOR:  0.55
-    VAULT:     0.75    # raised from 0.55 — FPR was 70.6%, corpus needs quality pass (#7)
-    CHANNEL:   0.60
-    NAVIGATOR: 0.60
-
-  # ── Threshold modulation ownership (IMPORTANT — avoid double-modulation) ──
-  # Two modulators exist. They must NOT both adjust the same base:
-  #   1. server.py  → traj.modulate_threshold(): applies TRAJECTORY risk to the
-  #      per-call block value BEFORE calling the Speaker.
-  #   2. speaker.py → COMPASS drift_factor modulation (below): applies INTENT
-  #      drift inside combine_verdicts.
-  # To keep these orthogonal, server.py passes the per-minister base (not a
-  # re-modulated value) for COMPASS modulation. Set drift_factor: 0.0 to
-  # disable COMPASS modulation entirely and rely on trajectory only.
-  #
-  # Dynamic COMPASS-modulated thresholds (Issue #3)
-  # Formula: effective = base + drift_factor * (compass_sim - 0.5)
-  # Only active when user intent has been seeded (compass_sim < 1.0) AND #9 fixed.
-  #   drift_factor: 0.0 = static, 0.3 = default, 0.5 = aggressive
-  drift_factor:  0.3
-
-  # clip_upper: max upward adjustment (0.0 = alignment NEVER loosens threshold).
-  # Anti-gaming: an attacker keeping actions superficially aligned with intent
-  # cannot raise the threshold.
-  clip_upper:    0.0
-
-  # clip_lower: max downward adjustment (prevents threshold collapse on drift)
-  clip_lower:   -0.15
-
-# ───────────────────────────────────────────────────────────────────
-# Server bind
-# ───────────────────────────────────────────────────────────────────
+    EXECUTOR: 0.55
+    VAULT: 0.75
+    CHANNEL: 0.6
+    NAVIGATOR: 0.7
+  drift_factor: 0.3
+  clip_upper: 0.0
+  clip_lower: -0.15
 host: 127.0.0.1
 port: 8088
-
-# ───────────────────────────────────────────────────────────────────
-# Logging
-# ───────────────────────────────────────────────────────────────────
 log_level: INFO

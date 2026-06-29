@@ -106,6 +106,7 @@ KAVACH_TIMEOUT = float(os.environ.get("KAVACH_TIMEOUT", "10"))
 
 try:
     from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
+    from agentdojo.types import ChatToolResultMessage, text_content_block_from_string
 
     class KavachDefense(BasePipelineElement):
         """Wraps the Kavach parliament as an AgentDojo defense.
@@ -133,6 +134,7 @@ try:
             # silently invalid.
             self._failopen_count = 0
             self._failopen_calls: list[int] = []
+            self._seeded_sessions: set[str] = set()
 
         def query(
             self,
@@ -143,20 +145,66 @@ try:
             extra_args: dict | None = None,
             **kwargs: Any,
         ):
-            """Screen the latest tool output before it returns to the LLM.
+            """Screen the latest tool call before it executes.
 
             AgentDojo (0.1.x) pipeline-element contract: takes and returns the
             5-tuple (query, runtime, env, messages, extra_args). KavachDefense
-            sits inside the ToolsExecutionLoop, so it sees each tool result; if
-            the parliament returns BLOCK, we replace the latest message content
-            with a refusal so the injected instruction never reaches the model.
+            sits inside the ToolsExecutionLoop, so it sees each tool call; if
+            the parliament returns BLOCK, we return refusal tool result messages
+            so the subsequent ToolsExecutor skips execution.
             """
             if extra_args is None:
                 extra_args = {}
             messages = list(messages)
+            if not messages:
+                return query, runtime, env, messages, extra_args
+
+            last_msg = messages[-1]
+            if self._attr(last_msg, "role") != "assistant" or not self._attr(last_msg, "tool_calls"):
+                # No tool calls to screen
+                return query, runtime, env, messages, extra_args
+
             self._call_count += 1
             tool_text = self._format_tool_call(query, messages)
+
+            # IMPOSSIBLE-TO-MISS GUARD (bug #1 regression detector): if the action
+            # we are about to send Kavach is the empty/unknown placeholder, the
+            # tool call was not extracted correctly and the parliament is screening
+            # NOTHING — every downstream security number would be fake. Abort the
+            # whole run loudly rather than silently producing meaningless results.
+            if "tool:unknown" in tool_text or tool_text.strip().endswith("args:{}"):
+                self._garbage_calls = getattr(self, "_garbage_calls", 0) + 1
+                if self._garbage_calls <= 3:
+                    log.error("[KavachDefense] EMPTY ACTION sent to parliament: %r", tool_text)
+                if self._garbage_calls >= 5:
+                    banner = "🛑 " * 20
+                    raise RuntimeError(
+                        "\n" + banner + "\n"
+                        "[KAVACH FATAL] _format_tool_call produced an EMPTY action "
+                        f"({tool_text!r}) for {self._garbage_calls} calls.\n"
+                        "Kavach is screening NOTHING — bug #1 has regressed (the tool\n"
+                        "call is not being extracted from AgentDojo's FunctionCall).\n"
+                        "ALL security numbers from this run would be FAKE. Aborting.\n"
+                        "Fix _format_tool_call (use tc.function / tc.args) before re-running.\n"
+                        + banner
+                    )
+
             session_id = f"{KAVACH_SESSION}-{id(env)}"
+
+            if session_id not in self._seeded_sessions:
+                try:
+                    seed_resp = requests.post(
+                        f"{KAVACH_URL}/hook/seed_intent",
+                        json={
+                            "text": query,
+                            "session_id": session_id,
+                        },
+                        timeout=KAVACH_TIMEOUT,
+                    )
+                    seed_resp.raise_for_status()
+                    self._seeded_sessions.add(session_id)
+                except Exception as exc:
+                    log.warning("[KavachDefense] Failed to seed intent for session %s: %s", session_id, exc)
 
             try:
                 resp = requests.post(
@@ -168,9 +216,6 @@ try:
                     },
                     timeout=KAVACH_TIMEOUT,
                 )
-                # A non-200 (e.g. parliament 500 from a ChromaDB query error)
-                # must count as fail-open, not a silent ALLOW. raise_for_status
-                # routes it into the except handler below.
                 resp.raise_for_status()
                 result    = resp.json()
                 verdict   = result.get("verdict", "ALLOW")
@@ -191,13 +236,21 @@ try:
                         f"This action was blocked by the Kavach security monitor. "
                         f"Reason: {reason[:120]}"
                     )
-                    # Neutralize the latest message content (the tool output that
-                    # would carry the injection) with the refusal.
-                    if messages:
-                        last = dict(messages[-1])
-                        last["content"] = refusal
-                        messages[-1] = last
-                    return refusal, runtime, env, messages, extra_args
+                    # Construct ChatToolResultMessage for each pending tool call to abort execution
+                    tool_call_results = []
+                    tcs = self._attr(last_msg, "tool_calls") or []
+                    for tc in tcs:
+                        tool_call_results.append(
+                            ChatToolResultMessage(
+                                role="tool",
+                                content=[text_content_block_from_string(refusal)],
+                                tool_call_id=self._attr(tc, "id"),
+                                tool_call=tc,
+                                error=refusal,
+                            )
+                        )
+                    messages = [*messages, *tool_call_results]
+                    return query, runtime, env, messages, extra_args
 
                 log.debug(
                     "[KavachDefense] %s call=%d traj_risk=%.3f",
@@ -228,27 +281,34 @@ try:
         def _format_tool_call(self, query: str, messages: list) -> str:
             """Format the pending tool call as a parliament-scorable string.
 
-            AgentDojo (0.1.x) passes pydantic ChatMessage objects whose
-            tool_calls are FunctionCall objects (attribute access), not dicts.
-            We handle both shapes so the adapter works across versions.
+            BUG-#1 FIX: AgentDojo's FunctionCall exposes `.function` (the tool
+            NAME, a str) and `.args` (the argument dict) — there is NO `.name`
+            or `.arguments`. The previous code read `fn.name`/`fn.arguments`,
+            so every call reached the parliament as `tool:unknown args:{}` and
+            Kavach screened an empty action. We now read `.function`/`.args`
+            directly, with a dict-shaped fallback for other AgentDojo versions.
             """
+            import json as _json
             for msg in reversed(messages):
                 role = self._attr(msg, "role")
                 tcs = self._attr(msg, "tool_calls")
                 if role == "assistant" and tcs:
                     tc = tcs[0]
-                    # FunctionCall in this version exposes .function (name) and
-                    # .args; older dict shape nests under "function".
-                    fn = self._attr(tc, "function")
-                    if fn is not None:
-                        name = self._attr(fn, "name", "unknown")
-                        args = self._attr(fn, "arguments", "{}")
-                    else:
-                        name = self._attr(tc, "function", None) or \
-                               self._attr(tc, "name", "unknown")
-                        args = self._attr(tc, "args", None) or \
-                               self._attr(tc, "arguments", "{}")
-                    return f"tool:{name} args:{args}"
+                    # Correct field names for AgentDojo 0.1.x FunctionCall.
+                    name = self._attr(tc, "function", None)
+                    args = self._attr(tc, "args", None)
+                    # Fallbacks for older/dict shapes (function nested under a
+                    # 'function' object, or args under 'arguments').
+                    if name is None:
+                        fn = self._attr(tc, "function_obj", None)
+                        name = self._attr(fn, "name", "unknown") if fn else "unknown"
+                    if args is None:
+                        args = self._attr(tc, "arguments", {}) or {}
+                    try:
+                        args_str = _json.dumps(args, default=str, ensure_ascii=False)
+                    except Exception:
+                        args_str = str(args)
+                    return f"tool:{name} args:{args_str}"
             return query
 
         def summary(self) -> dict:
