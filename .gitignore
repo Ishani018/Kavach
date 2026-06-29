@@ -61,6 +61,3 @@ parliament/.chroma_r2exp/
 # Corpus improvement loop (temp ChromaDB + scratch — never commit)
 parliament/.chroma_kavach_staging/
 kavach_eval/.improvement_loop_scratch/
-
-# Assembled full-paper concatenation (generated artifact, not a source file)
-paper/FULL_PAPER_DRAFT.tex

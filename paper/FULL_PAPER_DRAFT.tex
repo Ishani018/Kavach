@@ -1,0 +1,1056 @@
+% paper/skeleton_aisec.tex
+% ═══════════════════════════════════════════════════════════════════════════
+% Kavach — AISec 2026 submission skeleton (ACM CCS workshop, The Hague)
+% Deadline: July 24, 2026.  10pp ACM double-column, ANONYMIZED.
+%
+% Restructured June 10, 2026 per repo audit (KAVACH_SCRUTINY_AISEC_PLAN.md):
+%   - Spine: systems/measurement (the hook-gap finding + live interception +
+%     representation-mismatch + hybrid-retrieval fix).
+%   - §5: the aggregation frontier (veto vs Bayesian vs hybrid under adaptive
+%     corruption) — now testable against the REAL Speaker via adaptive_attack v3.
+%   - The old "temporal--spatial" section is DEMOTED to a short design
+%     principle (§3.5); the implementation does not enforce load-order, so the
+%     standalone formal section over-claimed and burned page budget.
+%
+% Numbers are [TBD] until the pending benchmark runs land (see docs/internal/BENCHMARK_RUNBOOK.md).
+% Replace \anonymise{} contents only in the camera-ready.
+% ═══════════════════════════════════════════════════════════════════════════
+
+\documentclass[sigconf,anonymous,review]{acmart}
+
+% AISec is non-archival-friendly; keep rights commands minimal for review.
+\settopmatter{printacmref=false}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\pagestyle{plain}
+
+\usepackage{booktabs}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+
+\newcommand{\anonymise}[1]{\textit{[anon]}}
+\newcommand{\TBD}{\textcolor{red}{[TBD]}}
+\usepackage{xcolor}
+
+\begin{document}
+
+\title{Kavach: Semantic Pre-Execution Interception for LLM Agent Runtimes}
+\subtitle{A Measurement, a Deployment, and the Aggregation Frontier}
+
+\author{\anonymise{Author One}}
+\affiliation{\institution{\anonymise{PES University}}\country{\anonymise{India}}}
+% NOTE: capstone mentor Prof. Rajesh Banginwar acknowledged in camera-ready only.
+
+\begin{abstract}
+We present Kavach, an OpenClaw-native runtime monitor that intercepts every
+agent tool call \emph{before execution}, scores its semantic intent against a
+curated corpus of attack-pattern descriptions across four specialized
+ministers (EXECUTOR / VAULT / CHANNEL / NAVIGATOR), and tracks session-level
+trajectory and intent drift. We make four contributions. First, a
+\emph{measurement}: we show that OpenClaw's gateway execution path exposes no
+pre-execution plugin hook, so no security plugin can intercept there, and we
+characterize where interception \emph{is} achievable (the embedded runner).
+Second, a \emph{deployment}: live interception on production hardware at
+78\,ms p50, with taxonomy-grounded provenance folded into a hash-chained ledger,
+a representation-mismatch analysis explaining why a corpus authored in tool-call
+syntax yields an elevated FPR on natural-language attacks, and a hybrid
+BM25+dense retrieval configuration evaluated at 19\% hard-block FPR (38\%
+block-or-escalate) on InjecAgent. Third, the
+\emph{aggregation frontier}: we show that score-based vote aggregation
+(including a Bayesian variant) is brittle to an adaptive attacker who corrupts
+individual ministers, while a pure-veto aggregator is robust but sacrifices
+benign utility; we quantify the FPR/robustness frontier and propose a tuned
+hybrid (Bayesian decision path with a veto floor). Fourth, a
+\emph{contamination-controlled evaluation}: a blind-written corpus, InjecAgent
+run cold, and a benign false-positive gate measured before attack recall, with
+cost reported jointly with detection. All artifacts are reproducible offline;
+the trajectory monitor and aggregator require no GPU.
+\end{abstract}
+
+\maketitle
+
+% Real section content lives in separate files, reconciled for the AISec
+% restructure. §1 and §3 use the _aisec variants (four-contribution framing,
+% provenance subsection, corrected Speaker table). §2 is reused as-is. §4/§5
+% bodies carry [TBD] tables pending the Dell runs.
+% generated table-value macros (created by make_section5.py)
+% Graceful table inclusion: generated tables (make_section5.py) may be absent
+% on a fresh checkout. Show a visible placeholder instead of failing to build.
+\newcommand{\inputtable}[1]{\IfFileExists{#1.tex}{\input{#1}}{%
+  \begin{center}\fbox{\textcolor{red}{[table #1 — run make\_section5.py]}}\end{center}}}
+\IfFileExists{tables/section5_macros.tex}{\input{tables/section5_macros}}{}
+\input{section_1_intro_aisec}
+\input{section_2_background}
+\input{section_3_design_aisec}
+
+% §4 Deployment & Detection and §5 Aggregation Frontier: the prose is written;
+% the tables are [TBD] until benchmark + minister-dump data lands. The old
+% temporal--spatial section (section_4_temporal_spatial.tex) is intentionally
+% NOT input — it is demoted to the design principle in §3 per the audit.
+\input{section_4_deployment}
+\input{section_5_frontier}
+
+\section{Related Work}
+\label{sec:related}
+\input{related_work_table}
+
+\section{Limitations}
+\label{sec:limitations}
+\input{section_7_limitations}
+
+\section{Conclusion}
+\label{sec:conclusion}
+Kavach demonstrates that semantic pre-execution interception is achievable on a
+production agent runtime, that grounding each verdict in a structured cyber
+taxonomy makes both the decision and its justification tamper-evident, and that
+the choice of vote aggregator is a measurable robustness/utility trade-off
+rather than an implementation detail. The pre-execution hook gap we document,
+and the upstream fixes we contribute, suggest that pre-execution interception
+should be a first-class runtime primitive for agent platforms.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{kavach}
+
+\end{document}
+% paper/section_1_intro.tex
+% AISec 2026 variant. Reconciled June 10 with the restructured skeleton:
+% contributions reframed to measurement / deployment+detection+provenance /
+% aggregation frontier; temporal-spatial proof demoted to a design principle
+% in S3 (no longer contribution 2); provenance added.
+
+\section{Introduction}
+\label{sec:intro}
+
+LLM agents have moved from research demos to deployed systems that handle
+non-trivial work: code generation, infrastructure operations, sales pipelines,
+and autonomous decision-making. The implementations of these systems have a
+striking structural property — the agent's harness, the deterministic code that
+wraps the language model with tool dispatch, context management, and persistence,
+now constitutes the overwhelming majority of the source lines, while the model
+itself is a small fraction. The model is no longer the system. The harness is.
+
+This shift has produced a new class of vulnerabilities, exploited at the harness
+layer rather than at the model. Four incidents from the past six months
+illustrate the pattern unambiguously.
+
+\textbf{CVE-2025-59536 and CVE-2026-21852} (Anthropic Claude Code, Oct 2025 and
+Jan 2026). CVE-2025-59536 allowed code injection in the startup trust dialog,
+enabling attacker-chosen scripts to run before the user could approve them.
+CVE-2026-21852 allowed exfiltration of the user's API key via a malicious
+\texttt{ANTHROPIC\_BASE\_URL} override in \texttt{.claude/settings.json} —
+redirecting traffic to an attacker-controlled server and exfiltrating credentials
+as a side effect of normal agent operation. CVE-2025-59536 was disclosed on
+October 3, 2025 and CVE-2026-21852 on January 21, 2026; Check Point Research
+published a consolidated analysis in February 2026, and both were subsequently
+patched \cite{checkpoint2026claudecode}.
+
+\textbf{CVE-2025-68664} (LangChain Core, disclosed December 2025). A
+serialization-injection vulnerability in the \texttt{dumps()}/\texttt{dumpd()}
+APIs enabled arbitrary class instantiation in trusted namespaces (CVSS 9.3
+Critical). The attack surface: \texttt{secrets\_from\_env=True} was the default,
+meaning environment variables containing credentials could be exfiltrated via a
+prompt-injection-crafted response that was then deserialized. At disclosure time,
+LangChain was one of the most widely deployed agent frameworks. A companion
+vulnerability, CVE-2025-68665, affected the LangChain JavaScript SDK.
+
+\textbf{CVE-2025-34291} (LangFlow, disclosed October 2025). A CSRF vulnerability
+on the refresh endpoint led to account takeover and remote code execution via
+the platform's built-in code-execution feature. This is not a patched historical
+incident: CrowdSec documented \emph{active exploitation in the wild beginning
+January 23, 2026} \cite{crowdsec2026langflow}. CISA subsequently added
+CVE-2025-34291 to its Known Exploited Vulnerabilities catalog on May 21, 2026,
+with a federal remediation deadline of June 4, 2026.
+
+These four cases share a structure: none of them exploited the language model's
+reasoning. Each was exploited at the harness layer — configuration parsing,
+serialization, CSRF handling, environment-variable access — by attacks shaped
+for that layer. The model was incidental. A sustained wave of MCP-layer
+disclosures across late 2025 and early 2026 made agent infrastructure one of the
+fastest-growing attack surfaces in production AI systems.
+
+\paragraph{The gap in existing defenses.}
+Existing guardrails address the model's input and output. LlamaFirewall
+\cite{saxe2025llamafirewall} places PromptGuard 2 at message-input time and
+AlignmentCheck at chain-of-thought time. AgentSpec \cite{wang2025agentspec}
+intercepts at plan-evaluation time. AGrail \cite{luo2025agrail} and
+ShieldAgent \cite{chen2025shieldagent} operate at action-evaluation time.
+CaMeL \cite{debenedetti2025camel} constrains capability propagation
+statically. FIDES \cite{costa2025fides} tracks information-flow labels.
+
+All of these systems — spatial defenses, in our terminology — evaluate
+the agent's output or context at a single time-step. None of them fire at the
+\emph{tool-call boundary}: the moment when a resolved tool invocation, with
+actual runtime arguments, is about to execute. This is the gap that Kavach fills.
+
+There is a second, subtler gap. Systems that \emph{intend} to fire at the
+tool-call boundary cannot do so if the host runtime's plugin hook is silently
+broken. On OpenClaw — a widely adopted, rapidly growing open-source agent
+runtime with active weekly releases — two upstream bugs (issues \#5513 and
+\#5943) prevent \texttt{before\_tool\_call} from firing at all. Issue \#5513: the typed-hook
+runner snapshots the plugin registry at construction time, so hooks registered
+during the plugin-load phase are invisible to the runner. Issue \#5943:
+\texttt{before\_tool\_call} is defined and documented as available since
+v2026.3.28 but is never invoked in \texttt{executeToolCalls()}. Until both are
+fixed, no security plugin on OpenClaw — including Kavach — can be a real
+guardrail. We contribute fixes for both as the first item of our engineering
+workstream (PR-1).
+
+\paragraph{Contributions.} This paper makes four contributions, the first
+three forming a coherent systems-and-measurement story and the fourth a
+focused empirical study.
+
+\textbf{First, a measurement (\S\ref{sec:hookgap}).} We show that OpenClaw's
+gateway execution path exposes no working pre-execution plugin hook --- two
+upstream defects (issues \#5513 and \#5943) prevent \texttt{before\_tool\_call}
+from firing --- so \emph{no} security plugin can intercept there until they are
+fixed. We characterize where interception is achievable (the embedded runner),
+contribute the upstream fixes (PR-1), and argue the pre-execution hook should
+be a mandatory runtime primitive for agent platforms.
+
+\textbf{Second, a deployment with taxonomy-grounded detection
+(\S\ref{sec:architecture}, \S\ref{sec:eval}).} We present a
+parliament-of-ministers architecture: four specialized ministers --- EXECUTOR
+(code execution; MITRE ATT\&CK T1059, OWASP Agentic A09), VAULT (credential
+theft; T1552, T1539, A02/A06), CHANNEL (exfiltration; T1567, MITRE ATLAS
+AML.T0086, A04), and NAVIGATOR (trajectory drift; T1083, A01) --- each query a
+disjoint ChromaDB collection of attack-pattern descriptions embedded with BGE
+\cite{xiao2024bge}, fused with BM25 via reciprocal-rank fusion. A deterministic
+speaker combines verdicts asymmetrically (any minister BLOCK suffices). Every
+verdict is grounded in a structured provenance chain --- matched pattern
+$\rightarrow$ technique ID $\rightarrow$ tactic $\rightarrow$ kill-chain stage,
+referencing MITRE ATLAS and ATT\&CK --- and that chain is folded into a
+SHA-256 hash-chained ledger, making not only the verdict but its taxonomic
+\emph{grounding} tamper-evident. We deploy on production hardware and report a
+representation-mismatch finding: a corpus authored in tool-call syntax yields
+high false-positive rates on natural-language attacks, which hybrid retrieval
+substantially recovers.
+
+\textbf{Third, the aggregation frontier (\S\ref{sec:frontier}).} We show that
+score-based vote aggregation, including a Bayesian variant, is brittle to an
+adaptive attacker who corrupts individual ministers, whereas a pure-veto
+aggregator is robust but sacrifices benign utility. We measure the
+false-positive/robustness frontier on real minister-vote dumps and propose a
+tuned hybrid (Bayesian decision path with a veto floor).
+
+\textbf{Fourth, contamination-controlled evaluation (\S\ref{sec:eval}).} The
+attack-pattern corpus was authored from MITRE ATT\&CK technique IDs and OWASP
+Agentic 2026 categories under a documented eight-rule blind-writing protocol
+that prohibited reference to any specific CVE or benchmark case. InjecAgent
+\cite{zhan2024injecagent} was run cold; false-positive rate on fifty benign
+sessions was measured \emph{before} attack recall and treated as a ${<}5\%$
+gate; cost (latency, embeddings per decision) is reported jointly with
+detection, following Kapoor et al.~\cite{kapoor2024aiagents}.
+
+\paragraph{Positioning relative to concurrent work.}
+Concurrent with this work, Microsoft announced MXC (Microsoft Execution
+Containers, Build 2026), an OS-level policy sandbox for OpenClaw agents,
+alongside ClawGuard \cite{clawguard2026}, a deterministic rule-based tool-call
+interceptor achieving 0\% attack success rate on AgentDojo under explicit
+rules. Kavach is complementary to both. MXC reduces blast radius but cannot
+reason about intent: an agent authorized to read credential files and make
+HTTP calls can be semantically manipulated into exfiltrating those credentials
+via indirect injection while remaining within its MXC policy. ClawGuard's 0\%
+AgentDojo result is measured against that benchmark's already-low attack-success
+baseline (0.6--3.1\% on the suites we run), and its automatic rule-derivation
+component is described as unevaluated future work, so the result reflects
+hand-authored rules rather than a generalizing detector. ClawGuard's authors
+acknowledge this gap, noting that content-misleading attacks are difficult to
+intercept without system-level semantic monitoring \cite{clawguard2026}; a
+semantic attack-pattern corpus that requires no per-deployment rule authoring is
+precisely the generalization gap Kavach's design addresses. Kavach occupies
+precisely this semantic layer.
+Three papers published in early 2026 require explicit positioning. DeepContext
+\cite{albrethsen2026deepcontext} proposes an intent-distance oracle over turn
+embeddings (F1 0.84, sub-20 ms), conceptually adjacent to Kavach's COMPASS
+oracle; our differentiation is that COMPASS compares agent actions against a
+fixed declared intent rather than tracking evolving user-turn sequences, and
+feeds a four-minister parliament. PSG-Agent \cite{psgagent2026} introduces a
+four-component guardrail (Plan Monitor, Tool Firewall, Response Guard, Memory
+Guardian) similar in structure to Kavach's ministers; our differentiation is
+that PSG-Agent is personalized and collapses oracle and detector roles, while
+Kavach separates them and applies asymmetric combination. OpenClaw PRISM
+\cite{prism2026} applies defense-in-depth to the same OpenClaw runtime as Kavach;
+our differentiation is that Kavach uses a semantic attack-pattern corpus and
+contributes the upstream hook fixes that make pre-execution interception possible
+on OpenClaw at all.
+
+\paragraph{Scope and non-claims.}
+We do not claim Kavach prevents every class of agent-side attack. The corpus is
+curated; novel techniques not yet in published taxonomies will not appear in it.
+Single-vector cosine similarity has known limits relative to sequence-aware
+detection \cite{advani2026trajectoryguard}; this is a stated future-work
+direction. The four ministers' detection-failure modes may be statistically
+correlated; measuring this is a stated future-work item. We do not propose
+Kavach as a replacement for existing prompt-time or output-time guardrails; we
+argue (\S\ref{sec:related}) that they enforce at different boundaries
+along the temporal axis and a comprehensive deployment runs both.
+
+\paragraph{Reproducibility.}
+The corpus (401 attack-pattern descriptions + 100 COMPASS calibration pairs),
+the parliament service, the OpenClaw plugin and upstream PR-1, the benchmark
+harness, and the calibration protocol are all open-source and shipped with the
+paper. The reproducibility checklist in our supplementary material specifies the
+exact validation sequence — including the benign FPR gate (Step 5) that must
+pass before the InjecAgent run is meaningful — that produced the numbers
+reported in \S\ref{sec:eval}.
+% paper/section_2_background.tex
+% Full draft — was a stub. Now complete with current literature grounding.
+
+\section{Background}
+\label{sec:background}
+
+\subsection{The agent infrastructure attack surface}
+
+Modern LLM agents are composite systems: a language model provides the
+reasoning surface, while the harness provides tool dispatch, context management,
+multi-turn state, and persistence. In production agent deployments the harness
+now accounts for the overwhelming majority of source lines, with the model
+contributing only a small fraction. This structural inversion has a direct
+security consequence: the harness, not the model, is the dominant attack
+surface.
+
+Agent harnesses expose several classes of latent vulnerabilities.
+\emph{Configuration-as-code} attacks exploit declarative configuration that
+the harness loads and executes without sanitization (CVE-2026-21852 on Claude
+Code's \texttt{.claude/settings.json}; CVE-2026-21858 on n8n automation
+workflows). \emph{Serialization-injection} attacks exploit the harness's
+serialization/deserialization of tool responses and agent state, enabling
+arbitrary class instantiation in trusted namespaces (CVE-2025-68664 on
+LangChain Core, CVSS 9.3). \emph{Hook-bypass} attacks exploit incorrectly
+wired security hook points in the agent runtime — as with OpenClaw issues
+\#5513 and \#5943, where \texttt{before\_tool\_call} is documented as available
+but never invoked. \emph{CSRF and session} attacks exploit the harness's web
+surface (CVE-2025-34291 on LangFlow, actively exploited in the wild as of
+January 2026 per CrowdSec~\cite{crowdsec2026langflow}).
+
+These vulnerability classes correspond directly to Kavach's minister structure.
+EXECUTOR detects code-execution-class attacks (CVE-2025-59536, CVE-2025-34291,
+CVE-2025-68664). VAULT detects credential-theft-class attacks (CVE-2026-21852,
+CVE-2025-68664). CHANNEL detects exfiltration-class attacks (CVE-2026-21852
+via URL redirection, CVE-2026-21858). NAVIGATOR detects trajectory-manipulation
+attacks that span multiple tool calls. Section~\ref{sec:architecture} gives the
+MITRE ATT\&CK and OWASP Agentic 2026 taxonomic grounding for each minister.
+
+\subsection{Existing guardrails and their enforcement points}
+
+The guardrail literature can be organized along two axes: (1) \emph{where} in
+the agent lifecycle the guardrail enforces, and (2) \emph{what mechanism}
+it uses to detect violations.
+
+\paragraph{Input-time guardrails} operate on the user's message before the
+agent processes it. PromptGuard 2 \cite{saxe2025llamafirewall} (DeBERTa fine-tune,
+19.3 ms on A100, 97.5\% recall at 1\% FPR on English jailbreaks) and Azure Prompt
+Shields (Microsoft) are canonical examples. These guardrails cannot detect attacks
+that arrive via tool outputs, which are the dominant attack vector in
+prompt-injection benchmarks \cite{zhan2024injecagent}.
+
+\paragraph{Plan-time / chain-of-thought guardrails} operate on the agent's
+reasoning trace before it commits to an action. AlignmentCheck \cite{saxe2025llamafirewall}
+uses Llama 4 Maverick or Llama 3.3 70B to audit the chain-of-thought, reducing
+AgentDojo ASR from 0.18 to 0.0289 (an 84\% reduction) standalone. DRIFT \cite{drift2026}
+chains a Secure Planner, Dynamic Validator, and Injection Isolator across the
+plan representation. These guardrails are powerful but expensive (full LLM
+inference) and cannot inspect the \emph{resolved arguments} of a tool call,
+only their declarative intent.
+
+\paragraph{Tool-call-time guardrails} operate at the tool-call boundary. This is
+Kavach's enforcement point. LlamaFirewall's CodeShield
+\cite{saxe2025llamafirewall} applies Semgrep static analysis to code-returning
+tool outputs, achieving 96\% precision and 79\% recall on CyberSecEval3 — but
+only for code generation, not for general tool calls. ShieldAgent
+\cite{chen2025shieldagent} retrieves probabilistic rule circuits for each action
+trajectory. Task Shield \cite{jia2025taskshield} evaluates whether each
+instruction advances the user's task. None of these systems uses a curated
+semantic corpus of attack-pattern descriptions at the tool-call level.
+
+\paragraph{Information-flow guardrails} tag data with provenance and capability
+labels, then enforce policies statically. CaMeL \cite{debenedetti2025camel}
+(dual-LLM, custom interpreter, 77\% task completion with provable security on
+AgentDojo), FIDES \cite{costa2025fides} (multi-agent IFC with confidentiality and
+integrity labels), and RTBAS \cite{zhong2025rtbas} (attention-based saliency
+screener that prevents 100\% of policy-violating attacks with under 2\% utility
+loss on AgentDojo) belong to this family. Their strength is provability; their limitation is that they cannot
+detect attacks whose data provenance is correctly labeled but whose argument
+content is semantically malicious.
+
+\paragraph{Output-time guardrails} operate after the tool has executed, on the
+agent's reply. NeMo Guardrails (NVIDIA), Conseca \cite{tsai2025conseca}, and
+the post-hoc monitor that Kavach replaces belong here. These are useful for
+forensics and audit but cannot prevent tool execution.
+
+\paragraph{Drift-detection guardrails} measure whether the agent's trajectory
+diverges from the user's stated intent across turns. TaskTracker
+\cite{abdelnabi2024tasktracker} uses activation deltas in white-box models.
+DeepContext \cite{albrethsen2026deepcontext} uses a turn-level RNN (F1 0.84,
+sub-20 ms). Trajectory Guard \cite{advani2026trajectoryguard} uses a Siamese
+Recurrent Autoencoder (AAAI 2026). Kavach's COMPASS oracle belongs to this
+family at the session level: a single cosine comparison between the seeded
+user intent and each proposed agent action.
+
+Across these categories, the tool-call boundary is the only enforcement point at
+which the \emph{resolved runtime arguments} of an action are available for
+inspection before that action executes. Input-time and plan-time guards see only
+declared intent --- the user message or the agent's reasoning trace --- not the
+concrete arguments the call will run with; output-time guards observe the action
+only after it has executed, too late to prevent it; and information-flow guards
+enforce data provenance rather than the semantics of the argument content. This
+is Kavach's enforcement point, and it is structurally unreachable by guards in
+the other categories: they fire at boundaries where the resolved-argument view
+does not yet, or no longer, exists.
+
+Table~\ref{tab:guardrail-comparison} places Kavach in context on five axes:
+enforcement boundary, mechanism, corpus extensibility, verdict combination, and
+reported AgentDojo / InjecAgent performance. This table is filled in
+\S\ref{sec:eval} once benchmark numbers are available.
+
+\subsection{Benchmarks and evaluation methodology}
+
+The three most widely used agent-security benchmarks are:
+
+\textbf{InjecAgent} \cite{zhan2024injecagent} — 1,054 prompt-injection test
+cases from UIUC (2024), structured as 62 distinct attacker tools $\times$ 17
+benign user tasks (split into data-harm and data-stealing settings). Each case
+provides a benign user instruction, a tool the agent
+would invoke, a malicious payload in the tool's output, and the expected attacker
+action. The standard reported metric is Attack Success Rate (ASR) at the harness
+level. Kavach runs InjecAgent cold (\S\ref{sec:eval}).
+
+\textbf{AgentDojo} \cite{debenedetti2024agentdojo} — 97 user tasks and 629
+security test cases across four environments: workspace, Slack, banking, and
+travel. The standard metrics are ASR (lower is better) and utility score (higher
+is better for benign tasks). We run AgentDojo cold on the Slack suite (20 user
+tasks $\times$ 5 injection tasks, the ``important instructions'' attack); results
+are reported in \S\ref{sec:frontier}.
+
+A methodological note: running InjecAgent before measuring benign false-positive
+rate produces precision numbers that conflate detector quality with detector
+aggressiveness. Our evaluation protocol (\S\ref{sec:eval}) gates on FPR ${<}5\%$
+on hand-curated benign sessions before running any attack benchmark, following
+the discipline recommended by Kapoor et al.~\cite{kapoor2024aiagents}.
+
+\subsection{The OWASP and MITRE taxonomic grounding}
+
+The two most widely cited threat taxonomies for AI agents as of 2026 are:
+
+\textbf{MITRE ATT\&CK for Enterprise} — the standard technique taxonomy, now
+extended to AI systems via MITRE ATLAS. Kavach's ministers draw patterns from
+T1059 (Command and Scripting Interpreter), T1546 (Event Triggered Execution),
+T1552 (Unsecured Credentials), T1539 (Steal Web Session Cookie), T1041
+(Exfiltration Over C2 Channel), T1567 (Exfiltration Over Web Service), T1083
+(File and Directory Discovery), and others. ShieldNet \cite{shieldnet2026}
+independently derives 25+ attack types from MITRE ATT\&CK for their MCP
+supply-chain benchmark.
+
+\textbf{OWASP Agentic Top 10 2026} — released December 2025 and peer-reviewed by
+over 100 practitioners. Ten categories: ASI01 Agent Goal Hijack, ASI02
+Excessive Agency, ASI03 Unsafe Memory Retrieval, ASI04 Tool Misuse, ASI05
+Agent Orchestration Manipulation, ASI06 Memory Poisoning, ASI07 Identity
+Spoofing, ASI08 Cascading Failures, ASI09 Supply Chain Compromise, ASI10
+Unsafe Code Execution. Kavach's minister mapping:
+EXECUTOR $\leftrightarrow$ ASI10, ASI09;
+VAULT $\leftrightarrow$ ASI02, ASI06, ASI07;
+CHANNEL $\leftrightarrow$ ASI04, ASI08;
+NAVIGATOR $\leftrightarrow$ ASI01, ASI05.
+
+Using both taxonomies as the authoring source for the attack-pattern corpus (§3.2)
+ensures that the corpus is grounded in the published threat model of the field
+rather than in the specific attacks the team happened to have seen.
+% paper/section_3_design.tex
+% ─────────────────────────────────────────────────────────────────────────────
+% Section 3: Kavach Architecture
+% Slot into skeleton.tex where \section{Kavach Architecture} appears.
+% Numbers marked [TBD] are filled in from benchmark workstream D output.
+% ─────────────────────────────────────────────────────────────────────────────
+
+\section{Kavach Architecture}
+\label{sec:design}
+\label{sec:architecture}
+
+\subsection{Overview}
+
+Kavach is a runtime guardrail that interposes between an LLM agent orchestrator
+and its tool-execution layer. Every tool call proposed by the agent is
+intercepted, evaluated by a Parliament of domain-bound Ministers, and sentenced
+by a deterministic Speaker before any side-effecting action is permitted to
+execute. The end-to-end request path is: user intent is seeded; each proposed
+tool call is embedded once; COMPASS scores intent drift; the semantic router
+activates the relevant ministers, which retrieve against their corpora in
+parallel; and the Speaker aggregates their verdicts under the trajectory
+ceiling before returning BLOCK / ESCALATE / ALLOW.
+
+The system exposes a single HTTP endpoint \texttt{POST /hook/parliament}
+that the OpenClaw plugin (\S\ref{sec:plugin}) calls synchronously in the
+\texttt{pre\_tool\_call} hook. The endpoint returns a JSON verdict
+\texttt{\{decision, confidence, ministers\_fired, compass\_score,
+drift\_delta\}} within the configured latency budget.
+
+\subsection{Core Components}
+
+\paragraph{Ledger.}
+An append-only SQLite journal (\texttt{kavach\_parliament.db}) records every
+evaluation request and its verdict. Each row captures:
+\texttt{session\_id}, \texttt{turn}, \texttt{tool\_name}, \texttt{action\_embedding}
+(768-d float blob), \texttt{verdict}, and \texttt{timestamp\_utc}.
+The Ledger is the single source of truth for session state; no in-memory
+session object exists, making the server horizontally stateless between
+requests. Session risk score is recomputed from the Ledger at each call via
+a lightweight SQL aggregate, adding $<$2\,ms overhead.
+
+\paragraph{Semantic Router.}
+On each evaluation request the proposed action text is embedded with
+\texttt{BAAI/bge-base-en-v1.5} (768-d, cosine similarity). The resulting
+vector is compared against five pre-computed domain centroids stored in
+\texttt{kavach\_router\_config.json}. Ministers whose centroid cosine similarity
+exceeds $\theta_{\text{route}} = 0.40$ are activated; COMPASS always runs
+regardless of routing similarity.
+
+The router replaces the stage-bound dispatcher used in early prototypes
+(OpenClaw stages Init$\to$Input$\to$Inference$\to$Decision$\to$Execution).
+Ministers are \emph{domain-bound}, not stage-bound: EXECUTOR fires on any
+action resembling code execution regardless of which pipeline stage proposed it.
+This is the key architectural departure from OpenClaw's native trust model
+and from contemporaneous work such as NemoClaw~\cite{nvidia2025nemoclaw}, which
+enforces a single boundary at the pipeline entry point.
+
+\paragraph{Ministers.}
+Each activated Minister performs a semantic scan: the action embedding is
+compared via cosine distance against every pattern in the Minister's
+ChromaDB collection. A hit is declared when
+$\cos(\mathbf{a}, \mathbf{p}) \geq \theta_{\min}$ where
+$\theta_{\min} = 0.45$ (Config\,B; see \S\ref{sec:eval}).
+Each corpus pattern carries L1/L2/L3 descriptors (intent $\to$ mechanism
+$\to$ surface) that are propagated into the verdict log for provenance
+(described in \S\ref{sec:provenance}).
+
+The four domain-bound Ministers and their attack-surface coverage:
+
+\begin{itemize}
+  \item \textbf{EXECUTOR} — code execution, process injection, persistence
+        mechanisms, container escape (100 patterns; MITRE ATT\&CK T1059,
+        T1055, T1053, T1611 and sub-techniques).
+  \item \textbf{VAULT} — credential access, secret file reads, metadata service
+        queries, platform keychain enumeration (100 patterns; T1552, T1528,
+        T1555 and sub-techniques).
+  \item \textbf{CHANNEL} — data exfiltration via any outbound channel: HTTP/S,
+        DNS, SMTP, cloud storage, git push, covert channels (100 patterns;
+        T1048, T1567, T1102 and sub-techniques).
+  \item \textbf{NAVIGATOR} — session trajectory anomalies: post-task
+        persistence, scope widening, recon sequences, anti-forensic actions
+        (100 patterns; OWASP Agentic Top 10 2026 A01, T1083, T1082, T1070).
+\end{itemize}
+
+\paragraph{COMPASS.}
+The Calibrated Oracle for Mission-Pattern Alignment and Session Semantics
+evaluates \emph{intent alignment} rather than attack-pattern similarity. It
+maintains a \emph{session centroid} — an exponential moving average of action
+embeddings weighted by turn recency — and measures cosine drift between the
+centroid and the seeded user-intent vector (extracted from the first
+non-system turn of the session).
+
+\begin{equation}
+  \delta_{\text{drift}}(t) =
+    1 - \cos\!\left(\bar{\mathbf{c}}_t,\, \mathbf{u}\right)
+  \label{eq:drift}
+\end{equation}
+
+where $\bar{\mathbf{c}}_t$ is the turn-$t$ session centroid and $\mathbf{u}$ is
+the user-intent embedding. When $\delta_{\text{drift}} > \theta_{\text{drift}}$
+the call is escalated regardless of individual minister verdicts.
+
+The COMPASS calibration set (\texttt{kavach\_corpus\_v1.json}, key
+\texttt{COMPASS}) contains 100 labelled pairs — 50 \textsc{aligned} and 50
+\textsc{hijacked} — covering 25 distinct user-intent scenarios each paired with
+both a legitimate and an attack-injected proposed action. Youden's $J$
+statistic is used to select $\theta_{\text{drift}}$ via
+\texttt{compass\_calibrator.py}.
+
+\paragraph{Speaker.}
+The Speaker is a deterministic finite function — no learned parameters — that
+maps the set of Minister verdicts and COMPASS output to a single sentence:
+
+\begin{equation}
+V = \text{Speaker}(\{v_m\}_{m \in M_{\text{active}}},\, \delta_{\text{drift}},\, r_{\text{session}})
+\end{equation}
+
+The decision table (applied in priority order):
+\begin{enumerate}
+  \item Session risk $r_{\text{session}} \geq r_{\text{max}}$ $\Rightarrow$
+        \textsc{Block} (session-level trajectory ceiling; fires independently
+        of any single Minister's verdict --- this is what makes Kavach a
+        session monitor rather than a per-call guard).
+  \item Any Minister returns \textsc{Block} $\Rightarrow$ \textsc{Block}.
+  \item $\delta_{\text{drift}} > \theta_{\text{drift}}$ $\Rightarrow$ \textsc{Escalate}.
+  \item Any Minister returns \textsc{Grey} (\textsc{Escalate}) $\Rightarrow$ \textsc{Escalate}.
+  \item All Ministers return \textsc{Allow} $\Rightarrow$ \textsc{Allow}.
+\end{enumerate}
+The aggregation is a pure veto: a single \textsc{Block} suffices, with no
+confidence-weighted averaging. \S\ref{sec:frontier} studies this choice
+empirically against Bayesian and hybrid alternatives under adaptive attack.
+
+\paragraph{Bayesian alternative: priors are estimated, not fixed.}
+The Bayesian aggregator we compare against in \S\ref{sec:frontier} does not use
+hardcoded conditional probabilities. Its prior and per-Minister reliabilities are
+maintained as Beta--Bernoulli posteriors over ground-truth-labelled outcomes.
+The block prior is the shrinkage estimate
+\begin{equation}
+\hat{\pi}_{\text{block}} = \alpha\,\frac{b}{N} + (1-\alpha)\,\pi_0,
+\qquad \alpha = \min\!\left(\tfrac{N}{100},\,1\right),
+\end{equation}
+where $b$ is the number of \textsc{Block} ground-truth labels among $N$ labelled
+ledger entries and $\pi_0$ a weak default. Each Minister's reliability
+$r_{m,v}$ for vote type $v$ is the running posterior mean of a
+Beta$(\cdot)$ updated as
+\begin{equation}
+r_{m,v} \leftarrow \frac{r_{m,v}\,n_{m,v} + \mathbb{1}[\text{vote correct}]}{n_{m,v}+1},
+\qquad n_{m,v} \leftarrow n_{m,v}+1 .
+\end{equation}
+Crucially, these updates are applied \emph{offline} against verified ground
+truth and never at inference time. This is a deliberate security decision:
+allowing the runtime to fabricate its own ``ground truth'' from underdetermined
+self-decisions would create a feedback channel an adversary could poison to
+drift the priors. The deployed Speaker is the deterministic veto above; the
+Bayesian path is an analyzed alternative, not the enforcement path.
+
+\subsection{Taxonomy-grounded provenance}
+\label{sec:provenance}
+Every verdict carries a provenance chain that grounds it in a structured
+cyber-taxonomy: the matched corpus pattern resolves to a technique identifier
+(MITRE ATLAS for AI/agent-native techniques, e.g.\ AML.T0051 indirect prompt
+injection and AML.T0086 exfiltration via agent tool invocation; MITRE ATT\&CK
+for host-level techniques), which maps to a tactic and an ordered kill-chain
+stage. Resolution is corpus-tagged where a pattern declares its source
+technique, with a per-minister default as a fallback so the chain is always
+populated; the chain records which basis was used, so the audit trail is
+explicit about precision. The provenance record is serialized into the
+SHA-256 hash-chained Ledger as a hashed field. Consequently, editing the
+\emph{grounding} of a historical decision --- for instance, relabeling a
+credential-access block as a benign read to mislead an auditor --- breaks the
+hash chain at that entry, detected by \texttt{/ledger/verify}. Prior runtime
+monitors provide either explainability or tamper-evident logging but not a
+taxonomy-grounded chain whose integrity is cryptographically verifiable; the
+ordered stage axis additionally provides the substrate for stage-aware
+trajectory reasoning, which we leave to future work.
+
+\subsection{OpenClaw Plugin}
+\label{sec:plugin}
+
+The Kavach plugin (\texttt{openclaw-plugin-kavach.ts}) implements the
+OpenClaw plugin interface:
+
+\begin{itemize}
+  \item \textbf{\texttt{pre\_tool\_call}}: synchronously calls
+        \texttt{/hook/parliament} before the agent executes a tool.
+        On \textsc{Block} or \textsc{Escalate}, the plugin throws
+        \texttt{KavachBlockError} or \texttt{KavachEscalateError}, preventing
+        tool execution.
+  \item \textbf{\texttt{on\_tool\_error}}: increments the circuit-breaker
+        failure counter. After \texttt{kavachCircuitBreakerThreshold}
+        consecutive Kavach server errors the plugin enters \emph{open-circuit}
+        mode: all tool calls are blocked and an operator alert is raised.
+\end{itemize}
+
+The plugin is configured via \texttt{openclaw.plugin.json} with
+\texttt{parliamentUrl} (default: \texttt{http://127.0.0.1:8088}) and
+\texttt{SESSION\_ID} in the OpenClaw runtime environment.
+
+We emphasize that Kavach itself is \emph{not} an OpenClaw component: all
+detection logic --- embedding, the four Ministers, the Speaker, and the Ledger
+--- lives in \texttt{parliament/server.py}, a standalone ASGI (FastAPI) service
+exposing HTTP endpoints. The OpenClaw plugin is a $\sim$150-line adapter that
+renders a tool call to text and \texttt{POST}s it; any agent framework that can
+issue an HTTP request at a pre-execution hook integrates against the same
+service without modification. The framework binding is an adapter, not a
+dependency.
+
+\subsection{Design Decisions and Trade-offs}
+
+\paragraph{Ministers are domain-bound, not stage-bound.}
+OpenClaw's five-stage pipeline (Init$\to$Execution) provides natural hooks but
+creates stage-specific blind spots: an attack that appears in the Inference
+stage looks different from the same attack in the Decision stage, requiring
+per-stage classifiers. By binding Ministers to attack \emph{domains} we achieve
+consistent coverage across all stages with a single collection per domain.
+
+\paragraph{Append-only Ledger, no session objects.}
+Storing session state in an append-only log rather than an in-memory object
+prevents an attacker from clearing session state via a crafted tool call.
+The immutability guarantee is enforced at the database level
+(\texttt{kavach\_parliament.db} opened read-write only by the server; no
+\texttt{DELETE} or \texttt{UPDATE} statements are issued).
+
+\paragraph{Synchronous evaluation on the hot path.}
+Kavach evaluates in the \texttt{pre\_tool\_call} hook synchronously.
+Asynchronous evaluation would reduce latency but allow a race between the
+verdict and execution; we accept the latency cost to maintain the security
+guarantee that \emph{no tool executes before a verdict is issued}.
+% paper/section_4_deployment.tex
+% Deployment & Detection. Prose is submission-ready; \TBD marks numbers
+% pending the Dell benchmark runs (InjecAgent re-run, benign gate, native).
+
+\section{Deployment and Detection}
+\label{sec:eval}
+
+\subsection{The gateway hook gap}
+\label{sec:hookgap}
+Our first finding is a property of the host runtime, not of Kavach. OpenClaw
+exposes two execution paths: an \emph{embedded} runner used when the agent is
+driven programmatically, and a \emph{gateway} path used by the interactive
+terminal and the hosted gateway. A pre-execution security plugin must run at
+the \texttt{before\_tool\_call} boundary --- after arguments are resolved, before
+the tool executes. We find that on the gateway path this boundary is not
+reachable by any plugin: issue \#5513 causes the typed-hook runner to snapshot
+the plugin registry at construction, hiding hooks registered during plugin
+load, and issue \#5943 means \texttt{before\_tool\_call}, although documented as
+available since v2026.3.28, is never invoked in \texttt{executeToolCalls()} on
+that path. We confirm the gap with a sentinel-file probe: a tool call that
+writes a marker executes with no plugin interception on the gateway path, while
+the same call is intercepted in embedded mode. We contribute upstream fixes for
+both defects (PR-1) and evaluate Kavach in embedded mode. The general lesson is
+that a working pre-execution hook is a precondition for \emph{any} runtime
+guardrail, and agent platforms should treat it as a first-class, tested primitive
+rather than optional plugin surface.
+
+\subsection{Live interception}
+\label{sec:live}
+We deploy on a Dell Precision~3660 (NVIDIA RTX~4090), with Gemma\,4~26B served
+via Ollama as the agent backbone and \texttt{BAAI/bge-base-en-v1.5} (768-d) as
+the embedding model, resident on the GPU. A staged attack that induces the agent
+to read a credential file and transmit its contents is intercepted before
+execution: the deciding minister returns \textsc{Block}, the call is denied, and
+a provenance-grounded record (technique $\rightarrow$ tactic $\rightarrow$ stage)
+is committed to the hash-chained Ledger. End-to-end interception latency for the
+blocking decision is approximately 78\,ms. The plugin fails closed on the
+tool-call path: a verdict that does not return within the timeout denies the
+call (\texttt{toolCallFailMode = deny}).
+
+\subsection{Representation mismatch: an instructive negative result}
+\label{sec:repmismatch}
+Our corpus is authored in the register of MITRE technique descriptions and
+tool-call syntax. On InjecAgent \cite{zhan2024injecagent}, whose attacks are
+expressed as fluent natural-language instructions, this configuration yields a
+23.5\% hard-block false-positive rate on the data-harm setting (0.0\% on
+data-stealing) on benign actions evaluated per distinct case --- higher than the
+corpus's tool-call register would suggest, and concentrated almost entirely in
+one setting. We attribute this elevated false-positive rate to a
+\emph{representation mismatch}: the corpus is embedded in tool-call/technique
+register while InjecAgent's benign actions are phrased as natural language, so
+benign natural-language actions land near attack patterns in embedding space
+despite sharing no malicious intent. This is an attribution grounded in how the
+corpus was authored rather than a measured cross-register comparison: a
+controlled evaluation on benign traffic expressed in the corpus's own tool-call
+register would be expected to show a markedly lower false-positive rate, and we
+identify that native-register measurement as a direct test of this hypothesis,
+left to future work. We report the mismatch because it is the kind of deployment
+lesson a purely benchmark-simulated evaluation would hide.
+
+\subsection{Hybrid retrieval recovers recall at a controlled false-positive rate}
+\label{sec:hybridresults}
+The fix follows from the diagnosis. Under dense-only retrieval the lexical
+channel is absent and benign and attack actions are separated only by embedding
+proximity; adding the lexical channel both sharpens recall on attacks that share
+distinctive tokens with the corpus and discounts benign actions that are merely
+semantically near an attack pattern. We add BM25 over the same corpus, fused with
+dense retrieval by reciprocal-rank fusion for candidate selection, with the final
+confidence computed as the dense cosine similarity scaled by a lexical gate (a
+benign action that is semantically near an attack pattern but shares none of its
+distinctive tokens is discounted). With this hybrid configuration, on InjecAgent
+Kavach holds strict (hard-\textsc{Block}) recall at 0.633 (data-harm) / 0.438
+(data-stealing) and loose (block-or-escalate) recall at 0.90 / 0.875. The
+residual false-positive rate (23.5\% hard-block on data-harm, 0.0\% on
+data-stealing) is a corpus-quality property addressed separately --- a small
+number of over-broad CHANNEL patterns account for it (\S\ref{sec:limitations})
+--- rather than a property of the retrieval fusion, which recovers recall. The
+gate floor is a single tunable parameter; Table~\TBD{} reports the recall/FPR
+trade-off across its range.
+
+\subsection{Detection results and cost}
+\label{sec:results}
+Table~\TBD{} reports InjecAgent strict and loose recall and false-positive rate
+under per-minister thresholds with hybrid retrieval. Per-minister detection
+rates are
+uneven, and hard-block detection is carried by EXECUTOR and NAVIGATOR; VAULT and
+CHANNEL act as escalators on this benchmark (VAULT's per-minister threshold sits
+above its observed attack-confidence ceiling, so it contributes escalations
+rather than hard blocks --- see \S\ref{sec:limitations}).
+\S\ref{sec:frontier} reports the minister ablation that motivates the four-way
+split. On cost, the embed-once optimization reduces embedding calls per decision
+from up to nine to one, and measured latency is 78\,ms p50 / 83\,ms p95 ---
+an order of magnitude below lifecycle-instrumenting scanners
+(PRISM~\cite{prism2026} $\approx$15.8\,s p95; AgentArmor~\cite{agentarmor2026}
+$\approx$20.9\,s). We report cost jointly with detection rather than in
+isolation (Table~\ref{tab:cost}). All headline detection numbers are cold
+transfer from third-party benchmarks (InjecAgent~\cite{zhan2024injecagent},
+AgentDojo~\cite{debenedetti2024agentdojo}) whose attacks the corpus was not
+authored against; the synthetic generator (\texttt{make\_synthetic.py}) is used
+\emph{only} to validate that the \S\ref{sec:frontier} estimator recovers a
+known injected error-correlation $\rho$, and never as an evaluation of the
+detector against its own payloads.
+
+\paragraph{Semantic triage, not a regex fast path.}
+Cost is controlled by a two-stage semantic pipeline rather than a syntactic
+pre-filter. A single query embedding is computed once per action (the embed-once
+optimization above) and reused by a lightweight router that gates which
+Ministers fire: a Minister is activated only when the action's cosine similarity
+to that Minister's domain descriptors exceeds $\theta_{\text{route}}$ (0.40),
+so a typical action runs one or two Ministers rather than all four. This router
+is Kavach's triage layer. We deliberately do \emph{not} add a zero-LLM
+regex/AST fast path: the central finding of \S\ref{sec:repmismatch} is that
+attacks expressed in natural-language register evade tool-call/technique-syntax
+matching, so a syntactic pre-filter would reintroduce exactly the representation
+mismatch the semantic corpus exists to close, and would silently pass the
+fluent-language attacks Kavach is designed to catch. A complementary
+optimization that is \emph{safe} because it never suppresses a detection is a
+deterministic allowlist for provably benign calls (e.g.\ workspace-scoped
+read-only operations) evaluated before embedding; we leave this latency
+refinement to future work.
+
+Finally, \texttt{/ledger/verify} re-walks the hash chain and detects
+any post-hoc edit to a recorded decision or its provenance, which we demonstrate
+on a tampered ledger in the appendix.
+
+\subsection{Cross-model generalization}
+\label{sec:crossmodel}
+The headline numbers above are measured on the primary configuration
+(Dell~Precision~3660, RTX~4090, Gemma\,4~26B). To test whether parliament
+decisions are driven by the shared semantic corpus rather than by a particular
+agent backbone, we replicate the InjecAgent detection run on a secondary,
+CPU-only configuration (Intel~i5, 16\,GB~RAM) with \texttt{qwen2.5:3b} as the
+agent backbone, holding the embedding model and corpus identical. On this
+secondary configuration the parliament catches \(26/30\) attack actions at the
+block-or-escalate level (loose recall \(0.87\)) with zero request errors, and on
+a separate benign gate of \(17\) natural-language user instructions it
+hard-blocks \emph{none} (block-only FPR \(0.0\%\)); mean per-action latency is
+\(\approx\!2.6\)\,s, reflecting CPU-only embedding rather than the GPU-resident
+primary path. Strict (hard-\textsc{Block}) recall is markedly lower on the
+secondary configuration (\(0.13\)): under the laptop's freshly calibrated
+thresholds the operating point shifts toward \textsc{Escalate} on \emph{both}
+sides---attacks are flagged rather than hard-blocked (strict \(0.13\) vs.\ loose
+\(0.87\)), and \(4/17\) benign instructions escalate (block-or-escalate FPR
+\(23.5\%\)) while none are blocked. Cross-model agreement is therefore at the
+level of \emph{flagging} suspicious actions, not of the final block decision,
+and the hard-\textsc{Block} decisions that do fire remain high-precision (no
+benign hard-blocks observed). We read this as qualified support for backbone
+independence---the shared corpus, not the agent model, drives whether an action
+is flagged---while noting the small benign sample and that a threshold-matched
+comparison against the primary configuration remains \TBD. Table~\TBD{} reports
+the two configurations side by side; full secondary-run artifacts are in
+\texttt{benchmarks/results\_v2/laptop\_qwen25\_3b/}.
+% paper/section_5_frontier.tex
+% The Aggregation Frontier. Prose ready; \TBD marks numbers pending the
+% minister_runs.jsonl dump (adaptive_attack.py v3 --sweep-veto).
+
+\section{The Aggregation Frontier}
+\label{sec:frontier}
+The Speaker combines four minister verdicts into one decision. The deployed
+choice is a pure veto: any single \textsc{Block} blocks. This section asks
+whether that is the right choice, by measuring it against alternatives under an
+adaptive attacker. The question matters because the aggregator is the single
+point at which an attacker who has compromised the agent's reasoning can try to
+launder a malicious action past the monitor.
+
+\subsection{Adaptive attacker model}
+\label{sec:advmodel}
+We model an attacker who, per attack action, fully controls the output of the
+$K$ most-foolable ministers, forcing each to vote \textsc{Allow} at high
+confidence. A robust aggregator degrades gracefully as $K$ grows; a brittle one
+collapses at $K{=}1$. We measure attack-success rate as a function of $K$ and
+clean false-positive rate on benign sessions, evaluated by replaying recorded
+minister votes (no model re-execution) on real session dumps; corrupted votes
+are injected into the replay. This isolates the aggregator's contribution from
+the ministers' detection quality.
+
+\subsection{Veto, Bayesian, and a tuned hybrid}
+\label{sec:vetobayes}
+We compare three aggregators. The deployed \emph{pure veto} achieves the lowest
+attack-success rate at every $K$ --- corrupting ministers does not help an
+attacker unless \emph{all} blocking ministers are corrupted --- but its clean
+false-positive rate is the highest, because any one over-eager minister blocks a
+benign action (\TBD\% on the benign set). A \emph{Bayesian} aggregator that
+weights minister votes by learned reliability achieves a low clean
+false-positive rate (\TBD\%) but is brittle: at $K{=}\TBD$ corrupted ministers
+its attack-success rate rises to \TBD\%, because the posterior can be moved by a
+minority of confident \textsc{Allow} votes. The \emph{hybrid} we propose --- a
+Bayesian decision path with a hard veto floor at a swept confidence threshold
+--- passes the ${<}5\%$ false-positive gate (\TBD\%) while tracking the pure
+veto's robustness to within \TBD\ points at $K{=}\TBD$. Table~\TBD{} reports the
+full false-positive/robustness frontier as the veto-floor threshold is swept;
+the contribution is the characterization of this trade-off, not a claim that any
+single aggregator dominates.
+
+\inputtable{tables/tab_correlation}
+\inputtable{tables/tab_frontier}
+
+\subsection{Minister ablation}
+\label{sec:ablation}
+To justify the four-minister decomposition, we ablate ministers and the COMPASS
+and trajectory signals. Table~\TBD{} reports detection with one through four
+ministers, with and without COMPASS, and with and without the trajectory
+monitor. The decomposition is justified to the extent that removing a minister
+lowers recall on the technique classes it covers without a compensating
+false-positive reduction; we report where this holds and where a minister
+contributes little on the per-call benchmarks (and why its value appears instead
+in the staged, multi-step setting).
+
+\inputtable{tables/tab_ablation}% paper/related_work_table.tex
+% Insert at the start of §6 (Related Work) or at the end of §2 (Background).
+% Five axes: enforcement boundary, mechanism, corpus extensibility,
+%             verdict combination, benchmark numbers.
+%
+% [TBD] cells in the Kavach row are filled in when Workstream D completes.
+% The table uses booktabs for publication-quality formatting.
+
+\begin{table*}[t]
+\centering
+\caption{%
+  Comparison of agent guardrails on five axes. ``Boundary'' indicates where in
+  the agent lifecycle enforcement fires. ``Mechanism'' is the primary detection
+  approach. ``Ext.'' indicates whether the detection corpus / rule set is
+  extensible without retraining. ``Verdict'' indicates how multiple detection
+  signals are combined. AgentDojo ASR and InjecAgent Recall are the best
+  numbers reported by the respective papers; {\em n/r} = not reported;
+  {\em ext.} = experimental; $\dagger$ = estimated from paper description.
+  Lower ASR is better; higher Recall is better.
+}
+\label{tab:guardrail-comparison}
+\small
+\begin{tabular}{@{}lllllrr@{}}
+\toprule
+\textbf{System} & \textbf{Boundary} & \textbf{Mechanism} &
+\textbf{Ext.?} & \textbf{Verdict} &
+\textbf{AgentDojo} & \textbf{InjecAgent} \\
+& & & & & \textbf{ASR $\downarrow$} & \textbf{Recall $\uparrow$} \\
+\midrule
+
+% ─── Spatial / input-output rails ───────────────────────────────────────────
+PromptGuard 2 & input & DeBERTa classifier & no & threshold & 7.5\% & n/r \\
+AlignmentCheck & CoT & LLM judge & no & threshold & 2.89\% & n/r \\
+CodeShield & output & Semgrep+regex & yes (rules) & threshold & n/r & n/r \\
+LlamaFirewall (combined) & I/CoT/O & 3-layer spatial & partial & joint & 1.75\% & n/r \\
+\midrule
+
+% ─── Plan-time ───────────────────────────────────────────────────────────────
+AgentSpec & plan & rule DSL & yes & all-pass & >10\% blocked & n/r \\
+DRIFT & plan & rule+isolator & partial & sequential & n/r & n/r \\
+\midrule
+
+% ─── Tool-call-time ───────────────────────────────────────────────────────────
+Task Shield & tool-call & LLM alignment & no & threshold & 22\%$\dagger$ & n/r \\
+ShieldAgent & tool-call & rule circuits & yes (docs) & probabilistic & n/r & 90.1\% \\
+PSG-Agent & tool-call & 4-component & partial & cross-turn accum. & n/r & n/r \\
+OpenClaw PRISM & tool-call & middleware checkpts & partial & sequential & n/r & n/r \\
+\textbf{Kavach (ours)} & \textbf{tool-call} & \textbf{embed. corpus} & \textbf{yes (corpus)} & \textbf{asymmetric} & \textbf{[TBD]} & \textbf{[TBD]} \\
+\midrule
+
+% ─── Information-flow ─────────────────────────────────────────────────────────
+CaMeL & IFC & dual-LLM + taint & no & provable & 23\% (sec) & n/r \\
+FIDES & IFC & label propagation & no & provable & n/r & n/r \\
+RTBAS & IFC & saliency screener & no & threshold & 2\% loss only & n/r \\
+AGrail & adaptive & LLM + memory & yes (memory) & cooperative & 3.8\%--5\% & n/r \\
+\midrule
+
+% ─── Drift detection ──────────────────────────────────────────────────────────
+TaskTracker & session & activation delta & no & binary & n/r & n/r \\
+DeepContext & session & RNN over embeds & no & binary & n/r & n/r \\
+Trajectory Guard & trajectory & Siamese RAE & no & score & n/r & n/r \\
+\midrule
+
+% ─── Red-team / scanning tools (offensive testing + open I/O filters) ─────────
+garak \cite{garak2024} & input (test) & vuln.\ probes & yes (probes) & per-probe & n/r & n/r \\
+PyRIT \cite{pyrit2024} & input (test) & red-team orch. & yes (attacks) & {\em n/a} & n/r & n/r \\
+LLM-Guard \cite{llmguard2024} & input/output & detector suite & yes (scanners) & threshold & n/r & n/r \\
+\midrule
+
+% ─── Commercial baseline ──────────────────────────────────────────────────────
+DKnownAI Guard & mixed & ensemble & partial & threshold & n/r & 96.5\% \\
+Lakera Guard & input & classifier & no & threshold & n/r & n/r \\
+AWS Bedrock & input & content filter & no & threshold & n/r & n/r \\
+
+\bottomrule
+\end{tabular}
+
+\medskip
+\noindent\small
+\textbf{Asymmetric verdict} (Kavach): any single minister returning BLOCK vetoes
+the call unconditionally; COMPASS drift escalates unless a minister blocks first.
+No score averaging. See \S\ref{sec:frontier} for empirical evaluation of aggregation strategies.
+\textbf{Corpus extensibility} (Kavach): new attack patterns are added as natural-language
+descriptions, re-embedded into ChromaDB without retraining any model component.
+\textbf{Red-team / scanning tools} are complementary, not competing: garak
+\cite{garak2024} (NVIDIA) and PyRIT \cite{pyrit2024} (Microsoft) are
+\emph{offensive} test harnesses that probe a model/agent for vulnerabilities
+pre-deployment rather than enforce at runtime, and LLM-Guard \cite{llmguard2024}
+is an input/output scanner suite operating at the prompt boundary rather than the
+tool-call boundary. Kavach is orthogonal: a runtime, tool-call-time enforcement
+layer that these tools can be used to red-team.
+\end{table*}
+% paper/section_7_limitations.tex
+% Limitations. Drawn from PAPER_NOTES_JUNE3 + the June 10 audit caveats.
+% Input under a \section{Limitations} declared in the skeleton.
+
+\paragraph{No head-to-head with ClawGuard on AgentDojo.} ClawGuard
+\cite{clawguard2026} achieves 0\% attack-success rate on AgentDojo under
+explicit user-authored rules, which Kavach does not currently match. Kavach's
+contribution is complementary --- semantic, embedding-based detection that
+requires no per-deployment rule authoring and extends across session
+trajectories --- but a fair evaluation should report both systems on the same
+benchmark. A direct comparison is left to future work pending completion of our
+AgentDojo run.
+
+\paragraph{Tamper-evident, not tamper-proof.} The hash-chained Ledger detects
+post-hoc edits to any recorded decision or its provenance, but an attacker with
+write access to the database can recompute the entire chain. Defeating that
+requires anchoring the chain head to an external append-only medium, which we do
+not implement.
+
+\paragraph{Provenance precision is partial.} Verdict provenance is precise only
+for corpus patterns that declare a source technique; the remainder resolve to a
+per-minister default. Coverage on the current corpus is therefore partial, and
+the audit trail records which basis was used. Raising precision requires tagging
+the full corpus, an incremental effort.
+
+\paragraph{Curated corpus.} The attack-pattern corpus is authored from published
+taxonomies; novel techniques absent from those taxonomies will not be matched.
+This is intrinsic to corpus-based semantic detection and motivates the live
+knowledge-base ingestion we sketch as future work.
+
+\paragraph{Small distinct-$N$, FPR driver, and an escalate-only minister.}
+Our primary numbers come from InjecAgent's 62 distinct attacker tools
+(30 data-harm, 32 data-stealing) replayed across 17 user tasks; the
+distinct-attack count is modest, so per-minister and per-threshold figures
+should be read as indicative rather than tightly estimated. Two structural
+findings from the run: the benign false-positive rate is driven almost entirely
+by the CHANNEL minister --- a small number of over-broad exfiltration patterns
+account for every benign hard-block --- which a corpus-quality pass should
+target first; and VAULT's per-minister block threshold (0.75) sits above its
+observed attack-confidence ceiling on this benchmark, so VAULT contributes
+escalations rather than hard blocks. Inter-minister error correlation is low on
+average ($\bar\rho=0.09$) but not uniform: the NAVIGATOR--CHANNEL pair reaches
+$\rho=0.52$, reflecting overlapping pattern coverage that the aggregation
+analysis (\S\ref{sec:frontier}) accounts for. Recalibrating per-minister
+thresholds and deduplicating the CHANNEL/VAULT corpora are concrete next steps.
+
+\paragraph{Single-vector similarity and the trajectory leg.} Per-call detection
+uses single-vector cosine similarity, which has known limits relative to
+sequence-aware detection; Trajectory Guard \cite{advani2026trajectoryguard}
+reports that mean-pooling centroid approaches cap at F1 $\leq 0.69$ on
+trajectory detection. Kavach's trajectory monitor uses lightweight context
+signals rather than a trained sequence model, and the session-risk ceiling
+requires intent seeding to reach full sensitivity. The session ceiling is
+currently fixed at an empirically calibrated value (0.50, set just above the
+observed benign session peak across ten multi-step sessions); modulating it by
+COMPASS intent drift is a natural extension --- the architecture already supports
+it since \texttt{compass\_sim} is in scope at the ceiling check --- but requires
+drift-seeded calibration data we leave to future work. A learned, stage-aware
+trajectory model over the provenance stage axis (\S\ref{sec:provenance}) is the
+natural next step.
+
+\paragraph{Single backbone and runtime.} We evaluate with one agent backbone
+(Gemma\,4~26B) on OpenClaw in embedded mode, without MXC. Cross-model generality
+and a defense-in-depth evaluation inside an MXC sandbox --- the production
+configuration implied by the Build~2026 Microsoft/OpenClaw partnership --- are
+future work.
+
+\paragraph{Benchmark saturation.} InjecAgent and AgentDojo are increasingly
+saturated on frontier models, which compresses the headroom in which a monitor's
+benefit is visible. Multi-step staged attacks, which our trajectory monitor
+targets, are under-represented in current benchmarks and motivate a purpose-built
+scenario set --- itself designed to avoid contaminating the corpus.
