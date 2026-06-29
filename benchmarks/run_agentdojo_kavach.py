@@ -738,14 +738,50 @@ def build_pipeline(model_id: str, with_kavach: bool, ollama_port: str = "8000", 
 
 
 def summarize(results) -> dict:
-    util = results["utility_results"]
-    sec  = results["security_results"]
+    """Compute the AgentDojo paper's metrics (§3.4) from a with-injection run.
+
+    BUG-#3 FIX: the field previously called `benign_utility` is actually the
+    paper's **Utility Under Attack** — utility_results comes from the WITH-attack
+    run (every security case has an injection present). True **Benign Utility**
+    (utility with NO attack) is a separate no-attack pass; see benign_utility()
+    and --benign in main(). ASR is mean(security_results); verified against
+    AgentDojo source that security==True ⟺ the attacker's goal was MET, so the
+    existing sum(True)/n is correct (NOT inverted).
+    """
+    util = results["utility_results"]   # utility UNDER ATTACK (injection present)
+    sec  = results["security_results"]  # True == attack succeeded
     n_util = len(util) or 1
     n_sec  = len(sec) or 1
     return {
-        "n_pairs":             len(sec),
-        "benign_utility":      round(sum(1 for v in util.values() if v) / n_util, 4),
-        "attack_success_rate": round(sum(1 for v in sec.values() if v) / n_sec, 4),
+        "n_pairs":              len(sec),
+        "utility_under_attack": round(sum(1 for v in util.values() if v) / n_util, 4),
+        "attack_success_rate":  round(sum(1 for v in sec.values() if v) / n_sec, 4),
+    }
+
+
+def benign_utility(suite, model_id, with_kavach, logdir, ollama_port="8000",
+                   user_tasks=None, task_set=None) -> dict:
+    """Paper §3.4 Benign Utility: fraction of user tasks solved with NO attack.
+
+    This is the third metric the with-injection run does not produce. We run the
+    user tasks through the SAME pipeline without any injection and report the
+    pass rate. (Run with Kavach to also measure benign over-blocking / false
+    positives; the paper's benign utility is the no-defense version.)
+    """
+    from agentdojo.benchmark import benchmark_suite_without_injections
+    pipeline, _defense = build_pipeline(model_id, with_kavach, ollama_port, task_set=task_set)
+    blogdir = Path(logdir) / "benign"
+    blogdir.mkdir(parents=True, exist_ok=True)
+    with OutputLogger(str(blogdir), live=None):
+        results = benchmark_suite_without_injections(
+            pipeline, suite, logdir=blogdir, force_rerun=False, user_tasks=user_tasks,
+        )
+    util = results["utility_results"]
+    n = len(util) or 1
+    return {
+        "n_user_tasks":   len(util),
+        "benign_utility": round(sum(1 for v in util.values() if v) / n, 4),
+        "with_kavach":    with_kavach,
     }
 
 
@@ -802,6 +838,10 @@ def main() -> None:
                          "model that can't function-call, like gemma2:9b)")
     ap.add_argument("--abort-threshold",   type=int, default=30,
                     help="Warn to abort if utility stays 0%% after this many pairs (0=disable)")
+    ap.add_argument("--benign", action="store_true",
+                    help="Also run the no-attack BENIGN UTILITY pass (paper §3.4 metric 1: "
+                         "fraction of user tasks solved with no injection). Runs the user tasks "
+                         "without and with Kavach to also measure benign over-blocking.")
     ap.add_argument("--task-set",          type=int, choices=[1, 2, 3, 4], default=None,
                     help="Slice of user tasks to run: 1=Calendar, 2=Email, 3=Files, 4=Mixed")
     args = ap.parse_args()
@@ -885,24 +925,58 @@ def main() -> None:
     kav = with_kavach.get("kavach", {})
     fo  = kav.get("failopen_count", 0)
     tot = kav.get("total_calls", 0)
-    run_valid = fo == 0
+    blk = kav.get("blocks", 0)
+    screened = tot - fo
+    run_valid = fo == 0 and tot > 0
+
     print("\n" + "=" * 64)
-    if fo == 0:
-        print(f"[agentdojo] FAIL-OPEN AUDIT: 0/{tot} calls failed open — "
-              f"run is FULLY DEFENDED, numbers are valid.")
+    print(f"[agentdojo] KAVACH AUDIT: {tot} tool calls reached the defense, "
+          f"{screened} screened by the parliament, {blk} BLOCKED.")
+    if tot == 0:
+        # No tool calls ever reached Kavach — the with-Kavach numbers are vacuous.
+        banner = "🛑 " * 21
+        print("\n" + banner)
+        print("[agentdojo] *** FATAL: Kavach screened 0 tool calls. The agent")
+        print("[agentdojo] *** never issued a tool call (or the defense was not in")
+        print("[agentdojo] *** the loop). The with-Kavach numbers are MEANINGLESS.")
+        print("[agentdojo] *** Do NOT report them. Check the model/preflight and re-run.")
+        print(banner + "\n")
+    elif fo == 0:
+        print("[agentdojo] FAIL-OPEN AUDIT: 0 calls failed open — "
+              "run is FULLY DEFENDED, numbers are valid. ✅")
     else:
-        print(f"[agentdojo] *** WARNING: {fo}/{tot} calls FAILED OPEN "
-              f"(parliament unreachable) ***")
-        print(f"[agentdojo] *** Those actions were NOT screened by Kavach; the "
-              f"with-Kavach numbers are PARTIALLY INVALID. ***")
+        banner = "⚠️  " * 21
+        print("\n" + banner)
+        print(f"[agentdojo] *** {fo}/{tot} calls FAILED OPEN (parliament unreachable) ***")
+        print( "[agentdojo] *** Those actions were NOT screened by Kavach; the")
+        print( "[agentdojo] *** with-Kavach numbers are PARTIALLY INVALID. ***")
         print(f"[agentdojo] *** Affected call indices: {kav.get('failopen_calls')} ***")
-        print(f"[agentdojo] *** Fix the parliament (single server + real "
-              f"/hook/parliament verdict) and re-run. ***")
+        print( "[agentdojo] *** Fix the parliament (single server + real")
+        print( "[agentdojo] *** /hook/parliament verdict) and re-run. ***")
+        print(banner)
     print("=" * 64 + "\n")
+
+    # Optional benign-utility pass (paper §3.4 metric 1) — the no-attack run.
+    benign = None
+    if args.benign:
+        print("\n[agentdojo] ── Benign Utility (NO attack) ──────────────────────")
+        benign_no_def = benign_utility(suite, args.model_id, False, logdir,
+                                       ollama_port=args.ollama_port,
+                                       user_tasks=user_tasks, task_set=args.task_set)
+        benign_kavach = benign_utility(suite, args.model_id, True, logdir,
+                                       ollama_port=args.ollama_port,
+                                       user_tasks=user_tasks, task_set=args.task_set)
+        benign = {"no_defense": benign_no_def, "with_kavach": benign_kavach,
+                  "benign_overblock": round(benign_no_def["benign_utility"]
+                                            - benign_kavach["benign_utility"], 4)}
+        print(f"[agentdojo]   Benign utility (no defense): {benign_no_def['benign_utility']}")
+        print(f"[agentdojo]   Benign utility (Kavach):     {benign_kavach['benign_utility']}  "
+              f"(over-block cost: {benign['benign_overblock']})")
 
     report = {
         "suite": args.suite, "model_id": args.model_id, "attack": args.attack,
         "with_kavach": with_kavach, "baseline": baseline,
+        "benign_utility": benign,
         "asr_reduction": round(
             baseline["attack_success_rate"] - with_kavach["attack_success_rate"], 4),
         "kavach_failopen_count": fo,
