@@ -416,107 +416,152 @@ async def logs(benchmark: str) -> StreamingResponse:
 INDEX_HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Kavach Dell Lab</title>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Kavach · Dell Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
   :root{
-    --bg:#0f1117; --card:#1a1d27; --accent:#4f8ef7; --txt:#d7dce5;
-    --muted:#7c8597; --ok:#36c98a; --err:#f0506e; --warn:#f5c451;
+    --bg:#faf7f2; --bg2:#f3ede2; --paper:#ffffff;
+    --ink:#2b2a26; --ink-soft:#5a5852; --ink-mute:#9a9690;
+    --line:#e5dfd2; --line-2:#d4ccba;
+    --accent:#8b5a3c; --green:#5b8a72; --rose:#c47b6f; --gold:#c79849; --plum:#8a6a8e; --teal:#4d8a8c;
+    --serif:'Fraunces',Georgia,serif; --sans:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',monospace;
   }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--txt);
-    font-family:system-ui,Segoe UI,Roboto,sans-serif;font-size:14px}
-  .mono{font-family:ui-monospace,Consolas,"Courier New",monospace}
-  /* ── top status bar ── */
-  header{display:flex;align-items:center;gap:24px;padding:10px 18px;
-    background:var(--card);border-bottom:1px solid #262a36;position:sticky;top:0;z-index:5}
-  header img{height:32px}
-  .brand{font-weight:700;letter-spacing:3px;font-size:18px;color:#fff}
-  .stat{display:flex;flex-direction:column;line-height:1.3}
-  .stat .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
-  .stat .v{font-size:13px}
-  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
-  .dot.up{background:var(--ok)} .dot.down{background:var(--err)}
-  /* ── layout ── */
-  main{display:grid;grid-template-columns:230px 1fr 280px;gap:14px;padding:14px;height:calc(100vh - 54px)}
-  .col{display:flex;flex-direction:column;gap:14px;min-height:0}
-  .panel{background:var(--card);border:1px solid #262a36;border-radius:10px;padding:12px;min-height:0}
-  .panel h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
-  /* ── run buttons ── */
-  .run-btn{display:block;width:100%;text-align:left;border:none;border-radius:8px;
-    padding:11px 12px;margin-bottom:10px;cursor:pointer;color:#fff;font-size:14px;font-weight:600}
-  .run-btn:disabled{opacity:.55;cursor:not-allowed}
-  .run-meta{font-size:11px;font-weight:400;margin-top:4px;opacity:.9}
-  .run-meta a{color:#fff;text-decoration:underline}
-  .badge{float:right;font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(0,0,0,.3)}
-  /* ── log area ── */
-  #logwrap{flex:1;display:flex;flex-direction:column;min-height:0}
-  .tabs{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
-  .tab{padding:5px 11px;border-radius:6px;background:#222633;cursor:pointer;font-size:12px}
-  .tab.active{background:var(--accent);color:#fff}
-  #log{flex:1;overflow:auto;background:#0b0d13;border-radius:8px;padding:10px;
-    white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.45}
-  .l-err{color:var(--err)} .l-warn{color:var(--warn)}
-  .l-block{color:var(--err);font-weight:700} .l-allow{color:var(--ok);font-weight:700}
-  /* ── approval box ── */
-  #approval{display:none;background:#241a33;border:1px solid var(--accent);
-    border-radius:8px;padding:12px;margin-bottom:10px}
-  #approval pre{white-space:pre-wrap;font-size:12px;margin:0 0 10px;max-height:180px;overflow:auto}
-  #approval button{border:none;border-radius:6px;padding:8px 18px;margin-right:8px;
-    cursor:pointer;font-weight:700;color:#fff}
-  .yes{background:var(--ok)} .no{background:var(--err)}
-  /* ── results ── */
-  .metric{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #20242f}
-  .metric .k{color:var(--muted)} .metric .v{font-weight:600}
-  .res-block{margin-bottom:14px}
-  .res-block h3{margin:0 0 4px;font-size:12px;color:#fff}
-  .empty{color:var(--muted);font-style:italic;font-size:12px}
-  ul.models{margin:4px 0 0;padding-left:16px;max-height:64px;overflow:auto}
-  ul.models li{font-size:12px}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--serif);font-size:16px;line-height:1.55;min-height:100vh}
+  .container{max-width:1320px;margin:0 auto;padding:28px 30px 60px}
+  ::-webkit-scrollbar{width:8px;height:8px} ::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:999px}
+
+  header{margin-bottom:22px;padding-bottom:20px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px}
+  .brand{display:flex;align-items:center;gap:16px}
+  .brand img{height:90px;width:auto;display:block}
+  .brand-sub{font-family:var(--sans);font-size:12px;color:var(--ink-mute);letter-spacing:.08em;text-transform:uppercase}
+  .brand-title{font-family:var(--serif);font-size:30px;font-weight:500;font-style:italic;color:var(--accent);line-height:1}
+  .header-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+  .status-pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;background:var(--paper);
+    border:1px solid var(--line);border-radius:999px;font-family:var(--sans);font-size:12.5px;color:var(--ink-soft)}
+  .status-pill .lab{color:var(--ink-mute)}
+  .status-pill .val{color:var(--ink);font-weight:500}
+  .status-pill.mono .val{font-family:var(--mono);font-size:11.5px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ink-mute);flex-shrink:0}
+  .dot.ready{background:var(--green);box-shadow:0 0 0 3px rgba(91,138,114,.18)}
+  .dot.error{background:var(--rose)}
+
+  main{display:grid;grid-template-columns:262px 1fr 300px;gap:18px;align-items:start}
+  @media(max-width:1100px){main{grid-template-columns:1fr}}
+  .col{display:flex;flex-direction:column;gap:18px;min-width:0}
+  .section-card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:22px}
+  .section-card h3{font-family:var(--serif);font-size:20px;font-weight:500;font-style:italic;margin-bottom:4px}
+  .section-card .subtitle{font-family:var(--sans);font-size:11px;color:var(--ink-mute);
+    text-transform:uppercase;letter-spacing:.06em;margin-bottom:18px}
+
+  .run-btn{display:block;width:100%;text-align:left;border:1px solid var(--line-2);border-left-width:3px;
+    border-radius:10px;padding:14px 16px;margin-bottom:12px;cursor:pointer;background:var(--paper);
+    font-family:var(--serif);transition:all .15s}
+  .run-btn:hover:not(:disabled){background:var(--bg2)}
+  .run-btn:disabled{cursor:not-allowed}
+  .run-btn .rb-top{display:flex;align-items:center;justify-content:space-between}
+  .run-btn .rb-name{font-size:17px;font-style:italic;font-weight:500}
+  .run-btn .rb-badge{font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:999px;
+    border:1px solid var(--line-2);color:var(--ink-mute);text-transform:lowercase}
+  .run-btn.running .rb-badge{background:rgba(199,152,73,.14);color:var(--gold);border-color:rgba(199,152,73,.4)}
+  .run-btn.done .rb-badge{background:rgba(91,138,114,.12);color:var(--green);border-color:rgba(91,138,114,.4)}
+  .run-btn.error .rb-badge{background:rgba(196,123,111,.12);color:var(--rose);border-color:rgba(196,123,111,.4)}
+  .run-btn .rb-meta{font-family:var(--sans);font-size:11.5px;color:var(--ink-mute);margin-top:6px}
+  .run-btn .rb-meta a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--line-2)}
+
+  #logwrap{display:flex;flex-direction:column;min-height:0}
+  .tabs{display:flex;gap:0;margin-bottom:14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .tab{padding:9px 16px;cursor:pointer;color:var(--ink-mute);font-family:var(--serif);font-size:15px;
+    font-style:italic;border-bottom:2px solid transparent;margin-bottom:-1px;user-select:none;transition:all .2s}
+  .tab:hover{color:var(--ink-soft)}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:500}
+  #log{height:60vh;overflow:auto;background:#2b2a26;color:#e8e2d6;border-radius:10px;padding:14px 16px;
+    white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:12.5px;line-height:1.55}
+  #log .l-err{color:#e89b8f} #log .l-warn{color:#e3c06a}
+  #log .l-block{color:#e89b8f;font-weight:500} #log .l-allow{color:#86c4a3;font-weight:500}
+  #log .l-sys{color:#9a9690;font-style:italic}
+
+  #approval{display:none;background:var(--bg2);border:1px solid var(--plum);border-left:3px solid var(--plum);
+    border-radius:10px;padding:16px 18px;margin-bottom:14px}
+  #approval .ap-title{font-family:var(--serif);font-size:17px;font-style:italic;font-weight:500;
+    color:var(--plum);margin-bottom:10px}
+  #approval pre{white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:var(--ink-soft);
+    background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px;
+    max-height:200px;overflow:auto;margin-bottom:12px}
+  #approval .btn{margin-right:10px}
+  .btn{padding:10px 22px;background:var(--accent);border:1px solid var(--accent);color:#fefdf9;
+    font-family:var(--serif);font-size:15px;font-style:italic;cursor:pointer;border-radius:8px;transition:all .15s}
+  .btn:hover{background:#75492f;border-color:#75492f}
+  .btn.no{background:transparent;color:var(--rose);border-color:var(--rose)}
+  .btn.no:hover{background:rgba(196,123,111,.10)}
+
+  .res-block{margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+  .res-block:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+  .res-block h4{font-family:var(--serif);font-size:17px;font-style:italic;font-weight:500;margin-bottom:8px}
+  .metric{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-family:var(--sans);font-size:13px}
+  .metric .k{color:var(--ink-mute)}
+  .metric .v{font-family:var(--serif);font-weight:500;font-variant-numeric:tabular-nums;font-size:16px}
+  .res-empty{color:var(--ink-mute);font-style:italic;font-size:13.5px;font-family:var(--serif);padding:4px 0}
+  ul.models{list-style:none;display:flex;gap:6px;flex-wrap:wrap}
+  ul.models li{font-family:var(--mono);font-size:11px;background:var(--paper);border:1px solid var(--line);
+    border-radius:999px;padding:2px 10px;color:var(--ink-soft)}
+  .footer-note{margin-top:36px;text-align:center;font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink-mute)}
 </style>
 </head>
 <body>
-<header>
-  <img src="/logo.png" alt="Kavach" onerror="this.style.display='none'"/>
-  <span class="brand">KAVACH</span>
-  <div class="stat"><span class="k">Parliament :8088</span><span class="v" id="s-parl">…</span></div>
-  <div class="stat"><span class="k">ChromaDB counts</span><span class="v mono" id="s-chroma">…</span></div>
-  <div class="stat"><span class="k">Ollama models</span><span class="v" id="s-ollama">…</span></div>
-  <div class="stat"><span class="k">Git</span><span class="v mono" id="s-git">…</span></div>
-</header>
-
-<main>
-  <!-- Panel 2: run controls -->
-  <div class="col">
-    <div class="panel">
-      <h2>Run Controls</h2>
-      <div id="controls"></div>
+<div class="container">
+  <header>
+    <div class="brand">
+      <img src="/logo.png" alt="Kavach" onerror="this.style.display='none'"/>
     </div>
-  </div>
+    <div class="header-meta">
+      <div class="status-pill"><span class="dot" id="d-parl"></span><span class="lab">Parliament</span><span class="val" id="s-parl">…</span></div>
+      <div class="status-pill mono"><span class="lab">ChromaDB</span><span class="val" id="s-chroma">…</span></div>
+      <div class="status-pill"><span class="dot" id="d-ollama"></span><span class="lab">Ollama</span><span class="val"><ul class="models" id="s-ollama"></ul></span></div>
+      <div class="status-pill mono"><span class="lab">Git</span><span class="val" id="s-git">…</span></div>
+    </div>
+  </header>
 
-  <!-- Panel 3: live log -->
-  <div class="col">
-    <div class="panel" id="logwrap">
-      <h2>Live Log</h2>
-      <div class="tabs" id="tabs"></div>
-      <div id="approval">
-        <pre id="approval-summary"></pre>
-        <button class="yes" onclick="sendApproval(true)">✓ YES — integrate</button>
-        <button class="no" onclick="sendApproval(false)">✗ NO — decline</button>
+  <main>
+    <div class="col">
+      <div class="section-card">
+        <h3>Run Controls</h3>
+        <div class="subtitle">launch · in order</div>
+        <div id="controls"></div>
       </div>
-      <div id="log" class="mono"></div>
     </div>
-  </div>
 
-  <!-- Panel 4: results -->
-  <div class="col">
-    <div class="panel" style="flex:1;overflow:auto">
-      <h2>Results (live)</h2>
-      <div id="results"></div>
+    <div class="col">
+      <div class="section-card" id="logwrap">
+        <h3>Live Log</h3>
+        <div class="subtitle">streaming · color-coded</div>
+        <div class="tabs" id="tabs"></div>
+        <div id="approval">
+          <div class="ap-title">Improvement loop — approval requested</div>
+          <pre id="approval-summary"></pre>
+          <button class="btn" onclick="sendApproval(true)">✓ Yes — integrate</button>
+          <button class="btn no" onclick="sendApproval(false)">✗ No — decline</button>
+        </div>
+        <div id="log"></div>
+      </div>
     </div>
-  </div>
-</main>
+
+    <div class="col">
+      <div class="section-card">
+        <h3>Results</h3>
+        <div class="subtitle">live · polled every 10s</div>
+        <div id="results"></div>
+      </div>
+    </div>
+  </main>
+
+  <div class="footer-note">कवच — protective armour. This lab orchestrates the real benchmark scripts; it never starts parliament or Ollama.</div>
+</div>
 
 <script>
 const FMT = {
@@ -529,27 +574,28 @@ const FMT = {
               ["evaded_after","Evaded after"],["effective","Effective"],
               ["integrated","Integrated"]],
 };
-let BENCH = {};            // key -> {label,color,interactive}
+const ACCENT = {agentdojo:"var(--teal)",injecagent:"var(--green)",redteam:"var(--gold)",loop:"var(--plum)"};
+let BENCH = {};
 let activeTab = null;
 let evtSource = null;
+const PREVIEW = new URLSearchParams(location.search).get('preview') === '1';
 
 function el(id){return document.getElementById(id);}
 
-// ── status bar + controls ───────────────────────────────────────────────────
 async function refreshStatus(){
   let s; try{ s = await (await fetch('/status')).json(); }catch(e){ return; }
   BENCH = s.benchmarks;
   const p = s.parliament;
-  el('s-parl').innerHTML = `<span class="dot ${p.up?'up':'down'}"></span>${p.up?'healthy':'DOWN'}`;
+  el('d-parl').className = 'dot '+(p.up?'ready':'error');
+  el('s-parl').textContent = p.up?'healthy':'down';
   el('s-chroma').textContent = p.up ? Object.entries(p.doc_counts||{})
         .map(([k,v])=>`${k[0]}${v}`).join(' ') : '—';
-  el('s-ollama').innerHTML = s.ollama.up
-    ? `<ul class="models">${(s.ollama.models||[]).map(m=>`<li>${m}</li>`).join('')}</ul>`
-    : '<span class="dot down"></span>down';
-  el('s-git').textContent = `${s.git.branch} · ${s.git.commit}`;
+  el('d-ollama').className = 'dot '+(s.ollama.up?'ready':'error');
+  el('s-ollama').innerHTML = (s.ollama.models||[]).map(m=>`<li>${m}</li>`).join('') || '<li>none</li>';
+  el('s-git').textContent = `${s.git.branch} · ${(s.git.commit||'').split(' ')[0]}`;
   renderControls(s.runs);
   if(!activeTab) selectTab(Object.keys(BENCH)[0]);
-  renderTabs(s.runs);
+  renderTabs();
 }
 
 function renderControls(runs){
@@ -558,20 +604,23 @@ function renderControls(runs){
     const r = runs[key] || {status:'idle',elapsed:0};
     const running = r.status==='running';
     const btn = document.createElement('button');
-    btn.className='run-btn'; btn.style.background=b.color; btn.disabled=running;
-    const badge = `<span class="badge">${r.status}</span>`;
-    let meta = '';
+    btn.className='run-btn '+r.status;
+    btn.style.borderLeftColor = ACCENT[key]||'var(--accent)';
+    btn.disabled = running;
+    let meta;
     if(running) meta = `running · ${r.elapsed}s`;
-    else if(r.status==='done') meta = `done · ${r.elapsed}s · <a href="#" onclick="selectTab('${key}');return false">View log</a>`;
-    else if(r.status==='error') meta = `error · ${r.elapsed}s · <a href="#" onclick="selectTab('${key}');return false">View log</a>`;
+    else if(r.status==='done') meta = `done · ${r.elapsed}s · <a href="#" onclick="selectTab('${key}');return false">view log</a>`;
+    else if(r.status==='error') meta = `error · ${r.elapsed}s · <a href="#" onclick="selectTab('${key}');return false">view log</a>`;
     else meta = 'idle';
-    btn.innerHTML = `${b.label}${badge}<div class="run-meta">${meta}</div>`;
+    btn.innerHTML = `<div class="rb-top"><span class="rb-name">${b.label}</span>`+
+                    `<span class="rb-badge">${r.status}</span></div>`+
+                    `<div class="rb-meta">${meta}</div>`;
     btn.onclick = ()=>launch(key);
     c.appendChild(btn);
   }
 }
 
-function renderTabs(runs){
+function renderTabs(){
   const t = el('tabs'); t.innerHTML='';
   for(const [key,b] of Object.entries(BENCH)){
     const tab = document.createElement('div');
@@ -582,12 +631,10 @@ function renderTabs(runs){
   }
 }
 
-// ── launch / approve ────────────────────────────────────────────────────────
 async function launch(key){
   const res = await fetch('/run/'+key,{method:'POST'});
   if(!res.ok){ const j=await res.json(); alert(j.error||'failed to start'); return; }
-  selectTab(key);
-  refreshStatus();
+  selectTab(key); refreshStatus();
 }
 async function sendApproval(decision){
   if(!activeTab) return;
@@ -597,12 +644,12 @@ async function sendApproval(decision){
   el('approval').style.display='none';
 }
 
-// ── log streaming (SSE) ─────────────────────────────────────────────────────
 function selectTab(key){
   activeTab=key;
   el('log').innerHTML='';
   el('approval').style.display='none';
-  renderTabs({});
+  renderTabs();
+  if(PREVIEW) return;
   if(evtSource) evtSource.close();
   evtSource = new EventSource('/logs/'+key);
   evtSource.onmessage = (e)=>{
@@ -610,7 +657,7 @@ function selectTab(key){
     if(ev.type==='log') appendLog(ev.line);
     else if(ev.type==='approval_request') showApproval(ev.summary);
     else if(ev.type==='approval_sent'){ el('approval').style.display='none'; }
-    else if(ev.type==='status'){ appendLog(`── run ${ev.status} (rc=${ev.returncode}) ──`); refreshStatus(); }
+    else if(ev.type==='status'){ appendLog(`── run ${ev.status} (rc=${ev.returncode}) ──`,'l-sys'); refreshStatus(); }
   };
 }
 function classify(line){
@@ -621,10 +668,10 @@ function classify(line){
   if(line.includes('ALLOW')) return 'l-allow';
   return '';
 }
-function appendLog(line){
+function appendLog(line,cls){
   const log=el('log');
   const div=document.createElement('div');
-  const cls=classify(line); if(cls) div.className=cls;
+  const c=cls||classify(line); if(c) div.className=c;
   div.textContent=line;
   log.appendChild(div);
   log.scrollTop=log.scrollHeight;
@@ -634,15 +681,13 @@ function showApproval(summary){
   el('approval').style.display='block';
 }
 
-// ── results polling ─────────────────────────────────────────────────────────
 async function refreshResults(){
   const out = el('results'); let html='';
   for(const [key,b] of Object.entries(BENCH)){
     let data={}; try{ data = await (await fetch('/results/'+key)).json(); }catch(e){}
-    html += `<div class="res-block"><h3 style="color:${b.color}">${b.label}</h3>`;
+    html += `<div class="res-block"><h4 style="color:${ACCENT[key]||'var(--accent)'}">${b.label}</h4>`;
     const rows = FMT[key]||[];
-    const has = Object.keys(data).length>0;
-    if(!has){ html+='<div class="empty">no results yet</div>'; }
+    if(Object.keys(data).length===0){ html+='<div class="res-empty">no results yet</div>'; }
     else {
       for(const [k,label] of rows){
         if(data[k]===undefined||data[k]===null) continue;
@@ -656,12 +701,11 @@ async function refreshResults(){
   out.innerHTML=html;
 }
 
-// ── pollers ─────────────────────────────────────────────────────────────────
 refreshStatus(); refreshResults();
-setInterval(refreshStatus, 5000);   // status + chroma + run state
-setInterval(refreshResults, 10000); // results metrics
-setInterval(()=>{ // ollama is slower-changing; piggybacks on status but refresh anyway
-}, 30000);
+if(!PREVIEW){
+  setInterval(refreshStatus, 5000);
+  setInterval(refreshResults, 10000);
+}
 </script>
 </body>
 </html>"""
