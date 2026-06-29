@@ -34,6 +34,14 @@ ollama list                 # must list gemma4:26b
 
 **If any check fails, stop here and fix it. Do not proceed to a run.**
 
+**Install the paper-draft hook (one-time, after pulling).** `.git/hooks/` is not
+tracked, so install the pre-commit hook that keeps `paper/FULL_PAPER_DRAFT.tex`
+in sync whenever a `paper/` file changes:
+
+```bash
+cp docs/pre-commit-hook.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+```
+
 ---
 
 ## 1. AgentDojo  (PRIMARY — this is the paper number)
