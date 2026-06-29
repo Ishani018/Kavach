@@ -273,3 +273,36 @@ The single time Kavach was called during the Run 1 benchmark — the one valid t
 ---
 
 *Written by Ishani + Antigravity after full analysis of Run 1 commit `91b19db`. Updated 2026-06-19 with robust parser from `fix-agentdojo-gemma-parser`.*
+
+---
+
+## Methodology Audit (June 29)
+
+A full audit of the AgentDojo integration against the AgentDojo paper (§3.4) and the
+installed AgentDojo source found **four candidate bugs**. After verifying each against
+the real source — not just trusting the audit — only **one** was a true bug, and it
+was critical.
+
+| # | Finding | Verdict |
+|---|---|---|
+| **1** | `_format_tool_call` read `fn.name` / `fn.arguments`, but AgentDojo's `FunctionCall` exposes `.function` (the name string) and `.args` (the dict). Every tool call reached the parliament as **`tool:unknown args:{}`**, so Kavach screened an EMPTY action and allowed everything. | 🔴 **REAL — CRITICAL.** Runs *looked* healthy (Kavach called ~560×) while screening nothing → fake security numbers. **Fixed** (`tc.function` / `tc.args`) + an EMPTY-ACTION fatal guard. Verified live: Kavach now blocks real attacks. |
+| **2** | "Defense screens too late (after the tool executes)." | 🟢 **NOT a bug.** On BLOCK the defense appends tool-result messages, which makes `ToolsExecutor` skip — pre-execution block confirmed in source. |
+| **3** | "`benign_utility` mislabeled + ASR inverted." | 🟡 **Label fix only.** The field was Utility-Under-Attack (renamed); a true Benign Utility no-attack pass was added (`--benign`). **ASR was already correct** — verified `security==True` ⟺ attack succeeded and `aggregate_results = mean(security)`. Inverting it would have *introduced* a bug. |
+| **4** | "Truncated system prompt (missing the 4 official bullets)." | 🟢 **NOT a bug.** All four official bullets were already present. |
+
+**Consequence — all prior AgentDojo result files were invalidated and deleted.** Bug #1
+means every committed run (Parv's gemma2:9b Run 1, the llama3.1:8b "takes") screened
+`tool:unknown args:{}` for every call, so their "defended" security numbers are
+meaningless. They were removed; do not cite them.
+
+**The Dell gemma4:26b run is therefore the FIRST valid AgentDojo benchmark.** The laptop
+validation (llama3.1:8b) confirmed the methodology is now sound — Kavach receives real
+actions and blocks real attacks end-to-end — but its numbers are not paper-grade (weak
+model, CPU). The reportable number comes from the Dell.
+
+**Real finding (not a bug):** in the validation, a `send_money(attacker, …)` call was
+**ALLOWED**. Kavach's corpus is strong on exfiltration / credential / code-execution but
+**light on banking-suite financial fraud** — a genuine corpus-coverage gap, and a
+candidate for the `corpus_agent` to close.
+
+*Audit + fixes: 2026-06-29. Fix commits `8c0d93f`, `4819ef7`, `2338bd7` on `main`.*
