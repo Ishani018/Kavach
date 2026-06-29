@@ -160,3 +160,6 @@ git push origin parv-results
 - **corpus_agent (section 4) requires section 3's evasion report** — do not run it
   first; it has nothing to consume otherwise.
 - **Label outputs honestly** as `_gemma_dell` (the primary config), not `_laptop`.
+- **`\r: command not found` from any script** → run `dos2unix scripts/*.sh` then
+  re-run. (CRLF line endings from a Windows checkout — git stores LF, but the Dell
+  pull may get CRLF depending on `core.autocrlf`.)
