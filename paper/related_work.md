@@ -240,10 +240,11 @@ Agents" — middleware on the same OpenClaw runtime as Kavach.
 path without forking. Kavach differs: (1) uses a semantic corpus of 200
 attack-pattern descriptions across four specialist ministers — PRISM does not use
 a domain-specific corpus; (2) asymmetric verdict combination (any minister BLOCK
-vetoes) is stronger than sequential checkpoint passing; (3) Kavach contributes
-the upstream bug fixes (PR-1, issues #5513 and #5943) that make `before_tool_call`
-fire at all — without which neither PRISM nor Kavach achieves true pre-execution
-interception.
+vetoes) is stronger than sequential checkpoint passing; (3) Kavach documents the
+production gateway-path hook gap (issues #5513 and #5943, since resolved upstream
+in v2026.4.15) that determines whether `before_tool_call` fires at all — without
+a working pre-execution hook, neither PRISM nor Kavach achieves true
+pre-execution interception.
 
 > The team must read arXiv:2603.11853 in full before submission to confirm
 > this differentiation. If PRISM also ships upstream hook fixes, update accordingly.

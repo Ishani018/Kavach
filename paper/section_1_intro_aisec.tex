@@ -71,29 +71,36 @@ the agent's output or context at a single time-step. None of them fire at the
 actual runtime arguments, is about to execute. This is the gap that Kavach fills.
 
 There is a second, subtler gap. Systems that \emph{intend} to fire at the
-tool-call boundary cannot do so if the host runtime's plugin hook is silently
-broken. On OpenClaw — a widely adopted, rapidly growing open-source agent
-runtime with active weekly releases — two upstream bugs (issues \#5513 and
-\#5943) prevent \texttt{before\_tool\_call} from firing at all. Issue \#5513: the typed-hook
-runner snapshots the plugin registry at construction time, so hooks registered
-during the plugin-load phase are invisible to the runner. Issue \#5943:
-\texttt{before\_tool\_call} is defined and documented as available since
-v2026.3.28 but is never invoked in \texttt{executeToolCalls()}. Until both are
-fixed, no security plugin on OpenClaw — including Kavach — can be a real
-guardrail. We contribute fixes for both as the first item of our engineering
-workstream (PR-1).
+tool-call boundary cannot do so if the host runtime does not expose the hook on
+the path that actually executes the call. On OpenClaw — a widely adopted,
+rapidly growing open-source agent runtime — the production gateway path exposes
+no pre-execution \texttt{before\_tool\_call} interception point, while the
+embedded runner does. Two defects were historically implicated: issue \#5513,
+where the typed-hook runner snapshots the plugin registry at construction time
+so hooks registered during the plugin-load phase are invisible to the runner;
+and issue \#5943, where \texttt{before\_tool\_call}, documented as available
+since v2026.3.28, was not invoked in \texttt{executeToolCalls()}. We diagnosed
+both independently and authored a candidate patch; both were resolved upstream
+in v2026.4.15, consistent with our diagnosis. The systemic gap on the gateway
+path remains the point: until a runtime exposes a pre-execution hook on its
+production execution path, no security plugin — including Kavach — can guard it
+there.
 
 \paragraph{Contributions.} This paper makes four contributions, the first
 three forming a coherent systems-and-measurement story and the fourth a
 focused empirical study.
 
-\textbf{First, a measurement (\S\ref{sec:hookgap}).} OpenClaw's gateway
-execution path exposes no working pre-execution plugin hook: two upstream
-defects (issues \#5513 and \#5943) prevent \texttt{before\_tool\_call} from
-firing, so \emph{no} security plugin can intercept there until they are fixed.
-Interception is achievable only on the embedded runner. We contribute the
-upstream fixes (PR-1) and argue that a working pre-execution hook should be a
-mandatory, tested runtime primitive for agent platforms.
+\textbf{First, a measurement (\S\ref{sec:hookgap}).} OpenClaw's production
+gateway execution path exposes no working pre-execution plugin hook: a tool call
+routed through the gateway reaches execution with no \texttt{before\_tool\_call}
+interception point, so \emph{no} security plugin --- Kavach included --- can
+guard it there. The embedded runner, by contrast, fires the hook correctly, and
+is where we evaluate Kavach. We confirm the split with a sentinel-file probe
+(\S\ref{sec:hookgap}). The two defects originally implicated (issues \#5513 and
+\#5943) we diagnosed independently and authored a candidate patch for; both were
+subsequently resolved upstream in OpenClaw v2026.4.15, consistent with our
+diagnosis. We argue that a working pre-execution hook should be a mandatory,
+tested runtime primitive for agent platforms.
 
 \textbf{Second, a deployment with taxonomy-grounded detection
 (\S\ref{sec:architecture}, \S\ref{sec:eval}).} The detector is a
@@ -160,8 +167,8 @@ that PSG-Agent is personalized and collapses oracle and detector roles, while
 Kavach separates them and applies asymmetric combination. OpenClaw PRISM
 \cite{prism2026} applies defense-in-depth to the same OpenClaw runtime as Kavach;
 our differentiation is that Kavach uses a semantic attack-pattern corpus and
-contributes the upstream hook fixes that make pre-execution interception possible
-on OpenClaw at all.
+documents the production-path hook gap that determines whether pre-execution
+interception is possible on OpenClaw at all.
 
 \paragraph{Scope and non-claims.}
 We do not claim Kavach prevents every class of agent-side attack. The corpus is
@@ -176,9 +183,9 @@ along the temporal axis and a comprehensive deployment runs both.
 
 \paragraph{Reproducibility.}
 The corpus (401 attack-pattern descriptions + 100 COMPASS calibration pairs),
-the parliament service, the OpenClaw plugin and upstream PR-1, the benchmark
-harness, and the calibration protocol are all open-source and shipped with the
-paper. The reproducibility checklist in our supplementary material specifies the
+the parliament service, the OpenClaw plugin and our candidate hook patch
+(\texttt{openclaw\_pr/}), the benchmark harness, and the calibration protocol
+are all open-source and shipped with the paper. The reproducibility checklist in our supplementary material specifies the
 exact validation sequence — including the benign FPR gate (Step 5) that must
 pass before the InjecAgent run is meaningful — that produced the numbers
 reported in \S\ref{sec:eval}.
