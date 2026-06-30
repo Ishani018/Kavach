@@ -27,9 +27,13 @@ rather than optional plugin surface.
 
 \subsection{Live interception}
 \label{sec:live}
-We deploy on a Dell Precision~3660 (NVIDIA RTX~4090), with Gemma\,4~26B served
-via Ollama as the agent backbone and \texttt{BAAI/bge-base-en-v1.5} (768-d) as
-the embedding model, resident on the GPU. A staged attack that induces the agent
+We evaluate Kavach against an agent running on a Dell Precision~3660 (NVIDIA
+RTX~4090), with Gemma\,4~26B served via Ollama as the agent backbone. Kavach
+itself comprises its corpus, the four ministers, the Speaker, and the
+\texttt{BAAI/bge-base-en-v1.5} (768-d) embedding model that scores each proposed
+tool call; on this machine the embedding model is co-located on the GPU for
+convenience, but it is not GPU-bound (\S\ref{sec:crossmodel} runs it CPU-only).
+A staged attack that induces the agent
 to read a credential file and transmit its contents is intercepted before
 execution: the deciding minister returns \textsc{Block}, the call is denied, and
 a provenance-grounded record (technique $\rightarrow$ tactic $\rightarrow$ stage)
@@ -135,8 +139,8 @@ secondary configuration the parliament catches \(26/30\) attack actions at the
 block-or-escalate level (loose recall \(0.87\)) with zero request errors, and on
 a separate benign gate of \(17\) natural-language user instructions it
 hard-blocks \emph{none} (block-only FPR \(0.0\%\)); mean per-action latency is
-\(\approx\!2.6\)\,s, reflecting CPU-only embedding rather than the GPU-resident
-primary path. Strict (hard-\textsc{Block}) recall is markedly lower on the
+\(\approx\!2.6\)\,s, reflecting CPU-only embedding on this laptop versus the
+GPU-accelerated embedding available on the primary machine. Strict (hard-\textsc{Block}) recall is markedly lower on the
 secondary configuration (\(0.13\)): under the laptop's freshly calibrated
 thresholds the operating point shifts toward \textsc{Escalate} on \emph{both}
 sides---attacks are flagged rather than hard-blocked (strict \(0.13\) vs.\ loose

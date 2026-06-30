@@ -62,8 +62,9 @@ characterize the resulting trade-off between robustness and false alarms. Fourth
 a contamination-controlled evaluation: the attack corpus was authored blind to
 the benchmarks it is tested against, and false-positive rate is measured before
 --- not alongside --- attack recall, so that detection numbers cannot be
-inflated by aggressiveness. Kavach requires no GPU for its trajectory and
-aggregation logic and is fully reproducible offline.
+inflated by aggressiveness. Kavach needs no GPU; CPU-only deployment is
+supported end-to-end, with a GPU only accelerating the embedding step. It is
+fully reproducible offline.
 \end{abstract}
 
 \maketitle
