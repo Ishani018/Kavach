@@ -112,7 +112,7 @@ _RRF_K = 60  # Standard RRF constant (Robertson et al.)
 
 # Lexical-gate floor: multiplier applied to dense similarity when the query
 # shares no informative tokens with the matched attack pattern. Sweepable.
-_GATE_FLOOR = float(os.environ.get("KAVACH_BM25_GATE_FLOOR", "0.50"))
+_GATE_FLOOR = float(os.environ.get("KAVACH_BM25_GATE_FLOOR", "0.65"))
 
 
 def _rrf_fuse(
