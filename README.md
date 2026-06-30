@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="kavachlogo.png" width="180" alt="Kavach"/>
+<img src="kavachlogo.png" width="480" alt="Kavach"/>
 
 # Kavach
 
