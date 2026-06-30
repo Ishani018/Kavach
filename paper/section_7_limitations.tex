@@ -68,6 +68,12 @@ and a defense-in-depth evaluation inside an MXC sandbox --- the production
 configuration implied by the Build~2026 Microsoft/OpenClaw partnership --- are
 future work.
 
+\paragraph{Single embedding model.} All detection uses a single encoder
+(\texttt{bge-base-en-v1.5}), selected for open-source offline reproducibility
+rather than by a comparative ablation; whether an alternative open-source
+retrieval encoder would shift the recall/false-positive trade-off is an open
+question we leave to future work.
+
 \paragraph{Benchmark saturation.} InjecAgent and AgentDojo are increasingly
 saturated on frontier models, which compresses the headroom in which a monitor's
 benefit is visible. Multi-step staged attacks, which our trajectory monitor

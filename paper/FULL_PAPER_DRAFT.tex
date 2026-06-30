@@ -517,6 +517,26 @@ vector is compared against five pre-computed domain centroids stored in
 exceeds $\theta_{\text{route}} = 0.40$ are activated; COMPASS always runs
 regardless of routing similarity.
 
+\paragraph{Embedding model.}
+Kavach embeds every action and corpus pattern with
+\texttt{BAAI/bge-base-en-v1.5} (768-d), used with the asymmetric query/passage
+prefix convention the model is trained for (queries are prefixed
+\texttt{"Represent this sentence for searching relevant passages:"}, corpus
+documents are embedded bare). The choice is driven by deployment constraints
+rather than a leaderboard ranking. First, BGE is open-source and runs locally,
+which is a precondition for the offline reproducibility we claim
+(\S\ref{sec:intro}): an API-hosted embedding model would make the decision path
+depend on a remote service and break that guarantee. Second, a local model
+incurs no per-query API cost and keeps the detection path free of any network
+call, consistent with Kavach's design as a deterministic, model-agnostic monitor
+that runs without a GPU (\S\ref{sec:crossmodel}). Third, BGE-base is a strong
+general-purpose retrieval encoder at its size on the MTEB benchmark, and its
+asymmetric-retrieval training matches how Kavach uses it --- short proposed
+actions queried against a corpus of attack-pattern descriptions. We did
+\emph{not} perform a systematic embedding-model ablation: comparing BGE against
+alternative open-source retrieval encoders on Kavach's own detection task is
+left to future work, and the numbers we report are specific to this encoder.
+
 The router replaces the stage-bound dispatcher used in early prototypes
 (OpenClaw stages Init$\to$Input$\to$Inference$\to$Decision$\to$Execution).
 Ministers are \emph{domain-bound}, not stage-bound: EXECUTOR fires on any
@@ -1080,6 +1100,12 @@ natural next step.
 and a defense-in-depth evaluation inside an MXC sandbox --- the production
 configuration implied by the Build~2026 Microsoft/OpenClaw partnership --- are
 future work.
+
+\paragraph{Single embedding model.} All detection uses a single encoder
+(\texttt{bge-base-en-v1.5}), selected for open-source offline reproducibility
+rather than by a comparative ablation; whether an alternative open-source
+retrieval encoder would shift the recall/false-positive trade-off is an open
+question we leave to future work.
 
 \paragraph{Benchmark saturation.} InjecAgent and AgentDojo are increasingly
 saturated on frontier models, which compresses the headroom in which a monitor's
