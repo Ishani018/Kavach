@@ -844,6 +844,9 @@ def main() -> None:
                          "without and with Kavach to also measure benign over-blocking.")
     ap.add_argument("--task-set",          type=int, choices=[1, 2, 3, 4], default=None,
                     help="Slice of user tasks to run: 1=Calendar, 2=Email, 3=Files, 4=Mixed")
+    ap.add_argument("--max-pairs",         type=int, default=None,
+                    help="cap total (user×injection) pairs for a quick subset run; "
+                         "truncates the user-task list. Default: full suite.")
     args = ap.parse_args()
 
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
@@ -889,6 +892,15 @@ def main() -> None:
             start = (args.task_set - 1) * chunk_size
             end = min(start + chunk_size, n)
             user_tasks_to_run = all_task_ids[start:end]
+
+    # --max-pairs: cap total (user×injection) pairs by truncating the user-task
+    # list. Composes with --task-set (truncates whatever slice it produced) and is
+    # a no-op when unset. keep = floor(max_pairs / n_injection); e.g. slack has 5
+    # injection tasks, so --max-pairs 25 -> 5 user tasks -> exactly 25 pairs.
+    if args.max_pairs is not None:
+        base = user_tasks_to_run if user_tasks_to_run is not None else list(suite.user_tasks.keys())
+        keep = max(1, args.max_pairs // max(1, len(suite.injection_tasks)))
+        user_tasks_to_run = base[:keep]
 
     n_user = len(user_tasks_to_run) if user_tasks_to_run is not None else len(suite.user_tasks)
     n_inj  = len(suite.injection_tasks)
