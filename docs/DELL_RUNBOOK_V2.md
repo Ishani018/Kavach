@@ -189,6 +189,8 @@ git push origin parv-results
 # Then message Ishani with the headline numbers.
 ```
 
+**Regenerating the §5 paper tables from the dump** (`make_section5.py minister_runs.jsonl --rho-auto`): no extra steps — the minister ablation now uses the deployed pure-veto Speaker automatically, so the gemma4:26b dump produces the same methodology already validated on the laptop dump (genuine ASR variation as ministers stack, not the old degenerate 100%).
+
 ---
 
 ## 6. Known gotchas
