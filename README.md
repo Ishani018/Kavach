@@ -112,7 +112,7 @@ Each pattern carries `id`, `category`, `source`, `rationale`, and three abstract
 
 Kavach reaches the tool-call boundary through an OpenClaw plugin (`plugin/`, TypeScript) that calls `POST /hook/parliament` synchronously in the `before_tool_call` hook. On BLOCK or ESCALATE the plugin denies or defers the call before any side effect.
 
-A measurement we report as a contribution in itself: on OpenClaw, `before_tool_call` fires reliably in the **embedded** execution path but not in the **gateway** path (upstream issues #5513 and #5943), so no security plugin can intercept on the gateway path until those are fixed. Kavach is evaluated in embedded mode, and we contribute the upstream fixes (PR-1). The general lesson — a working pre-execution hook is a precondition for *any* runtime guardrail — motivates treating it as a first-class, tested platform primitive.
+A measurement we report as a contribution in itself: on OpenClaw, `before_tool_call` fires reliably in the **embedded** execution path but not in the **gateway** path, so no security plugin can intercept a gateway-routed tool call there. Kavach is evaluated in embedded mode. The two defects historically responsible (#5513, #5943) we diagnosed independently and wrote a candidate patch for; both were resolved upstream in OpenClaw v2026.4.15, consistent with our diagnosis. The general lesson — a working pre-execution hook is a precondition for *any* runtime guardrail — motivates treating it as a first-class, tested platform primitive.
 
 Kavach itself is not an OpenClaw component: all detection logic lives in `parliament/server.py`, a standalone FastAPI service. The framework binding is an adapter, not a dependency — any agent framework that can issue an HTTP request at a pre-execution hook integrates against the same service. The primary evaluation runs an agent backed by Gemma 4 26B on a Dell Precision 3660 (RTX 4090), but Kavach's own components — corpus, ministers, Speaker, and the BGE embedding model — are CPU-capable and backbone-independent; the GPU on that machine serves the agent's inference and merely accelerates Kavach's embedding step.
 
@@ -252,7 +252,7 @@ kavach_router_config.json    router domain descriptions
 corpus_v2/                   corpus-expansion working area (protocol + new patterns)
 
 plugin/                      OpenClaw before_tool_call plugin (TypeScript)
-openclaw_pr/                 upstream PR-1 — the #5513 / #5943 hook fixes + tests
+openclaw_pr/                 candidate patch + tests for #5513 / #5943 (since resolved upstream)
 benchmarks/                  InjecAgent / AgentDojo harness; results_v2/ holds Dell runs
 tools/                       dell_lab.py (browser run dashboard), pattern_inspector (CLI)
 scripts/                     dell_run_*.sh — Dell session run scripts

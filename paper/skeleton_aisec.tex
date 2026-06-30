@@ -48,9 +48,10 @@ what it is about to do. We present Kavach, a runtime monitor that closes this
 gap by intercepting every tool call at the moment its arguments are resolved,
 scoring its semantic intent against a curated, taxonomy-grounded corpus of
 attack patterns before any side effect occurs. We make four contributions.
-First, a measurement: we show that a widely used agent runtime's gateway path
-exposes no working pre-execution hook at all, characterize where interception is
-achievable, and contribute upstream fixes. Second, a deployment: a parliament of
+First, a measurement: we show that a widely used agent runtime's production
+gateway path exposes no working pre-execution hook --- so no security plugin can
+intercept there --- while its embedded execution path does, and characterize the
+gap with a sentinel-file probe. Second, a deployment: a parliament of
 four domain-specialized detectors reaches a verdict in real time on production
 hardware, with every decision grounded in a structured taxonomy and folded into
 a tamper-evident ledger; we also report an instructive failure --- a corpus
@@ -104,9 +105,9 @@ Kavach demonstrates that semantic pre-execution interception is achievable on a
 production agent runtime, that grounding each verdict in a structured cyber
 taxonomy makes both the decision and its justification tamper-evident, and that
 the choice of vote aggregator is a measurable robustness/utility trade-off
-rather than an implementation detail. The pre-execution hook gap we document,
-and the upstream fixes we contribute, suggest that pre-execution interception
-should be a first-class runtime primitive for agent platforms.
+rather than an implementation detail. The pre-execution hook gap we document on
+the production gateway path suggests that pre-execution interception should be a
+first-class, tested runtime primitive for agent platforms.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{kavach}

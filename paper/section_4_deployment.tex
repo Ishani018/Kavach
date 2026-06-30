@@ -12,18 +12,23 @@ exposes two execution paths: an \emph{embedded} runner used when the agent is
 driven programmatically, and a \emph{gateway} path used by the interactive
 terminal and the hosted gateway. A pre-execution security plugin must run at
 the \texttt{before\_tool\_call} boundary --- after arguments are resolved, before
-the tool executes. On the gateway path this boundary is not reachable by any
-plugin: issue \#5513 causes the typed-hook runner to snapshot the plugin
-registry at construction, hiding hooks registered during plugin load, and issue
-\#5943 means \texttt{before\_tool\_call}, although documented as available since
-v2026.3.28, is never invoked in \texttt{executeToolCalls()} on that path. A
-sentinel-file probe confirms the gap: a tool call that writes a marker executes
-with no plugin interception on the gateway path, while the same call is
-intercepted in embedded mode. We contribute upstream fixes for both defects
-(PR-1) and evaluate Kavach in embedded mode. The general lesson is
-that a working pre-execution hook is a precondition for \emph{any} runtime
-guardrail, and agent platforms should treat it as a first-class, tested primitive
-rather than optional plugin surface.
+the tool executes. We find this boundary is reachable on the embedded path but
+not on the gateway path: a sentinel-file probe (a tool call that writes a marker)
+executes with no plugin interception when routed through the gateway, while the
+identical call is intercepted in embedded mode, where the parliament returns
+\textsc{Block} and the tool never runs. The gateway's tool-execution path simply
+exposes no pre-execution plugin hook --- a systemic property that affects any
+security plugin, not only Kavach. Two defects, \#5513 (the typed-hook runner
+snapshotting the plugin registry at construction) and \#5943
+(\texttt{before\_tool\_call} not invoked in \texttt{executeToolCalls()}), were
+historically responsible; we diagnosed both independently and authored a
+candidate patch (\texttt{openclaw\_pr/}), and both were subsequently resolved
+upstream in OpenClaw v2026.4.15 --- consistent with our diagnosis, as the
+embedded hook now fires without any patching on our part. We evaluate Kavach on
+the embedded path. The general lesson is that a working pre-execution hook is a
+precondition for \emph{any} runtime guardrail, and agent platforms should treat
+it as a first-class, tested primitive on the path that actually executes tool
+calls, rather than optional plugin surface.
 
 \subsection{Live interception}
 \label{sec:live}
