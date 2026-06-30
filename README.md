@@ -56,7 +56,7 @@ flowchart LR
 | **COMPASS** | `parliament/server.py` | Session-level intent oracle. The user's goal is seeded at session start; each action is scored `cosine(intent, action)`, and drift is flagged below `0.585` (a data-derived threshold). Catches goal hijacking the per-action ministers miss. |
 | **Trajectory** | `parliament/trajectory.py` | Accumulates session-level risk over a rolling window — sequential chaining and cross-minister escalation (e.g. VAULT then CHANNEL = credential then exfil) — and modulates the per-call block threshold. |
 | **Speaker** | `parliament/speaker.py` | Deterministic, asymmetric combiner. Does not average; one minister at its block threshold vetoes the call. |
-| **Ledger** | `parliament/provenance.py` | Append-only SQLite, SHA-256 hash-chained. Every verdict and its provenance is committed; `GET /ledger/verify` re-walks the chain to detect any post-hoc edit. |
+| **Ledger** | `parliament/server.py` | Append-only SQLite, SHA-256 hash-chained (`_entry_hash`); `provenance.py` builds the technique→tactic→stage chain written into each row. `GET /ledger/verify` re-walks the chain to detect any post-hoc edit. |
 
 The embedding model is `BAAI/bge-base-en-v1.5` (768-d). The service runs on FastAPI at `127.0.0.1:8088` and fails **closed** on the tool-call path (`toolCallFailMode = deny`). Kavach is model-agnostic and runs **without a GPU** — CPU-only deployment is supported end-to-end, with a GPU only accelerating the embedding step.
 
@@ -227,11 +227,11 @@ The BM25 lexical-gate floor is `KAVACH_BM25_GATE_FLOOR` (default `0.65`) — the
 
 ```
 parliament/                  the production decision path (never touched by eval tooling)
-  server.py                  FastAPI service, router, COMPASS, endpoints
+  server.py                  FastAPI service, router, COMPASS, SHA-256 hash-chained ledger
   ministers.py               run_minister_hybrid — dense + BM25 + lexical gate
   speaker.py                 combine_verdicts — deterministic pure-veto Speaker
   trajectory.py              session-level multi-step risk
-  provenance.py              technique to tactic to stage + hash-chained ledger
+  provenance.py              technique to tactic to stage chain (written into the ledger)
   config.yaml                embeddings, thresholds, router config
   test_speaker.py            Speaker unit tests
 
