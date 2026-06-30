@@ -12,15 +12,15 @@ exposes two execution paths: an \emph{embedded} runner used when the agent is
 driven programmatically, and a \emph{gateway} path used by the interactive
 terminal and the hosted gateway. A pre-execution security plugin must run at
 the \texttt{before\_tool\_call} boundary --- after arguments are resolved, before
-the tool executes. We find that on the gateway path this boundary is not
-reachable by any plugin: issue \#5513 causes the typed-hook runner to snapshot
-the plugin registry at construction, hiding hooks registered during plugin
-load, and issue \#5943 means \texttt{before\_tool\_call}, although documented as
-available since v2026.3.28, is never invoked in \texttt{executeToolCalls()} on
-that path. We confirm the gap with a sentinel-file probe: a tool call that
-writes a marker executes with no plugin interception on the gateway path, while
-the same call is intercepted in embedded mode. We contribute upstream fixes for
-both defects (PR-1) and evaluate Kavach in embedded mode. The general lesson is
+the tool executes. On the gateway path this boundary is not reachable by any
+plugin: issue \#5513 causes the typed-hook runner to snapshot the plugin
+registry at construction, hiding hooks registered during plugin load, and issue
+\#5943 means \texttt{before\_tool\_call}, although documented as available since
+v2026.3.28, is never invoked in \texttt{executeToolCalls()} on that path. A
+sentinel-file probe confirms the gap: a tool call that writes a marker executes
+with no plugin interception on the gateway path, while the same call is
+intercepted in embedded mode. We contribute upstream fixes for both defects
+(PR-1) and evaluate Kavach in embedded mode. The general lesson is
 that a working pre-execution hook is a precondition for \emph{any} runtime
 guardrail, and agent platforms should treat it as a first-class, tested primitive
 rather than optional plugin surface.
@@ -43,7 +43,7 @@ call (\texttt{toolCallFailMode = deny}).
 Our corpus is authored in the register of MITRE technique descriptions and
 tool-call syntax. On InjecAgent \cite{zhan2024injecagent}, whose attacks are
 expressed as fluent natural-language instructions, this configuration yields a
-23.5\% hard-block false-positive rate on the data-harm setting (0.0\% on
+23.5\% hard-block false-positive rate on the direct-harm setting (0.0\% on
 data-stealing) on benign actions evaluated per distinct case --- higher than the
 corpus's tool-call register would suggest, and concentrated almost entirely in
 one setting. We attribute this elevated false-positive rate to a
@@ -69,9 +69,9 @@ dense retrieval by reciprocal-rank fusion for candidate selection, with the fina
 confidence computed as the dense cosine similarity scaled by a lexical gate (a
 benign action that is semantically near an attack pattern but shares none of its
 distinctive tokens is discounted). With this hybrid configuration, on InjecAgent
-Kavach holds strict (hard-\textsc{Block}) recall at 0.633 (data-harm) / 0.438
+Kavach holds strict (hard-\textsc{Block}) recall at 0.633 (direct-harm) / 0.438
 (data-stealing) and loose (block-or-escalate) recall at 0.90 / 0.875. The
-residual false-positive rate (23.5\% hard-block on data-harm, 0.0\% on
+residual false-positive rate (23.5\% hard-block on direct-harm, 0.0\% on
 data-stealing) is a corpus-quality property addressed separately --- a small
 number of over-broad CHANNEL patterns account for it (\S\ref{sec:limitations})
 --- rather than a property of the retrieval fusion, which recovers recall. The

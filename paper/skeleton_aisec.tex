@@ -41,29 +41,29 @@
 % NOTE: capstone mentor Prof. Rajesh Banginwar acknowledged in camera-ready only.
 
 \begin{abstract}
-We present Kavach, an OpenClaw-native runtime monitor that intercepts every
-agent tool call \emph{before execution}, scores its semantic intent against a
-curated corpus of attack-pattern descriptions across four specialized
-ministers (EXECUTOR / VAULT / CHANNEL / NAVIGATOR), and tracks session-level
-trajectory and intent drift. We make four contributions. First, a
-\emph{measurement}: we show that OpenClaw's gateway execution path exposes no
-pre-execution plugin hook, so no security plugin can intercept there, and we
-characterize where interception \emph{is} achievable (the embedded runner).
-Second, a \emph{deployment}: live interception on production hardware at
-78\,ms p50, with taxonomy-grounded provenance folded into a hash-chained ledger,
-a representation-mismatch analysis explaining why a corpus authored in tool-call
-syntax yields an elevated FPR on natural-language attacks, and a hybrid
-BM25+dense retrieval configuration evaluated at 19\% hard-block FPR (38\%
-block-or-escalate) on InjecAgent. Third, the
-\emph{aggregation frontier}: we show that score-based vote aggregation
-(including a Bayesian variant) is brittle to an adaptive attacker who corrupts
-individual ministers, while a pure-veto aggregator is robust but sacrifices
-benign utility; we quantify the FPR/robustness frontier and propose a tuned
-hybrid (Bayesian decision path with a veto floor). Fourth, a
-\emph{contamination-controlled evaluation}: a blind-written corpus, InjecAgent
-run cold, and a benign false-positive gate measured before attack recall, with
-cost reported jointly with detection. All artifacts are reproducible offline;
-the trajectory monitor and aggregator require no GPU.
+LLM agents increasingly act in the world through tool calls, but the runtimes
+that host them provide no point at which a resolved tool invocation can be
+inspected before it executes --- guardrails today watch what an agent says, not
+what it is about to do. We present Kavach, a runtime monitor that closes this
+gap by intercepting every tool call at the moment its arguments are resolved,
+scoring its semantic intent against a curated, taxonomy-grounded corpus of
+attack patterns before any side effect occurs. We make four contributions.
+First, a measurement: we show that a widely used agent runtime's gateway path
+exposes no working pre-execution hook at all, characterize where interception is
+achievable, and contribute upstream fixes. Second, a deployment: a parliament of
+four domain-specialized detectors reaches a verdict in real time on production
+hardware, with every decision grounded in a structured taxonomy and folded into
+a tamper-evident ledger; we also report an instructive failure --- a corpus
+authored in one linguistic register systematically misjudges attacks phrased in
+another --- and the retrieval fix that recovers from it. Third, the aggregation
+frontier: we show that combining detector votes by confidence, rather than by
+veto, is fragile to an attacker who can corrupt even one detector, and we
+characterize the resulting trade-off between robustness and false alarms. Fourth,
+a contamination-controlled evaluation: the attack corpus was authored blind to
+the benchmarks it is tested against, and false-positive rate is measured before
+--- not alongside --- attack recall, so that detection numbers cannot be
+inflated by aggressiveness. Kavach requires no GPU for its trajectory and
+aggregation logic and is fully reproducible offline.
 \end{abstract}
 
 \maketitle

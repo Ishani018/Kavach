@@ -50,8 +50,10 @@ with a federal remediation deadline of June 4, 2026.
 These four cases share a structure: none of them exploited the language model's
 reasoning. Each was exploited at the harness layer — configuration parsing,
 serialization, CSRF handling, environment-variable access — by attacks shaped
-for that layer. The model was incidental. A sustained wave of MCP-layer
-disclosures across late 2025 and early 2026 made agent infrastructure one of the
+for that layer. The model was incidental. Multiple security vendors and a U.S.
+government Cybersecurity Information Sheet documented a sustained wave of
+MCP-layer disclosures across late 2025 and early 2026
+\cite{agentauditkit2026,nsacisa2026mcp}, making agent infrastructure one of the
 fastest-growing attack surfaces in production AI systems.
 
 \paragraph{The gap in existing defenses.}
@@ -85,38 +87,38 @@ workstream (PR-1).
 three forming a coherent systems-and-measurement story and the fourth a
 focused empirical study.
 
-\textbf{First, a measurement (\S\ref{sec:hookgap}).} We show that OpenClaw's
-gateway execution path exposes no working pre-execution plugin hook --- two
-upstream defects (issues \#5513 and \#5943) prevent \texttt{before\_tool\_call}
-from firing --- so \emph{no} security plugin can intercept there until they are
-fixed. We characterize where interception is achievable (the embedded runner),
-contribute the upstream fixes (PR-1), and argue the pre-execution hook should
-be a mandatory runtime primitive for agent platforms.
+\textbf{First, a measurement (\S\ref{sec:hookgap}).} OpenClaw's gateway
+execution path exposes no working pre-execution plugin hook: two upstream
+defects (issues \#5513 and \#5943) prevent \texttt{before\_tool\_call} from
+firing, so \emph{no} security plugin can intercept there until they are fixed.
+Interception is achievable only on the embedded runner. We contribute the
+upstream fixes (PR-1) and argue that a working pre-execution hook should be a
+mandatory, tested runtime primitive for agent platforms.
 
 \textbf{Second, a deployment with taxonomy-grounded detection
-(\S\ref{sec:architecture}, \S\ref{sec:eval}).} We present a
-parliament-of-ministers architecture: four specialized ministers --- EXECUTOR
-(code execution; MITRE ATT\&CK T1059, OWASP Agentic A09), VAULT (credential
-theft; T1552, T1539, A02/A06), CHANNEL (exfiltration; T1567, MITRE ATLAS
-AML.T0086, A04), and NAVIGATOR (trajectory drift; T1083, A01) --- each query a
-disjoint ChromaDB collection of attack-pattern descriptions embedded with BGE
-\cite{xiao2024bge}, fused with BM25 via reciprocal-rank fusion. A deterministic
-speaker combines verdicts asymmetrically (any minister BLOCK suffices). Every
-verdict is grounded in a structured provenance chain --- matched pattern
-$\rightarrow$ technique ID $\rightarrow$ tactic $\rightarrow$ kill-chain stage,
-referencing MITRE ATLAS and ATT\&CK --- and that chain is folded into a
-SHA-256 hash-chained ledger, making not only the verdict but its taxonomic
-\emph{grounding} tamper-evident. We deploy on production hardware and report a
-representation-mismatch finding: a corpus authored in tool-call syntax yields
-high false-positive rates on natural-language attacks, which hybrid retrieval
-substantially recovers.
+(\S\ref{sec:architecture}, \S\ref{sec:eval}).} The detector is a
+parliament of four specialized ministers --- EXECUTOR (code execution; MITRE
+ATT\&CK T1059, OWASP ASI05), VAULT (credential and identity abuse; T1552,
+T1539, ASI03), CHANNEL (exfiltration and inter-agent channels; T1567, MITRE
+ATLAS AML.T0086, ASI07), and NAVIGATOR (trajectory drift; T1083, ASI01) ---
+each querying a disjoint ChromaDB collection of attack-pattern descriptions
+embedded with BGE \cite{xiao2024bge} and fused with BM25 via reciprocal-rank
+fusion. A deterministic speaker combines verdicts asymmetrically: any minister
+BLOCK suffices. Every verdict carries a structured provenance chain --- matched
+pattern $\rightarrow$ technique ID $\rightarrow$ tactic $\rightarrow$ kill-chain
+stage, referencing MITRE ATLAS and ATT\&CK --- folded into a SHA-256
+hash-chained ledger, so that not only the verdict but its taxonomic
+\emph{grounding} is tamper-evident. We deploy this on production hardware. An
+instructive failure surfaces there: a corpus authored in tool-call syntax
+misjudges attacks phrased in natural language, inflating the false-positive
+rate, and hybrid retrieval substantially recovers from it.
 
-\textbf{Third, the aggregation frontier (\S\ref{sec:frontier}).} We show that
-score-based vote aggregation, including a Bayesian variant, is brittle to an
-adaptive attacker who corrupts individual ministers, whereas a pure-veto
-aggregator is robust but sacrifices benign utility. We measure the
-false-positive/robustness frontier on real minister-vote dumps and propose a
-tuned hybrid (Bayesian decision path with a veto floor).
+\textbf{Third, the aggregation frontier (\S\ref{sec:frontier}).} Combining
+minister votes by confidence --- including a Bayesian variant --- is fragile to
+an adaptive attacker who corrupts even a single minister, whereas a pure-veto
+aggregator is robust but sacrifices benign utility. We measure this
+false-positive/robustness trade-off on real minister-vote dumps and characterize
+a tuned hybrid: a Bayesian decision path with a hard veto floor.
 
 \textbf{Fourth, contamination-controlled evaluation (\S\ref{sec:eval}).} The
 attack-pattern corpus was authored from MITRE ATT\&CK technique IDs and OWASP
@@ -146,11 +148,12 @@ semantic attack-pattern corpus that requires no per-deployment rule authoring is
 precisely the generalization gap Kavach's design addresses. Kavach occupies
 precisely this semantic layer.
 Three papers published in early 2026 require explicit positioning. DeepContext
-\cite{albrethsen2026deepcontext} proposes an intent-distance oracle over turn
-embeddings (F1 0.84, sub-20 ms), conceptually adjacent to Kavach's COMPASS
-oracle; our differentiation is that COMPASS compares agent actions against a
-fixed declared intent rather than tracking evolving user-turn sequences, and
-feeds a four-minister parliament. PSG-Agent \cite{psgagent2026} introduces a
+\cite{albrethsen2026deepcontext} uses a recurrent network propagating a hidden
+state over fine-tuned, task-attention-weighted turn embeddings (F1 0.84,
+sub-20 ms), conceptually adjacent to Kavach's COMPASS oracle; our
+differentiation is that COMPASS compares agent actions against a fixed declared
+intent rather than tracking evolving user-turn sequences, and feeds a
+four-minister parliament. PSG-Agent \cite{psgagent2026} introduces a
 four-component guardrail (Plan Monitor, Tool Firewall, Response Guard, Memory
 Guardian) similar in structure to Kavach's ministers; our differentiation is
 that PSG-Agent is personalized and collapses oracle and detector roles, while

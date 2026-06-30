@@ -88,7 +88,8 @@ diverges from the user's stated intent across turns. TaskTracker
 \cite{abdelnabi2024tasktracker} uses activation deltas in white-box models.
 DeepContext \cite{albrethsen2026deepcontext} uses a turn-level RNN (F1 0.84,
 sub-20 ms). Trajectory Guard \cite{advani2026trajectoryguard} uses a Siamese
-Recurrent Autoencoder (AAAI 2026). Kavach's COMPASS oracle belongs to this
+Recurrent Autoencoder (AAAI 2026 Trustworthy Agentic AI Workshop). Kavach's
+COMPASS oracle belongs to this
 family at the session level: a single cosine comparison between the seeded
 user intent and each proposed agent action.
 
@@ -113,12 +114,12 @@ reported AgentDojo / InjecAgent performance. This table is filled in
 The three most widely used agent-security benchmarks are:
 
 \textbf{InjecAgent} \cite{zhan2024injecagent} — 1,054 prompt-injection test
-cases from UIUC (2024), structured as 62 distinct attacker tools $\times$ 17
-benign user tasks (split into data-harm and data-stealing settings). Each case
-provides a benign user instruction, a tool the agent
-would invoke, a malicious payload in the tool's output, and the expected attacker
-action. The standard reported metric is Attack Success Rate (ASR) at the harness
-level. Kavach runs InjecAgent cold (\S\ref{sec:eval}).
+cases from UIUC (2024), structured as 17 user tools $\times$ 62 attacker tools,
+split into direct-harm (30 tools) and data-stealing (32 tools) settings. Each
+case provides a benign user instruction, a tool the agent would invoke, a
+malicious payload in the tool's output, and the expected attacker action. The
+standard reported metric is Attack Success Rate (ASR) at the harness level.
+Kavach runs InjecAgent cold (\S\ref{sec:eval}).
 
 \textbf{AgentDojo} \cite{debenedetti2024agentdojo} — 97 user tasks and 629
 security test cases across four environments: workspace, Slack, banking, and
@@ -146,16 +147,17 @@ T1552 (Unsecured Credentials), T1539 (Steal Web Session Cookie), T1041
 independently derives 25+ attack types from MITRE ATT\&CK for their MCP
 supply-chain benchmark.
 
-\textbf{OWASP Agentic Top 10 2026} — released December 2025 and peer-reviewed by
-over 100 practitioners. Ten categories: ASI01 Agent Goal Hijack, ASI02
-Excessive Agency, ASI03 Unsafe Memory Retrieval, ASI04 Tool Misuse, ASI05
-Agent Orchestration Manipulation, ASI06 Memory Poisoning, ASI07 Identity
-Spoofing, ASI08 Cascading Failures, ASI09 Supply Chain Compromise, ASI10
-Unsafe Code Execution. Kavach's minister mapping:
-EXECUTOR $\leftrightarrow$ ASI10, ASI09;
-VAULT $\leftrightarrow$ ASI02, ASI06, ASI07;
-CHANNEL $\leftrightarrow$ ASI04, ASI08;
-NAVIGATOR $\leftrightarrow$ ASI01, ASI05.
+\textbf{OWASP Top 10 for Agentic Applications 2026} — released December~9, 2025.
+Ten categories: ASI01 Agent Goal Hijack, ASI02 Tool Misuse \& Exploitation,
+ASI03 Identity \& Privilege Abuse, ASI04 Agentic Supply Chain Vulnerabilities,
+ASI05 Unexpected Code Execution (RCE), ASI06 Memory \& Context Poisoning,
+ASI07 Insecure Inter-Agent Communication, ASI08 Cascading Failures,
+ASI09 Human-Agent Trust Exploitation, ASI10 Rogue Agents. Kavach's minister
+mapping:
+EXECUTOR $\leftrightarrow$ ASI05 (Unexpected Code Execution), ASI04 (Agentic Supply Chain Vulnerabilities);
+VAULT $\leftrightarrow$ ASI03 (Identity \& Privilege Abuse), ASI09 (Human-Agent Trust Exploitation);
+CHANNEL $\leftrightarrow$ ASI07 (Insecure Inter-Agent Communication), ASI08 (Cascading Failures);
+NAVIGATOR $\leftrightarrow$ ASI01 (Agent Goal Hijack), ASI10 (Rogue Agents).
 
 Using both taxonomies as the authoring source for the attack-pattern corpus (§3.2)
 ensures that the corpus is grounded in the published threat model of the field
