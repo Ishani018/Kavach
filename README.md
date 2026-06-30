@@ -255,7 +255,7 @@ benchmarks/                  InjecAgent / AgentDojo harness; results_v2/ holds D
 tools/                       dell_lab.py (browser run dashboard), pattern_inspector (CLI)
 scripts/                     dell_run_*.sh — Dell session run scripts
 paper/                       AISec 2026 LaTeX (§1–§7), bib, generated tables/
-docs/                        runbooks (DELL_RUNBOOK_V2.md), architecture, findings
+docs/                        LAB_DAY.md (July 2-3 lab runbook), architecture, findings
 ```
 
 ---
