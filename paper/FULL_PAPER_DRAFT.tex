@@ -882,6 +882,11 @@ the contribution is the characterization of this trade-off, not a claim that any
 single aggregator dominates.
 
 \inputtable{tables/tab_correlation}
+
+The measured inter-minister error correlation (Table~\ref{tab:correlation},
+mean off-diagonal $\rho=\MeasuredRho$) is the discount the Bayesian aggregator
+applies when fusing votes; the resulting frontier is reported next.
+
 \inputtable{tables/tab_frontier}
 
 \subsection{Minister ablation}
@@ -903,7 +908,7 @@ in the staged, multi-step setting).
 % [TBD] cells in the Kavach row are filled in when Workstream D completes.
 % The table uses booktabs for publication-quality formatting.
 
-\begin{table*}[t]
+\begin{table*}[tp]
 \centering
 \caption{%
   Comparison of agent guardrails on five axes. ``Boundary'' indicates where in
