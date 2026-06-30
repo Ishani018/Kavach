@@ -161,10 +161,11 @@ cyber-taxonomy: the matched corpus pattern resolves to a technique identifier
 (MITRE ATLAS for AI/agent-native techniques, e.g.\ AML.T0051 indirect prompt
 injection and AML.T0086 exfiltration via agent tool invocation; MITRE ATT\&CK
 for host-level techniques), which maps to a tactic and an ordered kill-chain
-stage. Resolution is corpus-tagged where a pattern declares its source
-technique, with a per-minister default as a fallback so the chain is always
-populated; the chain records which basis was used, so the audit trail is
-explicit about precision. The provenance record is serialized into the
+stage. Resolution is corpus-tagged: every one of the 401 patterns declares a
+specific source technique (MITRE ATT\&CK, MITRE ATLAS, or an OWASP Agentic
+category), so the chain resolves to a named technique rather than a per-minister
+default in every case; a per-minister default remains available as a fallback so
+the chain is always populated, and the chain records which basis was used. The provenance record is serialized into the
 SHA-256 hash-chained Ledger as a hashed field. Consequently, editing the
 \emph{grounding} of a historical decision --- for instance, relabeling a
 credential-access block as a benign read to mislead an auditor --- breaks the
