@@ -177,6 +177,97 @@ python kavach_eval/improvement_loop.py \
 
 ---
 
+## 4.6. Parallel workstream: embedding model comparison (Parv's laptop, RTX 5060)
+
+> **PARALLEL — runs on Parv's laptop (RTX 5060), NOT on the Dell, and does NOT
+> block the primary runs.** Sections 1–3 (AgentDojo / InjecAgent / red-team) on
+> the Dell remain priority 1–3. This is a secondary workstream that uses the
+> second machine's GPU while the Dell is busy. If the laptop is needed for
+> anything else, this yields.
+
+**Goal.** Convert the paper's current "we did not perform an embedding-model
+ablation; future work" framing (§3.2, §7) into a real evaluated result. Compare
+the deployed `BAAI/bge-base-en-v1.5` against two alternatives —
+`intfloat/e5-base-v2` and `thenlp/gte-base` — on InjecAgent recall/FPR, holding
+the agent backbone, per-minister thresholds, and Speaker identical and varying
+**only** the embedding model.
+
+**Safety (non-negotiable — scratch-only).**
+- Never touches `kavach_corpus_v1.json`, `kavach_corpus_v1_ORIGINAL.json`, or the
+  production ChromaDB (`parliament/.chroma_kavach`).
+- Each model gets its **own** scratch ChromaDB at
+  `parliament/.chroma_embedding_test_{model}/` — never the production path.
+- Any edit to `config.yaml` / `corpus_loader.py` for the swap is **laptop-only,
+  uncommitted** (`git checkout -- config.yaml corpus_loader.py` afterwards).
+
+**How the embedding model is selected (read this first — there is NO CLI flag).**
+The embed model is **not** a runtime flag. It is set in two places, both of which
+must match for a run to be valid:
+- `corpus_loader.py` line ~39: `EMBED_MODEL_NAME = "BAAI/bge-base-en-v1.5"` (the
+  loader's hardcoded constant — what the ChromaDB is embedded with).
+- `parliament/config.yaml`: `embed_model:` (what the running server queries with).
+- `injecagent_runner.py` talks to the **running server** via `--parliament-url`;
+  it has no `--chroma` flag, so the model under test is whatever the live server
+  loaded. **The runs are therefore serial — one model at a time**, not a parallel
+  for-loop.
+
+> **Optional 5-minute prep that makes this clean:** add an `--embed-model` flag to
+> `corpus_loader.py` (it already accepts `model_name` in `EmbeddingModel.__init__`;
+> only the CLI wiring is missing) and have the server read the same env var. If you
+> do this, commit it as its own small PR *before* the run. Without it, follow the
+> two-file-edit procedure below.
+
+**Per-model procedure (repeat for each of the 3 models, baseline BGE first).**
+```bash
+mkdir -p kavach_eval/results/embedding_comparison
+
+# --- for MODEL in: BAAI/bge-base-en-v1.5 , intfloat/e5-base-v2 , thenlp/gte-base ---
+# 1. Point BOTH the loader and the server at MODEL (laptop-only, do NOT commit):
+#    - edit corpus_loader.py line ~39  EMBED_MODEL_NAME = "MODEL"
+#    - edit parliament/config.yaml      embed_model: MODEL
+#    - edit config.yaml chroma_path -> ./parliament/.chroma_embedding_test_<tag>
+
+# 2. Build that model's scratch ChromaDB (confirm CHANNEL == 303):
+python corpus_loader.py \
+  --corpus kavach_corpus_v1.json \
+  --chroma parliament/.chroma_embedding_test_<tag> \
+  --rebuild --skip-smoke
+
+# 3. Restart parliament so it loads MODEL + the scratch ChromaDB:
+python -m uvicorn parliament.server:app --host 127.0.0.1 --port 8088
+#    curl :8088/health -> confirm "model": MODEL and CHANNEL doc_count 303
+
+# 4. Run InjecAgent against that server:
+python injecagent_runner.py --full \
+  --parliament-url http://127.0.0.1:8088 \
+  --output kavach_eval/results/embedding_comparison/<tag>/ \
+  --include-benign
+
+# 5. Revert the laptop-only edits before the next model:
+git checkout -- corpus_loader.py parliament/config.yaml
+```
+- **Full 1,054 cases** per model if the 5060 has time. If not, use a **clearly
+  labeled stratified subset of ~150 cases** (same subset across all 3 models),
+  marking every output `SUBSET_n150` so it is never mistaken for a full run.
+- Hold thresholds and Speaker identical across all three — the embedding model is
+  the only variable. (Note: e5/gte use different query prefixes than BGE; if recall
+  looks catastrophically low, check the prefix convention before concluding the
+  model lost.)
+
+**Output.** `kavach_eval/results/embedding_comparison/<tag>/` — strict recall,
+loose recall, and FPR per model.
+
+**Reporting requirement (honest, regardless of outcome).** Whichever model wins,
+report it. If BGE wins or ties, that *strengthens* the §3.2 justification; if an
+alternative wins, the paper says so and the §3.2/§7 "future work" framing becomes
+a real comparison table. Do not cherry-pick. Commit results to `parv-results`
+(NOT main/parv) alongside the other Dell artifacts.
+
+**Time budget.** Secondary. Do not let this delay the Dell's primary
+AgentDojo/InjecAgent/red-team runs.
+
+---
+
 ## 5. Committing results
 
 > All results go to **`parv-results`**, NOT `main`, NOT `parv`.
