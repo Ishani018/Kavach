@@ -196,55 +196,52 @@ the agent backbone, per-minister thresholds, and Speaker identical and varying
 - Never touches `kavach_corpus_v1.json`, `kavach_corpus_v1_ORIGINAL.json`, or the
   production ChromaDB (`parliament/.chroma_kavach`).
 - Each model gets its **own** scratch ChromaDB at
-  `parliament/.chroma_embedding_test_{model}/` — never the production path.
-- Any edit to `config.yaml` / `corpus_loader.py` for the swap is **laptop-only,
-  uncommitted** (`git checkout -- config.yaml corpus_loader.py` afterwards).
+  `parliament/.chroma_embedding_test_<tag>/` — never the production path. (These
+  scratch dirs are gitignored.)
+- No source edits required — the embedding model is selected by the
+  `--embed-model` flag (loader) and the `KAVACH_EMBED_MODEL` env var (server).
+  Nothing is committed; restore the production config by simply unsetting the env
+  var and pointing the server back at `.chroma_kavach`.
 
-**How the embedding model is selected (read this first — there is NO CLI flag).**
-The embed model is **not** a runtime flag. It is set in two places, both of which
-must match for a run to be valid:
-- `corpus_loader.py` line ~39: `EMBED_MODEL_NAME = "BAAI/bge-base-en-v1.5"` (the
-  loader's hardcoded constant — what the ChromaDB is embedded with).
-- `parliament/config.yaml`: `embed_model:` (what the running server queries with).
-- `injecagent_runner.py` talks to the **running server** via `--parliament-url`;
-  it has no `--chroma` flag, so the model under test is whatever the live server
-  loaded. **The runs are therefore serial — one model at a time**, not a parallel
-  for-loop.
-
-> **Optional 5-minute prep that makes this clean:** add an `--embed-model` flag to
-> `corpus_loader.py` (it already accepts `model_name` in `EmbeddingModel.__init__`;
-> only the CLI wiring is missing) and have the server read the same env var. If you
-> do this, commit it as its own small PR *before* the run. Without it, follow the
-> two-file-edit procedure below.
+**How the embedding model is selected.** Both the loader and the server honor
+`KAVACH_EMBED_MODEL`; the loader additionally takes an `--embed-model` flag
+(flag > env > config-default). `injecagent_runner.py` queries the **running
+server**, so the model under test is whichever model that server was started
+with — runs are therefore **serial, one model at a time** (build its ChromaDB,
+start the server against it, run InjecAgent, move to the next model).
 
 **Per-model procedure (repeat for each of the 3 models, baseline BGE first).**
 ```bash
 mkdir -p kavach_eval/results/embedding_comparison
 
-# --- for MODEL in: BAAI/bge-base-en-v1.5 , intfloat/e5-base-v2 , thenlp/gte-base ---
-# 1. Point BOTH the loader and the server at MODEL (laptop-only, do NOT commit):
-#    - edit corpus_loader.py line ~39  EMBED_MODEL_NAME = "MODEL"
-#    - edit parliament/config.yaml      embed_model: MODEL
-#    - edit config.yaml chroma_path -> ./parliament/.chroma_embedding_test_<tag>
+# --- run once per MODEL/<tag> pair: ---
+#     BAAI/bge-base-en-v1.5  -> bge   (baseline; reproduces the headline numbers)
+#     intfloat/e5-base-v2    -> e5
+#     thenlp/gte-base        -> gte
+MODEL=intfloat/e5-base-v2 ; TAG=e5      # set per run
 
-# 2. Build that model's scratch ChromaDB (confirm CHANNEL == 303):
+# 1. Build that model's scratch ChromaDB (confirm CHANNEL == 303):
 python corpus_loader.py \
+  --embed-model "$MODEL" \
   --corpus kavach_corpus_v1.json \
-  --chroma parliament/.chroma_embedding_test_<tag> \
+  --chroma parliament/.chroma_embedding_test_${TAG} \
   --rebuild --skip-smoke
 
-# 3. Restart parliament so it loads MODEL + the scratch ChromaDB:
-python -m uvicorn parliament.server:app --host 127.0.0.1 --port 8088
-#    curl :8088/health -> confirm "model": MODEL and CHANNEL doc_count 303
+# 2. Start parliament against that model + its scratch ChromaDB (env override,
+#    no YAML edit). KAVACH_CHROMA_PATH points the server at the scratch index:
+KAVACH_EMBED_MODEL="$MODEL" \
+KAVACH_CHROMA_PATH="parliament/.chroma_embedding_test_${TAG}" \
+  python -m uvicorn parliament.server:app --host 127.0.0.1 --port 8088
+#    curl :8088/health -> confirm "model": $MODEL and CHANNEL doc_count 303
 
-# 4. Run InjecAgent against that server:
+# 3. Run InjecAgent against that server:
 python injecagent_runner.py --full \
   --parliament-url http://127.0.0.1:8088 \
-  --output kavach_eval/results/embedding_comparison/<tag>/ \
+  --output kavach_eval/results/embedding_comparison/${TAG}/ \
   --include-benign
 
-# 5. Revert the laptop-only edits before the next model:
-git checkout -- corpus_loader.py parliament/config.yaml
+# 4. Stop the server; the next model repeats from step 1. No git revert needed —
+#    nothing was committed, and unsetting the env vars restores production config.
 ```
 - **Full 1,054 cases** per model if the 5060 has time. If not, use a **clearly
   labeled stratified subset of ~150 cases** (same subset across all 3 models),

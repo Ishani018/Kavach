@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -36,7 +37,10 @@ from sentence_transformers import SentenceTransformer
 CORPUS_PATH      = Path(__file__).parent / "kavach_corpus_v1.json"
 TECH_CORPUS_PATH = Path(__file__).parent / "kavach_corpus_technical.json"
 CHROMA_PATH = Path(__file__).parent / "parliament" / ".chroma_kavach"
-EMBED_MODEL_NAME = "BAAI/bge-base-en-v1.5"
+# Default embedding model. KAVACH_EMBED_MODEL env var overrides it (so the loader
+# and the parliament server can be pointed at the same non-default model for an
+# embedding-comparison run without editing this file); --embed-model overrides both.
+EMBED_MODEL_NAME = os.environ.get("KAVACH_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
 
 # Collection names (must match what parliament/server.py queries).
 # Pulled from the JSON's `collections` block at runtime; defined here as
@@ -312,12 +316,17 @@ def main() -> None:
                         help="reset and reload all collections (default action)")
     parser.add_argument("--skip-smoke", action="store_true",
                         help="skip the post-load self-query smoke test")
+    parser.add_argument("--embed-model", default=EMBED_MODEL_NAME,
+                        help="sentence-transformers embedding model to index with "
+                             "(default: %(default)s; also settable via "
+                             "KAVACH_EMBED_MODEL). Use a scratch --chroma dir when "
+                             "building with a non-default model.")
     args = parser.parse_args()
 
     corpus = load_corpus_file(args.corpus)
     collections = corpus.get("collections", DEFAULT_COLLECTIONS)
 
-    embedder = BGEEmbedder()
+    embedder = BGEEmbedder(model_name=args.embed_model)
     client = get_chroma_client(args.chroma)
 
     total = 0
