@@ -31,6 +31,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import sqlite3
 import time
 import uuid
@@ -116,6 +117,22 @@ def _load_config() -> dict:
 
 
 CFG = _load_config()
+
+# KAVACH_EMBED_MODEL overrides config.yaml's embed_model when set, so the server
+# can be started against a non-default embedding model (e.g. for the §4.6
+# embedding-comparison workstream) without editing the YAML. Unset → no change.
+_embed_override = os.environ.get("KAVACH_EMBED_MODEL")
+if _embed_override:
+    log.info("embed_model overridden via KAVACH_EMBED_MODEL: %s", _embed_override)
+    CFG["embed_model"] = _embed_override
+
+# KAVACH_CHROMA_PATH likewise overrides config.yaml's chroma_path — so a run can
+# point the server at a scratch ChromaDB (e.g. an embedding-comparison index)
+# without editing the YAML. Unset → no change (production .chroma_kavach).
+_chroma_override = os.environ.get("KAVACH_CHROMA_PATH")
+if _chroma_override:
+    log.info("chroma_path overridden via KAVACH_CHROMA_PATH: %s", _chroma_override)
+    CFG["chroma_path"] = _chroma_override
 
 
 # ──────────────────────────────────────────────────────────────────────────────

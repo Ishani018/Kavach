@@ -62,6 +62,10 @@ parliament/.chroma_r2exp/
 parliament/.chroma_kavach_staging/
 kavach_eval/.improvement_loop_scratch/
 
+# Embedding-model comparison workstream (scratch ChromaDBs — never commit)
+parliament/.chroma_embedding_test_*/
+kavach_eval/.embedding_comparison_scratch/
+
 # LaTeX build artifacts (keep skeleton_aisec.pdf tracked so Parv can read it
 # without a TeX install). The paper has no real figure PNGs, so all paper/*.png
 # are diagnostic renders from pdftoppm (page-*, pg-*, v-*, etc.) — ignore them all.
