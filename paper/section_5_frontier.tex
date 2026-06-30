@@ -16,11 +16,11 @@ launder a malicious action past the monitor.
 We model an attacker who, per attack action, fully controls the output of the
 $K$ most-foolable ministers, forcing each to vote \textsc{Allow} at high
 confidence. A robust aggregator degrades gracefully as $K$ grows; a brittle one
-collapses at $K{=}1$. We measure attack-success rate as a function of $K$ and
-clean false-positive rate on benign sessions, evaluated by replaying recorded
-minister votes (no model re-execution) on real session dumps; corrupted votes
-are injected into the replay. This isolates the aggregator's contribution from
-the ministers' detection quality.
+collapses at $K{=}1$. The evaluation is a replay: attack-success rate as a
+function of $K$ and clean false-positive rate on benign sessions are computed
+from recorded minister votes on real session dumps (no model re-execution), with
+corrupted votes injected into the replay. This isolates the aggregator's
+contribution from the ministers' detection quality.
 
 \subsection{Veto, Bayesian, and a tuned hybrid}
 \label{sec:vetobayes}
