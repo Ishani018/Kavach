@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="kavachlogo.png" width="480" alt="Kavach"/>
-
-# Kavach
+<img src="kavach.png" width="300" alt="Kavach"/>
 
 **A runtime semantic firewall for LLM agents — interception at the tool-call boundary, no LLM in the decision path.**
 
