@@ -83,32 +83,23 @@ workload is the direct path to reducing the FPR, and we identify this as the
 primary next engineering step.
 
 To make the mismatch concrete rather than only statistical, we ran a small
-hand-authored probe of ten \emph{unambiguously} benign tool calls through the
-deployed parliament at its production thresholds --- ordinary operations such as
-reading \texttt{README.md}, issuing a \texttt{GET} to the GitHub API, writing a
-report PDF, and posting a routine status e-mail. At the deployed operating point
-five of the ten are hard-\textsc{Block}ed, four \textsc{Escalate}, and only one
-is \textsc{Allow}ed. This is an illustrative probe, not a headline metric: the
-actions are authored by us, not drawn from a third-party benchmark, and the
-sample is deliberately tiny. Its value is that each action is benign beyond
-dispute --- a bare \texttt{README} read cannot be waved away as an ambiguous
-instruction the way a paired benchmark prompt might be --- so the fact that the
-deployed thresholds hard-block half of them localizes the FPR to the
-threshold/representation setting itself rather than to any quirk of InjecAgent's
-benign population, and reinforces threshold recalibration as the primary next
-step.
+hand-authored probe of ten \emph{unambiguously} benign tool calls (reading
+\texttt{README.md}, a \texttt{GET} to the GitHub API, writing a report PDF, a
+routine status e-mail) through the deployed parliament at its production
+thresholds: five are hard-\textsc{Block}ed, four \textsc{Escalate}, one is
+\textsc{Allow}ed. This is an illustrative probe, not a headline metric --- the
+actions are hand-authored and the sample tiny --- but each is benign beyond
+dispute, so hard-blocking half of them localizes the FPR to the
+threshold/representation setting rather than to any quirk of InjecAgent's benign
+population.
 
 A threshold sweep over $\theta_{\text{CHANNEL}} \in \{0.45, 0.50, 0.55, 0.60\}$
-on our ten-action benign probe reveals no separating knee: benign CHANNEL
-confidences span 0.406--0.702 while attack confidences span 0.534--0.717, with
-substantial overlap across the full range. Single-threshold tuning on CHANNEL
-alone cannot simultaneously achieve a hard-block FPR of 1/10 or below while
-maintaining 7/10 attack recall. This confirms that the primary path to a
-sub-5\% hard-block FPR is corpus recalibration --- reducing CHANNEL's over-broad
-exfiltration patterns that score benign file transfers near attack patterns in
-embedding space --- rather than threshold adjustment, which is why we identify
-corpus recalibration on a representative benign workload, rather than
-threshold tuning, as the structural mitigation.
+on our benign probe reveals no separating knee: benign CHANNEL confidences
+(0.406--0.702) overlap attack confidences (0.534--0.717) across the full range,
+so single-threshold tuning cannot reach a hard-block FPR of $\leq$1/10 while
+holding 7/10 attack recall. The structural fix is therefore corpus
+recalibration on a representative benign workload --- reducing CHANNEL's
+over-broad exfiltration patterns --- not threshold adjustment.
 
 \subsection{Hybrid retrieval recovers recall at a controlled false-positive rate}
 \label{sec:hybridresults}
