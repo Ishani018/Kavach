@@ -144,70 +144,108 @@ Then message Ishani the headline numbers.
 
 ## Parv — Laptop (RTX 5060)
 
-The embedding-model comparison. **Parallel and non-blocking** — it does not need
-the Dell and does not need to sync with Ishani until end of day. If the laptop is
-needed for anything else, this yields.
+This runs in parallel with Ishani's Dell work — you don't need to sync with her
+until both tracks are done.
 
-**Goal:** compare the deployed `BAAI/bge-base-en-v1.5` against `intfloat/e5-base-v2`
-and `thenlp/gte-base` on **InjecAgent (full)** and a small **AgentDojo subset
-(25 pairs)**, varying **only** the embedding model (thresholds, Speaker, corpus,
-and agent backbone held identical). This turns the paper's "embedding model not
-ablated; future work" (§3.2, §7) into a real result.
+### What you're doing and why
 
-**Before lab day (not on the day):** the AgentDojo leg needs an agent backbone on
-the laptop. Pull it ahead of time:
+The paper currently makes an honest admission: we chose `BAAI/bge-base-en-v1.5`
+as Kavach's embedding model for offline-reproducibility reasons, but we never
+compared it against alternatives (it's stated as future work in §3.2 and §7).
+Your job today turns that admission into a real evaluated result: run the same
+InjecAgent benchmark and a small AgentDojo subset against **three** embedding
+models — BGE (current), `intfloat/e5-base-v2`, and `thenlp/gte-base` — holding
+everything else identical, and record which one gives better recall/FPR. This
+upgrades a "future work" limitation into a real finding. **Whatever wins, we
+report honestly** — if BGE wins or ties it strengthens the paper's justification;
+if an alternative wins, the paper says so. No cherry-picking.
+
+### How it works (so you know what you're actually changing)
+
+Kavach's parliament server does **all** the embedding. InjecAgent and AgentDojo
+never embed anything themselves — they just POST raw action text to
+`/hook/parliament` and get back a `BLOCK` / `ESCALATE` / `ALLOW` verdict. So
+swapping the embedding model is three moves: **rebuild the corpus index with the
+new model → restart the server with that model → run the benchmarks.** The agent
+backbone (`qwen2.5:7b`, used only by AgentDojo) stays the same across all three
+runs — the *only* thing changing is how Kavach embeds and scores actions. That's
+exactly the variable we want to isolate.
+
+### Before you leave home
+
 ```bash
-ollama pull qwen2.5:7b
+cd Kavach
+git checkout main
+git pull origin main            # gets the --embed-model flag + this runbook
+
+ollama pull qwen2.5:7b          # agent backbone for the AgentDojo leg
 ```
-(The InjecAgent leg does not use an LLM backbone — it only re-embeds and replays.
-Only AgentDojo drives the agent, so only it needs `qwen2.5:7b`.)
 
-**Safety:** scratch-only. Never touches `kavach_corpus_v1.json`,
-`kavach_corpus_v1_ORIGINAL.json`, or the production ChromaDB. Each model gets its
-own scratch index under `parliament/.chroma_embedding_test_<tag>/` (gitignored),
-and the server is pointed at it via env vars — no file edits, nothing committed.
+The three **embedding** models (BGE / e5 / gte) do **not** need a manual pull —
+`corpus_loader.py` auto-downloads them from HuggingFace on first use and caches
+them under `~/.cache/huggingface`. It's ~1GB total across the three, one-time.
+Just have internet the first time you build each index; the first rebuild of each
+new model includes its download.
 
-### Per-model procedure
+### Run procedure — one model at a time (repeat 3×)
 
-Run this block **once per model**, serially (build index → start server against
-it → run InjecAgent → stop server → next model). Do **bge first** to confirm the
-harness reproduces the headline numbers, then e5, then gte.
+Do **BGE first** (it's the baseline — confirm the harness reproduces the paper's
+committed numbers before trusting the alternatives). Then e5, then gte.
 
 ```bash
 mkdir -p kavach_eval/results/embedding_comparison
 
-# ===== set these two lines per run, then run the rest unchanged =====
-#   bge : MODEL=BAAI/bge-base-en-v1.5   TAG=bge
+# ===== set these two lines per model, then run the rest unchanged =====
+#   bge : MODEL=BAAI/bge-base-en-v1.5   TAG=bge   (baseline)
 #   e5  : MODEL=intfloat/e5-base-v2     TAG=e5
 #   gte : MODEL=thenlp/gte-base         TAG=gte
 MODEL=intfloat/e5-base-v2 ; TAG=e5
 
-# 1. Build that model's scratch ChromaDB (first use downloads the model ~440MB).
-#    Confirm "indexed 1403 documents" and CHANNEL = 303.
+# --- Step 1: rebuild the corpus index with THIS model. -----------------------
+# WHY: the index and the server must use the SAME model. If the index is built
+# with BGE but the server queries with e5, you're comparing e5 vectors against
+# BGE vectors — garbage scores. This step re-embeds all 1,403 docs with $MODEL
+# into a scratch index (gitignored; never touches production .chroma_kavach).
+# First use of a new model downloads it (~3-5 min); the embed itself is <1 min on
+# the 5060. Confirm the tail says "indexed 1403 documents" and CHANNEL = 303.
 python corpus_loader.py \
   --embed-model "$MODEL" \
   --corpus kavach_corpus_v1.json \
   --chroma parliament/.chroma_embedding_test_${TAG} \
   --rebuild --skip-smoke
 
-# 2. Start parliament against that model + its scratch index (env overrides, no
-#    YAML edit). Leave this running in its own terminal.
+# --- Step 2: start the server against THIS model + its index. ----------------
+# WHY: this is what actually changes Kavach's behavior. The server embeds every
+# incoming action with $MODEL and compares it against the $MODEL-built index. The
+# two env vars override config.yaml with no file edit — nothing is committed, and
+# unsetting them (or restarting plain) restores production. Leave this running in
+# its own terminal.
 KAVACH_EMBED_MODEL="$MODEL" \
 KAVACH_CHROMA_PATH="parliament/.chroma_embedding_test_${TAG}" \
   python -m uvicorn parliament.server:app --host 127.0.0.1 --port 8088
 
-# 3. In a SECOND terminal, confirm the server loaded the right model:
-curl -s http://127.0.0.1:8088/health | python -m json.tool   # "model" == $MODEL, CHANNEL 303
+# --- Step 3: verify the server actually loaded THIS model. -------------------
+# WHY: catches a silent fallback (wrong model / wrong index) BEFORE you burn
+# 30 min on a run whose numbers are secretly BGE's. In a SECOND terminal:
+curl -s http://127.0.0.1:8088/health | python -m json.tool
+#   -> "model" MUST equal $MODEL, and doc_counts CHANNEL MUST be 303.
+#      If not, stop and fix step 1/2 before running anything.
 
-# 3a. InjecAgent (full, embedding-only replay — no agent backbone needed):
+# --- Step 4: InjecAgent (full). ---------------------------------------------
+# WHY: the primary metric — does this embedding model catch more or fewer attacks
+# (recall) at what false-positive cost (FPR)? Pure replay: no agent backbone, the
+# runner just POSTs the 1,054 cases to the server.
 python injecagent_runner.py --full \
   --parliament-url http://127.0.0.1:8088 \
   --output kavach_eval/results/embedding_comparison/${TAG}/ \
   --include-benign
 
-# 3b. AgentDojo SUBSET — 25 pairs (5 user × 5 injection), qwen2.5:7b backbone.
-#     --max-pairs 25 truncates to exactly 25 pairs. This is a SUBSET, not the full
-#     benchmark; it is for the embedding comparison only.
+# --- Step 5: AgentDojo 25-pair subset (qwen2.5:7b backbone). -----------------
+# WHY: secondary check — does the embedding model affect REAL agent interception
+# (a live agent generating tool calls that Kavach screens), not just static
+# replay? --max-pairs 25 => exactly 5 user x 5 injection = 25 pairs; the agent is
+# qwen2.5:7b for all three models, so only Kavach's scoring differs. This is a
+# SUBSET signal, not the headline AgentDojo number (that's Ishani's full run).
 export OPENAI_API_KEY=ollama
 export OPENAI_API_BASE=http://localhost:11434/v1
 python benchmarks/run_agentdojo_kavach.py \
@@ -216,39 +254,42 @@ python benchmarks/run_agentdojo_kavach.py \
   --max-pairs 25 \
   --out kavach_eval/results/embedding_comparison/agentdojo_subset_${TAG}/
 
-# 4. Ctrl-C the server. Repeat from step 1 for the next model. Unsetting the env
-#    vars (or just starting the server without them) restores the production config.
+# --- Step 6: stop the server (Ctrl-C), record the numbers (table below), and
+#             repeat from Step 1 for the next model.
 ```
-
-- **InjecAgent: full 1,054 cases** per model if the 5060 has time. If not, run a
-  **stratified subset of ~150 cases**, the *same subset* across all three models,
-  and append `SUBSET_n150` to the output dir name so it can't be mistaken for a
-  full run.
-- **AgentDojo: always the 25-pair subset** here — this is a fast comparison signal,
-  not the headline AgentDojo number (that's Ishani's full Dell run). Keep
-  `--max-pairs 25` identical across all three models.
-- e5 and gte use a different query-prefix convention than BGE. If recall looks
-  *catastrophically* low for one model, check the prefix before concluding it lost.
 
 ### What to record (per model)
 
-A 3-row table (bge / e5 / gte) with **both** benchmarks per row:
+Fill one row per model. BGE's InjecAgent columns are pre-filled from the paper's
+committed Dell run — use them to sanity-check your BGE re-run (they should match
+closely; if BGE is wildly off, the harness is misconfigured — stop before trusting
+e5/gte). AgentDojo columns are blank for all three; this is the first time we run
+that subset.
 
-| | InjecAgent (full) | | AgentDojo subset (25 pairs) | |
-|---|---|---|---|---|
-| **model** | strict / loose recall (DH, DS) | hard-block FPR | ASR with Kavach | utility under attack |
+| Model | InjecAgent strict recall (DH) | InjecAgent strict recall (DS) | InjecAgent FPR (DH) | InjecAgent FPR (DS) | AgentDojo ASR (25-pair) | AgentDojo utility (25-pair) |
+|---|---|---|---|---|---|---|
+| **BGE** (baseline) | 0.633 | 0.438 | 23.5% | 0.0% | — | — |
+| **e5-base-v2** | | | | | | |
+| **gte-base** | | | | | | |
 
-- InjecAgent numbers: from
-  `kavach_eval/results/embedding_comparison/<tag>/summary.json` — strict recall,
-  loose recall, hard-block FPR for both direct-harm and data-stealing.
-- AgentDojo numbers: from
-  `kavach_eval/results/embedding_comparison/agentdojo_subset_<tag>/` — the
-  end-of-run summary's ASR (with Kavach) and utility-under-attack. Confirm the run
-  log says `5 user tasks × 5 injection tasks = 25 pairs`.
+- InjecAgent numbers: from each run's
+  `kavach_eval/results/embedding_comparison/<tag>/summary.json` — `strict.recall`
+  and `strict.fpr` for both the direct-harm (DH) and data-stealing (DS) settings.
+- AgentDojo numbers: from the end-of-run summary in
+  `kavach_eval/results/embedding_comparison/agentdojo_subset_<tag>/` — the ASR
+  (with Kavach) and utility-under-attack. Confirm the run log printed
+  `5 user tasks × 5 injection tasks = 25 pairs`.
+- Query and document prefixes are set **automatically per model** — no manual
+  configuration. Each model uses its own convention on both the index and the
+  query side (BGE: instruction prefix on queries; e5: `query: `/`passage: `; gte:
+  none). The rebuild log prints the prefixes it used, so you can confirm at a
+  glance. So a fair comparison is the default — you don't have to do anything to
+  get it.
 
-### Commit laptop results
+### Committing results
 
-Whoever finishes first creates this branch — the other just checks it out.
+Results go to the `parv-results` branch (NOT `main`). Whoever finishes first —
+you or Ishani — creates the branch; the other just checks it out.
 
 ```bash
 git fetch origin
@@ -258,9 +299,22 @@ git commit -m "data: embedding-model comparison (bge / e5 / gte) — InjecAgent 
 git push origin parv-results
 ```
 
-**Report whichever model wins, honestly.** If BGE wins or ties, it strengthens
-the §3.2 justification; if an alternative wins, the paper says so. Do not
-cherry-pick.
+Then send Ishani the filled-in table.
+
+### Timing
+
+Per model, on the RTX 5060:
+- **Corpus rebuild (Step 1):** <1 min compute on GPU. **First** build of e5 and gte
+  adds a one-time HuggingFace download (~3-5 min each); BGE is likely already
+  cached. So budget ~1 min for BGE, ~4-6 min each for the first e5/gte build.
+- **InjecAgent full (Step 4):** ~10-20 min (1,054 cases, GPU embedding, no agent
+  LLM in the loop).
+- **AgentDojo 25-pair subset (Step 5):** ~10-20 min (25 pairs, each driving
+  qwen2.5:7b to generate tool calls — the agent LLM is the slow part, not Kavach).
+
+Rough total: **~30-45 min per model × 3 ≈ 1.5-2.5 hours**, dominated by the
+benchmark runs, not the rebuilds. It's parallel to Ishani's Dell session, so it
+doesn't compete for her time.
 
 ---
 
