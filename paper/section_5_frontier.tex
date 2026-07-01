@@ -45,6 +45,11 @@ single aggregator dominates.
 The measured inter-minister error correlation (Table~\ref{tab:correlation},
 mean off-diagonal $\rho=\MeasuredRho$) is the discount the Bayesian aggregator
 applies when fusing votes; the resulting frontier is reported next.
+We use this mean inter-minister correlation ($\bar\rho = 0.09$) as the Bayesian
+discount; this understates the NAVIGATOR--CHANNEL pairwise correlation
+($\rho = 0.52$), meaning the Bayesian aggregator's robustness estimate is
+optimistic for attack patterns that activate both ministers simultaneously. A
+correlation-aware aggregator is a direct extension.
 
 \inputtable{tables/tab_frontier}
 

@@ -28,7 +28,14 @@ embedded hook now fires without any patching on our part. We evaluate Kavach on
 the embedded path. The general lesson is that a working pre-execution hook is a
 precondition for \emph{any} runtime guardrail, and agent platforms should treat
 it as a first-class, tested primitive on the path that actually executes tool
-calls, rather than optional plugin surface.
+calls, rather than optional plugin surface. As of OpenClaw v2026.4.15 --- the
+version in which issues \#5513 and \#5943 were resolved --- the embedded runner
+correctly fires \texttt{before\_tool\_call} without any patching; the gateway
+execution path remains without a pre-execution interception point, as our
+sentinel probe confirms on this release. The finding is therefore architectural,
+not version-specific: the gateway and embedded paths use different
+tool-execution code, and the gateway path exposes no plugin hook regardless of
+the bug status of any individual release.
 
 \subsection{Live interception}
 \label{sec:live}
@@ -90,6 +97,18 @@ deployed thresholds hard-block half of them localizes the FPR to the
 threshold/representation setting itself rather than to any quirk of InjecAgent's
 benign population, and reinforces threshold recalibration as the primary next
 step.
+
+A threshold sweep over $\theta_{\text{CHANNEL}} \in \{0.45, 0.50, 0.55, 0.60\}$
+on our ten-action benign probe reveals no separating knee: benign CHANNEL
+confidences span 0.406--0.702 while attack confidences span 0.534--0.717, with
+substantial overlap across the full range. Single-threshold tuning on CHANNEL
+alone cannot simultaneously achieve a hard-block FPR of 1/10 or below while
+maintaining 7/10 attack recall. This confirms that the primary path to a
+sub-5\% hard-block FPR is corpus recalibration --- reducing CHANNEL's over-broad
+exfiltration patterns that score benign file transfers near attack patterns in
+embedding space --- rather than threshold adjustment, which is why we identify
+corpus recalibration on a representative benign workload, rather than
+threshold tuning, as the structural mitigation.
 
 \subsection{Hybrid retrieval recovers recall at a controlled false-positive rate}
 \label{sec:hybridresults}
