@@ -125,6 +125,18 @@ _embed_override = os.environ.get("KAVACH_EMBED_MODEL")
 if _embed_override:
     log.info("embed_model overridden via KAVACH_EMBED_MODEL: %s", _embed_override)
     CFG["embed_model"] = _embed_override
+    # Auto-set the query prefix to match the overridden model, so an
+    # embedding-comparison run queries with the model's OWN convention rather than
+    # BGE's (e.g. e5 wants "query: ", gte wants none). Reuses the loader's map so
+    # the query-side and index-side prefixes stay in sync. Only fires on override;
+    # the default path keeps config.yaml's query_prefix untouched.
+    try:
+        from corpus_loader import _prefixes_for as _pf
+        _qp, _ = _pf(_embed_override)
+        CFG["query_prefix"] = _qp
+        log.info("query_prefix auto-set for %s: %r", _embed_override, _qp)
+    except Exception as _e:  # pragma: no cover — never break startup on this
+        log.warning("could not auto-set query_prefix (%s); using config value", _e)
 
 # KAVACH_CHROMA_PATH likewise overrides config.yaml's chroma_path — so a run can
 # point the server at a scratch ChromaDB (e.g. an embedding-comparison index)

@@ -59,31 +59,63 @@ ATTACK_MINISTERS = ("EXECUTOR", "VAULT", "CHANNEL", "NAVIGATOR")
 
 
 # ---------------------------------------------------------------------------
+# Model-specific asymmetric-retrieval prefixes
+# ---------------------------------------------------------------------------
+# Retrieval encoders differ in how they want queries vs. documents prefixed, and
+# using the wrong prefix silently degrades a model (e.g. querying an e5 index that
+# was built bare, or prepending BGE's instruction to gte which wants none). For a
+# FAIR embedding comparison each model must use ITS OWN convention on BOTH sides.
+#   BGE : instruction prefix on queries, documents bare.
+#   e5  : "query: " on queries, "passage: " on documents (asymmetric — the index
+#         MUST be built with "passage: " or the query prefix cannot help).
+#   gte : no prefix on either side (plain sentence encoder).
+# Detection is by model-name substring; anything unrecognized falls back to BGE's
+# behavior, so the default (no --embed-model) path is byte-identical to before.
+_PREFIXES = {
+    # model-name substring : (query_prefix, doc_prefix)
+    "bge": ("Represent this sentence for searching relevant passages: ", ""),
+    "e5":  ("query: ", "passage: "),
+    "gte": ("", ""),
+}
+
+
+def _prefixes_for(model_name: str) -> tuple[str, str]:
+    """Return (query_prefix, doc_prefix) for a model name. Falls back to BGE."""
+    ml = model_name.lower()
+    for key, pair in _PREFIXES.items():
+        if key in ml:
+            return pair
+    return _PREFIXES["bge"]
+
+
+# ---------------------------------------------------------------------------
 # BGE wrapper
 # ---------------------------------------------------------------------------
 
 class BGEEmbedder:
     """
-    Lazy-loaded BAAI/bge-base-en-v1.5 wrapper.
+    Lazy-loaded sentence-embedding wrapper (default BAAI/bge-base-en-v1.5).
 
-    BGE retrieval models recommend prepending an instruction to queries but
-    not to documents. Documents (corpus descriptions) embed plain; queries
-    (proposed actions) get prefixed by the parliament server, not this loader.
+    Query/document prefixes are model-specific and auto-detected from the model
+    name (see _prefixes_for): BGE prefixes queries only; e5 prefixes both sides
+    asymmetrically; gte prefixes neither. This keeps an embedding comparison fair
+    — each model uses its own convention on both the index and the query side.
     """
-
-    _QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
     def __init__(self, model_name: str = EMBED_MODEL_NAME) -> None:
         print(f"[loader] loading {model_name} ...", flush=True)
         t0 = time.time()
         self.model = SentenceTransformer(model_name)
         self.dim = self.model.get_sentence_embedding_dimension()
-        print(f"[loader] loaded in {time.time()-t0:.1f}s  dim={self.dim}", flush=True)
+        self.query_prefix, self.doc_prefix = _prefixes_for(model_name)
+        print(f"[loader] loaded in {time.time()-t0:.1f}s  dim={self.dim}  "
+              f"query_prefix={self.query_prefix!r}  doc_prefix={self.doc_prefix!r}",
+              flush=True)
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Embed corpus documents (no instruction prefix). Returns list of float lists."""
+        """Embed corpus documents (with the model's doc prefix, if any)."""
         embs = self.model.encode(
-            texts,
+            [self.doc_prefix + t for t in texts] if self.doc_prefix else texts,
             normalize_embeddings=True,
             show_progress_bar=False,
             batch_size=32,
@@ -91,9 +123,9 @@ class BGEEmbedder:
         return embs.tolist()
 
     def embed_query(self, text: str) -> List[float]:
-        """Embed a query (with BGE instruction prefix)."""
+        """Embed a query (with the model's query prefix, if any)."""
         emb = self.model.encode(
-            self._QUERY_INSTRUCTION + text,
+            self.query_prefix + text,
             normalize_embeddings=True,
             show_progress_bar=False,
         )
