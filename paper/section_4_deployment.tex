@@ -75,6 +75,22 @@ side; recalibrating per-minister thresholds against a representative benign
 workload is the direct path to reducing the FPR, and we identify this as the
 primary next engineering step.
 
+To make the mismatch concrete rather than only statistical, we ran a small
+hand-authored probe of ten \emph{unambiguously} benign tool calls through the
+deployed parliament at its production thresholds --- ordinary operations such as
+reading \texttt{README.md}, issuing a \texttt{GET} to the GitHub API, writing a
+report PDF, and posting a routine status e-mail. At the deployed operating point
+five of the ten are hard-\textsc{Block}ed, four \textsc{Escalate}, and only one
+is \textsc{Allow}ed. This is an illustrative probe, not a headline metric: the
+actions are authored by us, not drawn from a third-party benchmark, and the
+sample is deliberately tiny. Its value is that each action is benign beyond
+dispute --- a bare \texttt{README} read cannot be waved away as an ambiguous
+instruction the way a paired benchmark prompt might be --- so the fact that the
+deployed thresholds hard-block half of them localizes the FPR to the
+threshold/representation setting itself rather than to any quirk of InjecAgent's
+benign population, and reinforces threshold recalibration as the primary next
+step.
+
 \subsection{Hybrid retrieval recovers recall at a controlled false-positive rate}
 \label{sec:hybridresults}
 The fix follows from the diagnosis. Under dense-only retrieval the lexical

@@ -44,8 +44,12 @@ observed attack-confidence ceiling on this benchmark, so VAULT contributes
 escalations rather than hard blocks. Inter-minister error correlation is low on
 average ($\bar\rho=0.09$) but not uniform: the NAVIGATOR--CHANNEL pair reaches
 $\rho=0.52$, reflecting overlapping pattern coverage that the aggregation
-analysis (\S\ref{sec:frontier}) accounts for. Recalibrating per-minister
-thresholds and deduplicating the CHANNEL/VAULT corpora are concrete next steps.
+analysis (\S\ref{sec:frontier}) accounts for. A hand-authored probe of ten
+unambiguously benign tool calls (\S\ref{sec:repmismatch}) --- hard-blocked five
+of ten at the deployed thresholds --- is additional, benchmark-independent
+evidence that the operating point, not the benign population, drives the
+false-positive rate. Recalibrating per-minister thresholds and deduplicating the
+CHANNEL/VAULT corpora are concrete next steps.
 
 \paragraph{Single-vector similarity and the trajectory leg.} Per-call detection
 uses single-vector cosine similarity, which has known limits relative to
