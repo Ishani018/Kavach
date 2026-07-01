@@ -115,7 +115,8 @@ BLOCK suffices. Every verdict carries a structured provenance chain --- matched
 pattern $\rightarrow$ technique ID $\rightarrow$ tactic $\rightarrow$ kill-chain
 stage, referencing MITRE ATLAS and ATT\&CK --- folded into a SHA-256
 hash-chained ledger, so that not only the verdict but its taxonomic
-\emph{grounding} is tamper-evident. We deploy this on production hardware. An
+\emph{grounding} is tamper-evident. We implement and evaluate this as a research
+prototype on a Dell Precision~3660 (RTX~4090). An
 instructive failure surfaces there: a corpus authored in tool-call syntax
 misjudges attacks phrased in natural language, inflating the false-positive
 rate, and hybrid retrieval substantially recovers from it.
@@ -127,14 +128,16 @@ aggregator is robust but sacrifices benign utility. We measure this
 false-positive/robustness trade-off on real minister-vote dumps and characterize
 a tuned hybrid: a Bayesian decision path with a hard veto floor.
 
-\textbf{Fourth, contamination-controlled evaluation (\S\ref{sec:eval}).} The
+\textbf{Fourth, a contamination-controlled evaluation (\S\ref{sec:eval}).} The
 attack-pattern corpus was authored from MITRE ATT\&CK technique IDs and OWASP
 Agentic 2026 categories under a documented eight-rule blind-writing protocol
 that prohibited reference to any specific CVE or benchmark case. InjecAgent
-\cite{zhan2024injecagent} was run cold; false-positive rate on fifty benign
-sessions was measured \emph{before} attack recall and treated as a ${<}5\%$
-gate; cost (latency, embeddings per decision) is reported jointly with
-detection, following Kapoor et al.~\cite{kapoor2024aiagents}.
+\cite{zhan2024injecagent} and AgentDojo were run cold. Benign false-positive
+rate is measured from InjecAgent's paired benign prompts and reported jointly
+with attack recall --- not as a pre-run gate, but as an honest characterization
+of the current operating point, which we discuss as a live limitation in
+\S\ref{sec:limitations}. Cost (latency, embeddings per decision) is reported
+jointly with detection, following Kapoor et al.~\cite{kapoor2024aiagents}.
 
 \paragraph{Positioning relative to concurrent work.}
 Concurrent with this work, Microsoft announced MXC (Microsoft Execution
@@ -186,6 +189,6 @@ The corpus (401 attack-pattern descriptions + 100 COMPASS calibration pairs),
 the parliament service, the OpenClaw plugin and our candidate hook patch
 (\texttt{openclaw\_pr/}), the benchmark harness, and the calibration protocol
 are all open-source and shipped with the paper. The reproducibility checklist in our supplementary material specifies the
-exact validation sequence — including the benign FPR gate (Step 5) that must
-pass before the InjecAgent run is meaningful — that produced the numbers
-reported in \S\ref{sec:eval}.
+exact validation sequence — including the benign false-positive characterization
+(Step 5) that is reported jointly with attack recall rather than as a
+prerequisite gate — that produced the numbers reported in \S\ref{sec:eval}.

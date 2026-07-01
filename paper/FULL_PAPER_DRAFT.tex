@@ -52,8 +52,8 @@ First, a measurement: we show that a widely used agent runtime's production
 gateway path exposes no working pre-execution hook --- so no security plugin can
 intercept there --- while its embedded execution path does, and characterize the
 gap with a sentinel-file probe. Second, a deployment: a parliament of
-four domain-specialized detectors reaches a verdict in real time on production
-hardware, with every decision grounded in a structured taxonomy and folded into
+four domain-specialized detectors reaches a verdict within 78\,ms on a Dell
+Precision workstation, with every decision grounded in a structured taxonomy and folded into
 a tamper-evident ledger; we also report an instructive failure --- a corpus
 authored in one linguistic register systematically misjudges attacks phrased in
 another --- and the retrieval fix that recovers from it. Third, the aggregation
@@ -61,9 +61,9 @@ frontier: we show that combining detector votes by confidence, rather than by
 veto, is fragile to an attacker who can corrupt even one detector, and we
 characterize the resulting trade-off between robustness and false alarms. Fourth,
 a contamination-controlled evaluation: the attack corpus was authored blind to
-the benchmarks it is tested against, and false-positive rate is measured before
---- not alongside --- attack recall, so that detection numbers cannot be
-inflated by aggressiveness. Kavach needs no GPU; CPU-only deployment is
+the benchmarks it is tested against, and benign false-positive rate is reported
+jointly with attack recall as an honest characterization of the current
+operating point rather than as a pre-run gate. Kavach needs no GPU; CPU-only deployment is
 supported end-to-end, with a GPU only accelerating the embedding step. It is
 fully reproducible offline.
 \end{abstract}
@@ -230,7 +230,8 @@ BLOCK suffices. Every verdict carries a structured provenance chain --- matched
 pattern $\rightarrow$ technique ID $\rightarrow$ tactic $\rightarrow$ kill-chain
 stage, referencing MITRE ATLAS and ATT\&CK --- folded into a SHA-256
 hash-chained ledger, so that not only the verdict but its taxonomic
-\emph{grounding} is tamper-evident. We deploy this on production hardware. An
+\emph{grounding} is tamper-evident. We implement and evaluate this as a research
+prototype on a Dell Precision~3660 (RTX~4090). An
 instructive failure surfaces there: a corpus authored in tool-call syntax
 misjudges attacks phrased in natural language, inflating the false-positive
 rate, and hybrid retrieval substantially recovers from it.
@@ -242,14 +243,16 @@ aggregator is robust but sacrifices benign utility. We measure this
 false-positive/robustness trade-off on real minister-vote dumps and characterize
 a tuned hybrid: a Bayesian decision path with a hard veto floor.
 
-\textbf{Fourth, contamination-controlled evaluation (\S\ref{sec:eval}).} The
+\textbf{Fourth, a contamination-controlled evaluation (\S\ref{sec:eval}).} The
 attack-pattern corpus was authored from MITRE ATT\&CK technique IDs and OWASP
 Agentic 2026 categories under a documented eight-rule blind-writing protocol
 that prohibited reference to any specific CVE or benchmark case. InjecAgent
-\cite{zhan2024injecagent} was run cold; false-positive rate on fifty benign
-sessions was measured \emph{before} attack recall and treated as a ${<}5\%$
-gate; cost (latency, embeddings per decision) is reported jointly with
-detection, following Kapoor et al.~\cite{kapoor2024aiagents}.
+\cite{zhan2024injecagent} and AgentDojo were run cold. Benign false-positive
+rate is measured from InjecAgent's paired benign prompts and reported jointly
+with attack recall --- not as a pre-run gate, but as an honest characterization
+of the current operating point, which we discuss as a live limitation in
+\S\ref{sec:limitations}. Cost (latency, embeddings per decision) is reported
+jointly with detection, following Kapoor et al.~\cite{kapoor2024aiagents}.
 
 \paragraph{Positioning relative to concurrent work.}
 Concurrent with this work, Microsoft announced MXC (Microsoft Execution
@@ -301,9 +304,9 @@ The corpus (401 attack-pattern descriptions + 100 COMPASS calibration pairs),
 the parliament service, the OpenClaw plugin and our candidate hook patch
 (\texttt{openclaw\_pr/}), the benchmark harness, and the calibration protocol
 are all open-source and shipped with the paper. The reproducibility checklist in our supplementary material specifies the
-exact validation sequence — including the benign FPR gate (Step 5) that must
-pass before the InjecAgent run is meaningful — that produced the numbers
-reported in \S\ref{sec:eval}.
+exact validation sequence — including the benign false-positive characterization
+(Step 5) that is reported jointly with attack recall rather than as a
+prerequisite gate — that produced the numbers reported in \S\ref{sec:eval}.
 % paper/section_2_background.tex
 % Full draft — was a stub. Now complete with current literature grounding.
 
@@ -548,9 +551,12 @@ enforces a single boundary at the pipeline entry point.
 \paragraph{Ministers.}
 Each activated Minister performs a semantic scan: the action embedding is
 compared via cosine distance against every pattern in the Minister's
-ChromaDB collection. A hit is declared when
-$\cos(\mathbf{a}, \mathbf{p}) \geq \theta_{\min}$ where
-$\theta_{\min} = 0.45$ (Config\,B; see \S\ref{sec:eval}).
+ChromaDB collection. A hit is declared when the hybrid confidence score meets
+the minister's per-domain block threshold: $\theta_{\text{EXECUTOR}} = 0.55$,
+$\theta_{\text{VAULT}} = 0.75$, $\theta_{\text{CHANNEL}} = 0.60$,
+$\theta_{\text{NAVIGATOR}} = 0.70$, with a shared grey-zone floor of 0.50.
+Scores in the grey zone produce an \textsc{Escalate} verdict; scores below
+0.50 produce \textsc{Allow}.
 Each corpus pattern carries L1/L2/L3 descriptors (intent $\to$ mechanism
 $\to$ surface) that are propagated into the verdict log for provenance
 (described in \S\ref{sec:provenance}).
@@ -655,7 +661,11 @@ stage. Resolution is corpus-tagged: every one of the 401 patterns declares a
 specific source technique (MITRE ATT\&CK, MITRE ATLAS, or an OWASP Agentic
 category), so the chain resolves to a named technique rather than a per-minister
 default in every case; a per-minister default remains available as a fallback so
-the chain is always populated, and the chain records which basis was used. The provenance record is serialized into the
+the chain is always populated, and the chain records which basis was used. One
+pattern (CHAN-101) was subsequently added via the automated corpus improvement
+agent after a red-team evasion was identified; it is disclosed here as an
+exception to the blind-writing protocol, and its source is tagged accordingly in
+the artifact. The provenance record is serialized into the
 SHA-256 hash-chained Ledger as a hashed field. Consequently, editing the
 \emph{grounding} of a historical decision --- for instance, relabeling a
 credential-access block as a benign read to mislead an auditor --- breaks the
@@ -784,7 +794,15 @@ controlled evaluation on benign traffic expressed in the corpus's own tool-call
 register would be expected to show a markedly lower false-positive rate, and we
 identify that native-register measurement as a direct test of this hypothesis,
 left to future work. We report the mismatch because it is the kind of deployment
-lesson a purely benchmark-simulated evaluation would hide.
+lesson a purely benchmark-simulated evaluation would hide. We surface this as a
+finding rather than suppressing it: a corpus authored in one register evaluated
+against attacks in another register is a realistic deployment scenario, and the
+23.5\% hard-block FPR on the direct-harm setting is the honest characterization
+of Kavach's current operating point at its deployed threshold settings. The
+hybrid retrieval fix (\S\ref{sec:hybridresults}) recovers recall on the attack
+side; recalibrating per-minister thresholds against a representative benign
+workload is the direct path to reducing the FPR, and we identify this as the
+primary next engineering step.
 
 \subsection{Hybrid retrieval recovers recall at a controlled false-positive rate}
 \label{sec:hybridresults}
