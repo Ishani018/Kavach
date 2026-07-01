@@ -78,9 +78,12 @@ enforces a single boundary at the pipeline entry point.
 \paragraph{Ministers.}
 Each activated Minister performs a semantic scan: the action embedding is
 compared via cosine distance against every pattern in the Minister's
-ChromaDB collection. A hit is declared when
-$\cos(\mathbf{a}, \mathbf{p}) \geq \theta_{\min}$ where
-$\theta_{\min} = 0.45$ (Config\,B; see \S\ref{sec:eval}).
+ChromaDB collection. A hit is declared when the hybrid confidence score meets
+the minister's per-domain block threshold: $\theta_{\text{EXECUTOR}} = 0.55$,
+$\theta_{\text{VAULT}} = 0.75$, $\theta_{\text{CHANNEL}} = 0.60$,
+$\theta_{\text{NAVIGATOR}} = 0.70$, with a shared grey-zone floor of 0.50.
+Scores in the grey zone produce an \textsc{Escalate} verdict; scores below
+0.50 produce \textsc{Allow}.
 Each corpus pattern carries L1/L2/L3 descriptors (intent $\to$ mechanism
 $\to$ surface) that are propagated into the verdict log for provenance
 (described in \S\ref{sec:provenance}).
@@ -185,7 +188,11 @@ stage. Resolution is corpus-tagged: every one of the 401 patterns declares a
 specific source technique (MITRE ATT\&CK, MITRE ATLAS, or an OWASP Agentic
 category), so the chain resolves to a named technique rather than a per-minister
 default in every case; a per-minister default remains available as a fallback so
-the chain is always populated, and the chain records which basis was used. The provenance record is serialized into the
+the chain is always populated, and the chain records which basis was used. One
+pattern (CHAN-101) was subsequently added via the automated corpus improvement
+agent after a red-team evasion was identified; it is disclosed here as an
+exception to the blind-writing protocol, and its source is tagged accordingly in
+the artifact. The provenance record is serialized into the
 SHA-256 hash-chained Ledger as a hashed field. Consequently, editing the
 \emph{grounding} of a historical decision --- for instance, relabeling a
 credential-access block as a benign read to mislead an auditor --- breaks the

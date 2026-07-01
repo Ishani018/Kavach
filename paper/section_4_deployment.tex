@@ -65,7 +65,15 @@ controlled evaluation on benign traffic expressed in the corpus's own tool-call
 register would be expected to show a markedly lower false-positive rate, and we
 identify that native-register measurement as a direct test of this hypothesis,
 left to future work. We report the mismatch because it is the kind of deployment
-lesson a purely benchmark-simulated evaluation would hide.
+lesson a purely benchmark-simulated evaluation would hide. We surface this as a
+finding rather than suppressing it: a corpus authored in one register evaluated
+against attacks in another register is a realistic deployment scenario, and the
+23.5\% hard-block FPR on the direct-harm setting is the honest characterization
+of Kavach's current operating point at its deployed threshold settings. The
+hybrid retrieval fix (\S\ref{sec:hybridresults}) recovers recall on the attack
+side; recalibrating per-minister thresholds against a representative benign
+workload is the direct path to reducing the FPR, and we identify this as the
+primary next engineering step.
 
 \subsection{Hybrid retrieval recovers recall at a controlled false-positive rate}
 \label{sec:hybridresults}

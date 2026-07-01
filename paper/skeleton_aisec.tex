@@ -52,8 +52,8 @@ First, a measurement: we show that a widely used agent runtime's production
 gateway path exposes no working pre-execution hook --- so no security plugin can
 intercept there --- while its embedded execution path does, and characterize the
 gap with a sentinel-file probe. Second, a deployment: a parliament of
-four domain-specialized detectors reaches a verdict in real time on production
-hardware, with every decision grounded in a structured taxonomy and folded into
+four domain-specialized detectors reaches a verdict within 78\,ms on a Dell
+Precision workstation, with every decision grounded in a structured taxonomy and folded into
 a tamper-evident ledger; we also report an instructive failure --- a corpus
 authored in one linguistic register systematically misjudges attacks phrased in
 another --- and the retrieval fix that recovers from it. Third, the aggregation
@@ -61,9 +61,9 @@ frontier: we show that combining detector votes by confidence, rather than by
 veto, is fragile to an attacker who can corrupt even one detector, and we
 characterize the resulting trade-off between robustness and false alarms. Fourth,
 a contamination-controlled evaluation: the attack corpus was authored blind to
-the benchmarks it is tested against, and false-positive rate is measured before
---- not alongside --- attack recall, so that detection numbers cannot be
-inflated by aggressiveness. Kavach needs no GPU; CPU-only deployment is
+the benchmarks it is tested against, and benign false-positive rate is reported
+jointly with attack recall as an honest characterization of the current
+operating point rather than as a pre-run gate. Kavach needs no GPU; CPU-only deployment is
 supported end-to-end, with a GPU only accelerating the embedding step. It is
 fully reproducible offline.
 \end{abstract}
