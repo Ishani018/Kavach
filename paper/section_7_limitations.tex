@@ -9,17 +9,12 @@ contribution is complementary --- semantic, embedding-based detection that
 requires no per-deployment rule authoring and extends across session
 trajectories --- but a fair evaluation should report both systems on the same
 benchmark. A direct comparison is left to future work pending completion of our
-AgentDojo run. We stress that all competitor figures we cite are the numbers
-each paper reports for itself, not values we reproduced: ClawGuard's results are
-from its own AgentDojo and MCPSafeBench evaluation (its public implementation
-intercepts live OpenClaw tool-call sessions and ships no dataset-replay harness,
-so it cannot be run against InjecAgent's static cases without a bespoke
-adapter), and OpenClaw PRISM's~\cite{prism2026} figures are from its own
-110-case corpus (we could not locate a public implementation). Neither system
-reports InjecAgent strict/loose recall or false-positive rate, so any comparison
-against Kavach's InjecAgent numbers is benchmark-mismatched; we therefore treat
-these as reported-not-reproduced and defer a controlled head-to-head to future
-work.
+AgentDojo run. All competitor figures we cite are reported-not-reproduced: they
+are each paper's own numbers on its own benchmark (ClawGuard on
+AgentDojo/MCPSafeBench, PRISM~\cite{prism2026} on a 110-case corpus), neither on
+InjecAgent. ClawGuard's public implementation intercepts live OpenClaw sessions
+with no dataset-replay harness, and we could not locate PRISM's code, so a
+controlled head-to-head on a shared benchmark is left to future work.
 
 \paragraph{Tamper-evident, not tamper-proof.} The hash-chained Ledger detects
 post-hoc edits to any recorded decision or its provenance, but an attacker with
