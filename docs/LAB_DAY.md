@@ -333,3 +333,68 @@ doesn't compete for her time.
    way once Parv's results land.
 3. Message Ishani the headline numbers from both tracks so the `[TBD]`s in the
    paper can be replaced and a fresh PDF compiled.
+
+---
+
+## Post-Dell paper checklist (July 5th evening → submit by July 24)
+
+The definitive, ordered to-do from the Dell run to submission. Work top to
+bottom — each stage depends on the one above. Root LaTeX file is
+`paper/skeleton_aisec.tex` (compiled in WSL); `\TBD` renders as red `[TBD]`
+(defined at `skeleton_aisec.tex:31`), so a stray one is visible in the PDF.
+
+### Stage 1 — Fill placeholders from the Dell numbers
+
+Regenerate the auto tables first (this fills the frontier/ablation/correlation
+tables under `paper/tables/` and leaves the *prose* `\TBD`s for hand-editing):
+```bash
+python kavach_eval/make_section5.py minister_runs.jsonl --rho-auto
+```
+
+Then resolve every remaining live `\TBD` by hand. Current inventory (9 render
+tokens; verify with `grep -rn "\\TBD" paper/section_*.tex`):
+
+- [ ] **§4.4 `section_4_deployment.tex:121`** — `Table~\TBD` → `\ref{tab:frontier}` (gate-floor recall/FPR sweep table).
+- [ ] **§4.5 `section_4_deployment.tex:126`** — `Table~\TBD` → `\ref{tab:injecagent}` (InjecAgent strict/loose recall + FPR).
+- [ ] **§4.6 `section_4_deployment.tex:193`** — threshold-matched cross-model comparison `\TBD` + `Table~\TBD` → the side-by-side config table (needs the Dell InjecAgent re-run to compare against the laptop-secondary numbers).
+- [ ] **§5 `section_5_frontier.tex:31`** — pure-veto clean FPR `\TBD\%` → measured benign FPR.
+- [ ] **§5 `section_5_frontier.tex:33`** — Bayesian clean FPR `\TBD\%` and `K{=}\TBD` (corruption count where it breaks).
+- [ ] **§5 `section_5_frontier.tex:34`** — Bayesian ASR-under-corruption `\TBD\%`.
+- [ ] **§5 `section_5_frontier.tex:37`** — hybrid clean FPR `\TBD\%` (note: this line's "<5% gate" wording is corrected on branch `fix/section5-gate-consistency` — confirm that PR merged before editing, or you'll re-introduce the contradiction).
+- [ ] **§5 `section_5_frontier.tex:38`** — hybrid robustness gap `\TBD` points and `K{=}\TBD`, plus `Table~\TBD` → `\ref{tab:frontier}`.
+- [ ] **§5 `section_5_frontier.tex:59`** — ablation `Table~\TBD` → `\ref{tab:ablation}`.
+- [ ] `\MeasuredRho` (`tables/section5_macros.tex`) is already `0.091`; `--rho-auto` overwrites it from the real dump — confirm it updated.
+
+**AgentDojo delta** (the headline — from `benchmarks/results_v2/agentdojo_dell/agentdojo_summary.json`):
+- [ ] `dell_number_macros.tex` **does not exist yet** — create it (or add macros to `skeleton_aisec.tex` preamble): `\newcommand{\AgentDojoBaseline}{..}`, `\AgentDojoASR`, `\AgentDojoReduction`, `\AgentDojoUtility`.
+- [ ] Fill from the JSON: `.baseline.attack_success_rate` (baseline ASR), `.with_kavach.attack_success_rate` (defended ASR), `.asr_reduction` (delta), utility-under-attack, `.benign_utility.benign_overblock` (FP cost).
+- [ ] Add the AgentDojo result + delta sentence to §4.2 (live interception) and a row to the results table. **State it as a delta:** "ASR from [baseline]% to [defended]% at [utility]% utility."
+
+### Stage 2 — Insert deferred §4.5 (R2 promotion)
+
+- [ ] Insert the body of `paper/section_4_5_lolbin_DRAFT.tex` into `section_4_deployment.tex` after §4.4 (`\label{sec:hybridresults}`), per that file's header. Move its table into `paper/tables/tab_r2b.tex` and `\inputtable` it (or keep inline). Numbers are model-independent (embedding-only) — no need to re-run on Dell.
+- [ ] This adds ~1 column. Make **one offsetting trim** to hold body ≤10pp — candidate: §4.6 cross-model paragraph (compresses once the real Dell AgentDojo number supersedes the laptop-secondary hedging), or tighten the related-work prose. Recompile and confirm the References still begin by p11.
+
+### Stage 3 — Statistical rigor (laptop, no Dell)
+
+- [ ] Bootstrap 95% CIs (10k resamples) on: InjecAgent recall + FPR (DH & DS), the **paired** AgentDojo ASR delta (baseline − defended), and the red-team evasion rate. Add `point [lo, hi]` to the results tables/prose. (Full spec is in the "Statistical rigor (post-Dell, laptop)" subsection above, once `feat/agentdojo-baseline-first` merges.)
+
+### Stage 4 — Threshold recalibration result (from Parv's 510-case run)
+
+- [ ] Replace the 10-action CHANNEL-overlap finding in §4.3/§4.4 with the statistically-weighted **510-case** sweep (Parv's `benign_gate_usercases.py` across θ_CHANNEL 0.45/0.50/0.55/0.60). Keep the honest framing: if it still shows no separating knee, that *strengthens* the "corpus recalibration, not threshold tuning" conclusion. Update the §7 next-step sentence to cite the 510-case result.
+
+### Stage 5 — Embedding comparison (only if it ran cleanly)
+
+- [ ] If Parv's BGE-vs-e5-vs-gte run completed: add the comparison table to §3.2 and change the §3.2 / §7 "we did not perform an embedding ablation" framing to "we compared three encoders holding corpus and thresholds fixed." **If it did not finish cleanly, leave the future-work framing untouched** — do not half-report it.
+
+### Stage 6 — Final checks and submit
+
+- [ ] Recompile in WSL: `pdflatex → bibtex → pdflatex → pdflatex` on `skeleton_aisec.tex`.
+- [ ] Confirm **body ≤10pp** (References begin p11) and **0 undefined refs** (`grep -i undefined skeleton_aisec.log`).
+- [ ] **No stray `\TBD`:** `grep -rn "\\TBD" paper/section_*.tex` returns only comment lines.
+- [ ] Final consistency grep — none of these survive as a live claim:
+      `grep -rniE "gate|production hardware|real time|19\\%|fifty benign" paper/section_*.tex`
+      (legitimate: gateway path, lexical gate, router gating, the real laptop 17-instruction benign gate; everything else must be gone).
+- [ ] Regenerate `FULL_PAPER_DRAFT.tex` (pre-commit hook does this automatically) and the PDF.
+- [ ] Commit to a branch → PR → merge to `main` (main is branch-protected; direct push is rejected).
+- [ ] **Submit via the AISec 2026 portal (aisec.cc) before July 24.**
