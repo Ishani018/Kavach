@@ -429,6 +429,7 @@ tokens; verify with `grep -rn "\\TBD" paper/section_*.tex`):
 - [ ] `dell_number_macros.tex` **does not exist yet** — create it (or add macros to `skeleton_aisec.tex` preamble): `\newcommand{\AgentDojoBaseline}{..}`, `\AgentDojoASR`, `\AgentDojoReduction`, `\AgentDojoUtility`.
 - [ ] Fill from the JSON: `.baseline.attack_success_rate` (baseline ASR), `.with_kavach.attack_success_rate` (defended ASR), `.asr_reduction` (delta), utility-under-attack, `.benign_utility.benign_overblock` (FP cost).
 - [ ] Add the AgentDojo result + delta sentence to §4.2 (live interception) and a row to the results table. **State it as a delta:** "ASR from [baseline]% to [defended]% at [utility]% utility."
+- [ ] **This delta is the head-to-head axis vs ClawGuard's published AgentDojo numbers** (0% ASR from a 0.6–3.1% baseline, arXiv:2604.11790) — same benchmark, **cite-only** comparison (we do not reproduce ClawGuard; see Stage 7). Note the scope difference in the writeup: ClawGuard also tests SkillInject/MCPSafeBench (attack surfaces Kavach does not cover), while Kavach adds InjecAgent + the semantic-corpus approach ClawGuard's rule-based method lacks.
 
 ### Stage 2 — Insert deferred §4.5 (R2 promotion)
 
@@ -447,7 +448,22 @@ tokens; verify with `grep -rn "\\TBD" paper/section_*.tex`):
 
 - [ ] If Parv's BGE-vs-e5-vs-gte run completed: add the comparison table to §3.2 and change the §3.2 / §7 "we did not perform an embedding ablation" framing to "we compared three encoders holding corpus and thresholds fixed." **If it did not finish cleanly, leave the future-work framing untouched** — do not half-report it.
 
-### Stage 6 — Final checks and submit
+### Stage 6 — Competitor framing (paper-writing only — do NOT run anything)
+
+Neither competitor is reproduced; both are **cite-only**. Do not attempt a
+head-to-head run on lab day — it is dead: PRISM (arXiv:2603.11853) reports no
+validated empirical results (methodology-only, no reproducible numbers), and
+ClawGuard (arXiv:2604.11790) uses SkillInject/MCPSafeBench and requires OpenClaw
+live sessions, not our InjecAgent replay harness.
+
+- [ ] **Tighten the PRISM latency caveat in the paper:** PRISM reports no
+      validated results, so reframe the ~15.8\,s p95 figure (§4 results/cost)
+      as "from PRISM's proposed methodology, not a validated measurement."
+- [ ] **Add the ClawGuard AgentDojo comparison to the related-work discussion**
+      once real Kavach AgentDojo numbers exist (Stage 1): same-benchmark,
+      cite-only, with the SkillInject/MCPSafeBench scope-difference note above.
+
+### Stage 7 — Final checks and submit
 
 - [ ] Recompile in WSL: `pdflatex → bibtex → pdflatex → pdflatex` on `skeleton_aisec.tex`.
 - [ ] Confirm **body ≤10pp** (References begin p11) and **0 undefined refs** (`grep -i undefined skeleton_aisec.log`).
