@@ -39,6 +39,7 @@ the bug status of any individual release.
 
 \subsection{Live interception}
 \label{sec:live}
+\label{sec:liveintercept}
 We evaluate Kavach against an agent running on a Dell Precision~3660 (NVIDIA
 RTX~4090), with Gemma\,4~26B served via Ollama as the agent backbone. Kavach
 itself comprises its corpus, the four ministers, the Speaker, and the
@@ -52,10 +53,23 @@ a provenance-grounded record (technique $\rightarrow$ tactic $\rightarrow$ stage
 is committed to the hash-chained Ledger. End-to-end interception latency for the
 blocking decision is approximately 78\,ms. The plugin fails closed on the
 tool-call path: a verdict that does not return within the timeout denies the
-call (\texttt{toolCallFailMode = deny}).
+call (\texttt{toolCallFailMode = deny}). This demonstrates live pre-execution
+interception through OpenClaw's embedded-mode \texttt{before\_tool\_call} hook: a
+resolved tool call is intercepted, the parliament returns \textsc{Block}, the
+call is prevented from executing, and a provenance-grounded verdict is committed
+to the hash-chained ledger before any side effect occurs.
 
 \subsection{Representation mismatch: an instructive negative result}
 \label{sec:repmismatch}
+Detection-quality results (\S\ref{sec:repmismatch}--\S\ref{sec:hybridresults})
+are obtained by submitting each benchmark case's resolved tool call directly to
+the parliament scorer via \texttt{/hook/parliament}, isolating detection
+performance from agent-execution variance. This is the standard replay
+methodology for reproducible guardrail evaluation: it measures what the
+parliament decides for a given action, independent of whether a particular agent
+backbone would emit that action. Live end-to-end interception through the
+embedded-mode hook is demonstrated separately in \S\ref{sec:liveintercept}.
+
 Our corpus is authored in the register of MITRE technique descriptions and
 tool-call syntax. On InjecAgent \cite{zhan2024injecagent}, whose attacks are
 expressed as fluent natural-language instructions, this configuration yields a
