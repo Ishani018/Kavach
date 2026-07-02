@@ -437,11 +437,13 @@ is better for benign tasks). We run AgentDojo cold on the Slack suite (20 user
 tasks $\times$ 5 injection tasks, the ``important instructions'' attack); results
 are reported in \S\ref{sec:frontier}.
 
-A methodological note: running InjecAgent before measuring benign false-positive
-rate produces precision numbers that conflate detector quality with detector
-aggressiveness. Our evaluation protocol (\S\ref{sec:eval}) gates on FPR ${<}5\%$
-on hand-curated benign sessions before running any attack benchmark, following
-the discipline recommended by Kapoor et al.~\cite{kapoor2024aiagents}.
+A methodological note: reporting attack recall without the accompanying benign
+false-positive rate conflates detector quality with detector aggressiveness. We
+therefore report benign FPR jointly with recall for every detection number
+(\S\ref{sec:eval}) and measure each aggregator against a desirable ${<}5\%$
+false-positive operating point rather than treating that figure as a gate any
+configuration must pass, following the cost-with-detection discipline
+recommended by Kapoor et al.~\cite{kapoor2024aiagents}.
 
 \subsection{The OWASP and MITRE taxonomic grounding}
 
@@ -958,8 +960,11 @@ false-positive rate (\TBD\%) but is brittle: at $K{=}\TBD$ corrupted ministers
 its attack-success rate rises to \TBD\%, because the posterior can be moved by a
 minority of confident \textsc{Allow} votes. The \emph{hybrid} we propose --- a
 Bayesian decision path with a hard veto floor at a swept confidence threshold
---- passes the ${<}5\%$ false-positive gate (\TBD\%) while tracking the pure
-veto's robustness to within \TBD\ points at $K{=}\TBD$. Table~\TBD{} reports the
+--- is measured against a desirable ${<}5\%$ false-positive operating point,
+reaching a clean false-positive rate of \TBD\% while tracking the pure veto's
+robustness to within \TBD\ points at $K{=}\TBD$. We report where each aggregator
+lands relative to that target rather than treating it as a gate that any
+configuration is required to pass. Table~\TBD{} reports the
 full false-positive/robustness frontier as the veto-floor threshold is swept;
 the contribution is the characterization of this trade-off, not a claim that any
 single aggregator dominates.
