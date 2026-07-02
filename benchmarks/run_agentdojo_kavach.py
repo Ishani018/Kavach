@@ -912,7 +912,39 @@ def main() -> None:
         print(f"[agentdojo] Early-abort warning fires if utility=0% after {args.abort_threshold} pairs")
     print()
 
-    print("[agentdojo] ── Running WITH Kavach ──────────────────────────────")
+    summary_path = out / "agentdojo_summary.json"
+
+    def _flush(**fields) -> None:
+        """Write whatever results exist so far to agentdojo_summary.json.
+
+        Called after each condition completes so a mid-run kill still leaves the
+        completed condition on disk. The baseline runs FIRST and is flushed
+        immediately, so the reference number every other figure is measured
+        against survives even if the WITH-Kavach run is later interrupted.
+        """
+        partial = {
+            "suite": args.suite, "model_id": args.model_id, "attack": args.attack,
+            "complete": False,
+        }
+        partial.update({k: v for k, v in fields.items() if v is not None})
+        summary_path.write_text(json.dumps(partial, indent=2))
+
+    # BASELINE FIRST: it is the reference the defended number is measured
+    # against, so we compute and persist it before touching Kavach. If the
+    # WITH-Kavach run is interrupted, the baseline is already on disk.
+    print("[agentdojo] ── Running BASELINE (no defense) ────────────────────")
+    baseline = run_one(
+        suite, args.attack, args.model_id, False, logdir,
+        abort_threshold=args.abort_threshold,
+        ollama_port=args.ollama_port,
+        user_tasks=user_tasks_to_run,
+        task_set=args.task_set,
+    )
+    print(f"[agentdojo]   BASELINE:    {baseline}")
+    _flush(baseline=baseline)
+    print(f"[agentdojo]   baseline persisted to {summary_path} (partial)")
+
+    print("\n[agentdojo] ── Running WITH Kavach ──────────────────────────────")
     with_kavach = run_one(
         suite, args.attack, args.model_id, True, logdir,
         abort_threshold=args.abort_threshold,
@@ -922,16 +954,7 @@ def main() -> None:
         task_set=args.task_set,
     )
     print(f"[agentdojo]   WITH Kavach: {with_kavach}")
-
-    print("\n[agentdojo] ── Running BASELINE (no defense) ────────────────────")
-    baseline = run_one(
-        suite, args.attack, args.model_id, False, logdir,
-        abort_threshold=args.abort_threshold,
-        ollama_port=args.ollama_port,
-        user_tasks=user_tasks_to_run,
-        task_set=args.task_set,
-    )
-    print(f"[agentdojo]   BASELINE:    {baseline}")
+    _flush(baseline=baseline, with_kavach=with_kavach)
 
     # Fail-open audit
     kav = with_kavach.get("kavach", {})
@@ -987,6 +1010,7 @@ def main() -> None:
 
     report = {
         "suite": args.suite, "model_id": args.model_id, "attack": args.attack,
+        "complete": True,
         "with_kavach": with_kavach, "baseline": baseline,
         "benign_utility": benign,
         "asr_reduction": round(
@@ -994,7 +1018,6 @@ def main() -> None:
         "kavach_failopen_count": fo,
         "run_fully_defended": run_valid,
     }
-    summary_path = out / "agentdojo_summary.json"
     summary_path.write_text(json.dumps(report, indent=2))
     print("[agentdojo] wrote", summary_path)
     print(json.dumps(report, indent=2))
