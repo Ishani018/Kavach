@@ -792,14 +792,19 @@ to the hash-chained ledger before any side effect occurs.
 
 \subsection{Representation mismatch: an instructive negative result}
 \label{sec:repmismatch}
-Detection-quality results (\S\ref{sec:repmismatch}--\S\ref{sec:hybridresults})
-are obtained by submitting each benchmark case's resolved tool call directly to
-the parliament scorer via \texttt{/hook/parliament}, isolating detection
-performance from agent-execution variance. This is the standard replay
-methodology for reproducible guardrail evaluation: it measures what the
-parliament decides for a given action, independent of whether a particular agent
-backbone would emit that action. Live end-to-end interception through the
-embedded-mode hook is demonstrated separately in \S\ref{sec:liveintercept}.
+Our evaluation uses three distinct paths, which we keep separate throughout.
+(i)~The live-interception demonstration of \S\ref{sec:liveintercept} runs through
+OpenClaw's embedded-mode \texttt{before\_tool\_call} hook end-to-end. (ii)~The
+InjecAgent detection results (\S\ref{sec:repmismatch}--\S\ref{sec:hybridresults})
+are obtained by submitting each case's resolved tool call directly to the
+parliament scorer via \texttt{/hook/parliament} --- the standard replay
+methodology for reproducible guardrail evaluation, which measures what the
+parliament decides for a given action independent of whether a particular agent
+backbone would emit it. (iii)~The AgentDojo results (\S\ref{sec:crossmodel}) run
+a live agent through AgentDojo's own execution harness, with the parliament
+inserted as an in-loop defense, so they exercise live agent-generated tool calls
+rather than replay. Only the demonstration in (i) traverses the OpenClaw hook;
+the benchmark numbers do not depend on OpenClaw.
 
 Our corpus is authored in the register of MITRE technique descriptions and
 tool-call syntax. On InjecAgent \cite{zhan2024injecagent}, whose attacks are
