@@ -73,8 +73,43 @@ right panel as files appear.
 
 The dashboard buttons map to `scripts/dell_run_*.sh`. Run them top to bottom:
 
-1. **AgentDojo** (PRIMARY — this is the paper number). Slack suite, gemma4:26b,
+1. **AgentDojo** (PRIMARY — this is the paper number, and the single
+   highest-leverage result of the whole session). Slack suite, gemma4:26b,
    ~45–90 min.
+
+   **The headline is a DELTA, not a single number.** A standalone "Kavach
+   ASR = Y%" is uninterpretable without knowing the attack rate *without*
+   Kavach. `run_agentdojo_kavach.py` already runs **both conditions in one
+   invocation** — WITH Kavach and the undefended BASELINE — over the identical
+   suite, model, attack, and user-task slice (only the Kavach hook toggles in
+   the pipeline). AgentDojo tasks are deterministic by construction (fixed suite
+   + fixed injection set, per-pair result caching), so both conditions see
+   identical pairs — there is no seed to set. The end-of-run
+   `agentdojo_summary.json` already computes `asr_reduction =
+   baseline.ASR − with_kavach.ASR`. **That delta is the citable result:**
+   "Kavach reduces AgentDojo Slack ASR from [baseline]% to [defended]% at
+   [utility]% task utility."
+
+   ```bash
+   # Both conditions + benign-utility (over-block) pass, one command:
+   python benchmarks/run_agentdojo_kavach.py \
+     --suite slack --model-id gemma4:26b \
+     --attack important_instructions \
+     --benign \
+     --out benchmarks/results_v2/agentdojo_dell
+   # Headline lands in benchmarks/results_v2/agentdojo_dell/agentdojo_summary.json:
+   #   .baseline.attack_success_rate   <- undefended ASR (what every number is measured against)
+   #   .with_kavach.attack_success_rate <- defended ASR
+   #   .asr_reduction                   <- the delta (the paper number)
+   #   .benign_utility.benign_overblock <- FP cost of the defense on no-attack tasks
+   ```
+
+   - **The baseline is what every other number is measured against — protect
+     it.** The script runs WITH-Kavach first, then baseline. If you must stop
+     early, let it reach the baseline block (the second `run_one`) before
+     killing it, or you lose the number that makes the defended result mean
+     anything. If time is tight, a completed baseline + partial defended is
+     more salvageable than the reverse.
    - The early-abort warning fires if utility stays 0% after 20 pairs. If it
      fires, **something is wrong — stop and message Ishani.**
    - `EMPTY ACTION ... 'tool:get_channels args:{}'` in the log is **expected**
@@ -83,6 +118,8 @@ The dashboard buttons map to `scripts/dell_run_*.sh`. Run them top to bottom:
    - At end of run the **KAVACH AUDIT** line must show real screening
      (`N reached, M screened, K BLOCKED`) and `run_fully_defended: true`. If it
      says `screened 0 tool calls`, the numbers are fake — do not report them.
+     A valid result needs BOTH the defended run fully screened (`failopen 0`)
+     AND a non-zero baseline ASR to compare against.
 
 2. **InjecAgent** (SECONDARY). Full 1,054 cases + benign FPR.
    - Sanity check vs the committed Dell figures: **direct-harm** loose ~0.90 /
@@ -333,3 +370,26 @@ doesn't compete for her time.
    way once Parv's results land.
 3. Message Ishani the headline numbers from both tracks so the `[TBD]`s in the
    paper can be replaced and a fresh PDF compiled.
+
+### Statistical rigor (post-Dell, laptop — no Dell hardware needed)
+
+Once the real numbers exist, compute **bootstrap 95% confidence intervals
+(10,000 resamples)** on every headline rate, so reviewers don't read a point
+estimate like "5/10 blocked" or "ASR 0.63" as noise. This is a `scipy.stats`
+script run against the per-case result JSONs already on disk — no benchmark
+re-run, no GPU.
+
+Rates that need a CI:
+- **InjecAgent** recall + FPR, direct-harm and data-stealing
+  (`benchmarks/results_v2/injecagent_dell_dh|ds/summary.json` — resample the
+  per-case tp/fp/fn/tn rows).
+- **AgentDojo** ASR *defended vs. undefended* and benign over-block
+  (`agentdojo_dell/agentdojo_summary.json` + per-pair logs) — a CI on the
+  **delta** (`asr_reduction`) matters most, since the delta is the paper claim.
+- **Red-team** evasion rate (evasion count / N seeds from the evasion report).
+
+Report each as `point [lo, hi]` and add the intervals to the results tables /
+prose (this directly answers the reviewer's "no confidence intervals / small-N"
+gap). Bootstrapping the *paired* AgentDojo delta (resample pairs, recompute
+baseline−defended each draw) is the honest way to show the reduction is real
+rather than sampling noise.
