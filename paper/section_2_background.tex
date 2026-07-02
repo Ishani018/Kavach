@@ -128,11 +128,13 @@ is better for benign tasks). We run AgentDojo cold on the Slack suite (20 user
 tasks $\times$ 5 injection tasks, the ``important instructions'' attack); results
 are reported in \S\ref{sec:frontier}.
 
-A methodological note: running InjecAgent before measuring benign false-positive
-rate produces precision numbers that conflate detector quality with detector
-aggressiveness. Our evaluation protocol (\S\ref{sec:eval}) gates on FPR ${<}5\%$
-on hand-curated benign sessions before running any attack benchmark, following
-the discipline recommended by Kapoor et al.~\cite{kapoor2024aiagents}.
+A methodological note: reporting attack recall without the accompanying benign
+false-positive rate conflates detector quality with detector aggressiveness. We
+therefore report benign FPR jointly with recall for every detection number
+(\S\ref{sec:eval}) and measure each aggregator against a desirable ${<}5\%$
+false-positive operating point rather than treating that figure as a gate any
+configuration must pass, following the cost-with-detection discipline
+recommended by Kapoor et al.~\cite{kapoor2024aiagents}.
 
 \subsection{The OWASP and MITRE taxonomic grounding}
 
