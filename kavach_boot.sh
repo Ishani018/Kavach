@@ -305,18 +305,18 @@ else
        [[ -n "$(ls -A "$KAVACH_DIR/parliament/.chroma_kavach" 2>/dev/null)" ]]; then
         warn "ChromaDB cache exists. Skipping corpus load (use --skip-corpus to always skip, or delete parliament/.chroma_kavach to force rebuild)."
     else
-        info "Merging v1 + v2 corpus patterns..."
-        python3 "$KAVACH_DIR/corpus_v2/merge_corpus.py" \
-            --v1 "$KAVACH_DIR/kavach_corpus_v1.json" \
-            --new-dir "$KAVACH_DIR/corpus_v2/" \
-            --output "$KAVACH_DIR/corpus_v2/kavach_corpus_v2.json"
-        ok "Corpus merged → corpus_v2/kavach_corpus_v2.json"
-
-        info "Loading merged corpus into ChromaDB (first run: ~3-5 min for BGE download + embedding)..."
+        # Load the v1 corpus (kavach_corpus_v1.json) — the committed baseline that
+        # every benchmark number and the paper are measured on. This yields
+        # CHANNEL=303 (101 CHANNEL patterns x 3 levels), which the runbook and the
+        # dashboard C303 gate require. Do NOT load corpus_v2 here: it is an
+        # unvalidated 200-pattern expansion that would give CHANNEL=453, break the
+        # C303 gate, and make Monday's numbers non-comparable to committed baselines
+        # (and it does not contain the R2 LOLBIN patterns anyway).
+        info "Loading v1 corpus into ChromaDB (first run: ~3-5 min for BGE download + embedding)..."
         python3 "$KAVACH_DIR/corpus_loader.py" \
-            --corpus "$KAVACH_DIR/corpus_v2/kavach_corpus_v2.json" \
+            --corpus "$KAVACH_DIR/kavach_corpus_v1.json" \
             --rebuild
-        ok "Corpus loaded into ChromaDB."
+        ok "v1 corpus loaded into ChromaDB (expect CHANNEL=303)."
 
         info "Running COMPASS threshold calibration..."
         python3 "$KAVACH_DIR/compass_calibrator.py"
