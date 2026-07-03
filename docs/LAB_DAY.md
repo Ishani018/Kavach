@@ -444,6 +444,38 @@ tokens; verify with `grep -rn "\\TBD" paper/section_*.tex`):
 
 - [ ] Replace the 10-action CHANNEL-overlap finding in §4.3/§4.4 with the statistically-weighted **510-case** sweep (Parv's `benign_gate_usercases.py` across θ_CHANNEL 0.45/0.50/0.55/0.60). Keep the honest framing: if it still shows no separating knee, that *strengthens* the "corpus recalibration, not threshold tuning" conclusion. Update the §7 next-step sentence to cite the 510-case result.
 
+### Stage 4b — Ablation studies (extend the existing four-minister ablation)
+
+- [ ] **Ablation 2 (retrieval modes) — laptop portion DONE**, InjecAgent leg
+      pending Dell. The dense/BM25/hybrid comparison ran on the R2 LOLBIN set +
+      17 benign instructions (`kavach_eval/ablation_retrieval_modes.py`,
+      results in `kavach_eval/ablation_results/retrieval_modes_laptop.txt`):
+      dense-only catches 10/13 LOLBINs but 70.6% benign B/E-FPR; hybrid 0%
+      hard-block FPR but 10/13 LOLBINs evade; a **trade-off**, not
+      "hybrid dominates." On the Dell, extend it with the full InjecAgent
+      3-mode recall row (the case text lives at `/tmp/InjecAgent/data/` on the
+      Dell, not in the repo — re-run `ablation_retrieval_modes.py` there with
+      the InjecAgent set wired in). Folds into §4.5 next to the R2b table;
+      frame as "same lexical-gate mechanism, opposite sides" so it does not
+      appear to contradict "hybrid recovers recall" (that is InjecAgent
+      register-matched attacks; LOLBINs are lexically novel).
+- [ ] **Ablation 1 (COMPASS + trajectory on/off) — DEFERRED, needs a Dell
+      re-run.** The current `minister_runs.jsonl` dump records per-minister
+      votes but **no** `compass_drift` or `trajectory`/`session_risk` fields
+      (verified: 0 of 2108 records), so it cannot be replayed with those
+      signals toggled. To run it: re-dump the minister runs WITH `compass_drift`
+      and `trajectory_risk` logged per call, and — because trajectory is
+      session-level — as sequential sessions, not per-case replay. Only do this
+      if AgentDojo + InjecAgent are already done; do NOT let it compete with the
+      primary AgentDojo run for Dell time. Likely a weak result on single-turn
+      benchmarks — acceptable to defer to the 2027 follow-on.
+- [ ] **Ablation 3 (semantic generalization) — decision pending.** Not pure
+      re-analysis: the red-team output persists only the evasions + ambiguous
+      cases, not the caught paraphrases, and ~142/268 attempts drifted
+      off-intent. Needs per-attempt logging + an intent-preservation filter, then
+      a re-run (laptop). Build only if the validity design is clean; otherwise
+      2027 follow-on. See the session notes.
+
 ### Stage 5 — Embedding comparison (only if it ran cleanly)
 
 - [ ] If Parv's BGE-vs-e5-vs-gte run completed: add the comparison table to §3.2 and change the §3.2 / §7 "we did not perform an embedding ablation" framing to "we compared three encoders holding corpus and thresholds fixed." **If it did not finish cleanly, leave the future-work framing untouched** — do not half-report it.
