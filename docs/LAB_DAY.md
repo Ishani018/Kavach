@@ -149,6 +149,57 @@ The dashboard buttons map to `scripts/dell_run_*.sh`. Run them top to bottom:
      candidate fixes its evasion / delta stops improving / you decline). There is
      no iteration counter.
 
+5. **LOLBIN corpus-improvement experiment** (HIGH-VALUE, but only if time
+   permits **after AgentDojo + InjecAgent complete** — it must not compete with
+   the headline benchmark). This demonstrates the corpus_agent (Kavach's
+   *proposed* structural fix) actually closing the R2 LOLBIN blind spot,
+   turning the Ablation-2 limitation into "limitation **+ working fix**."
+
+   **Safety guardrails — non-negotiable, verify each before proceeding:**
+   - `kavach_corpus_v1_ORIGINAL.json` is **NEVER touched.** Its MD5 must be
+     `7ce71ec38c9bdd2f273a34205c13fc5e` before AND after. Check both ends:
+     `md5sum kavach_corpus_v1_ORIGINAL.json`.
+   - The corpus_agent **only writes to `kavach_eval/corpus_agent/staging/`**
+     (`proposed_patterns_<ts>.json`) — it never writes the live corpus or
+     anything under `parliament/`. A human accepts from staging into a **new**
+     corpus version, never overwriting the original.
+   - Every proposed pattern must pass all **three anti-poisoning gates**
+     (A: FP gate — no benign false-positive inflation; B: detection — it
+     actually improves detection; C: dedup — reject ≥0.92 near-duplicates).
+   - The **"before" evasion measurement is captured and committed FIRST**, or
+     the delta is meaningless.
+
+   **Ordered steps:**
+   1. **Baseline (before).** Run `python kavach_eval/ablation_retrieval_modes.py`
+      on the Dell against the current corpus; record how many of the 13 R2
+      LOLBINs evade the hybrid pipeline (laptop showed 10/13 — confirm on Dell).
+      **Commit this baseline FIRST**, tagged `pre-corpus-improvement`.
+   2. **Propose.** Feed the R2 evasions to the corpus_agent
+      (`python -m kavach_eval.corpus_agent.agent ...`) to propose **full**
+      patterns (real command signatures + MITRE technique IDs + rationale — NOT
+      just appended keyword tokens) for certutil, bitsadmin, mshta, regsvr32,
+      etc. **Show the proposed patterns (staging file) before accepting any.**
+   3. **Validate (no poisoning).** Confirm each proposal's 3-gate result in the
+      `staging_report_<ts>.txt`; report the gate breakdown (accepted/rejected +
+      reason). Reject anything that fails A/B/C.
+   4. **Rebuild + re-measure (after).** Accept the validated patterns into a
+      **new** corpus (`kavach_corpus_v2.json`, do not overwrite v1/original),
+      rebuild ChromaDB against it, and re-run `ablation_retrieval_modes.py` on
+      the same 13 LOLBINs. Record how many now evade.
+   5. **FPR side-effect check (the honesty gate).** Re-run the benign probe
+      (the 17 `user_cases.jsonl` instructions, and the 10-action benign set)
+      with the v2 corpus and confirm the added LOLBIN patterns did **not** raise
+      the benign FPR. If they did, that is a real finding — report it.
+   6. **Report the delta:** *"corpus_agent reduced LOLBIN evasion from X/13 to
+      Y/13 while benign FPR changed from A% to B%."* That sentence — with the
+      honest FPR side-effect number — is the result.
+
+   **Where it goes:** §4.5 gains a "mitigation validated" paragraph — the paper
+   identifies the blind spot, proposes the corpus_agent, and demonstrates it
+   working, with honest numbers including any FPR side-effect. If it closes the
+   blind spot without wrecking FPR, that is a strong result; if it fixes LOLBINs
+   but raises FPR, that is also a real, reportable finding.
+
 ### 4. Commit Dell results
 
 Results go to a `parv-results` branch (NOT `main`). Whoever finishes first
@@ -459,6 +510,13 @@ tokens; verify with `grep -rn "\\TBD" paper/section_*.tex`):
       frame as "same lexical-gate mechanism, opposite sides" so it does not
       appear to contradict "hybrid recovers recall" (that is InjecAgent
       register-matched attacks; LOLBINs are lexically novel).
+- [ ] **§4.5 "mitigation validated" paragraph** — IF the Dell LOLBIN
+      corpus-improvement experiment ran (Dell run-order step 5): add the
+      before/after delta ("corpus_agent reduced LOLBIN evasion from X/13 to
+      Y/13 while benign FPR changed from A% to B%") to §4.5, turning the R2
+      blind spot into "limitation + demonstrated fix." Report the FPR
+      side-effect honestly whichever way it goes. If the experiment did not run,
+      leave §4.5 as identified-blind-spot + corpus_agent-as-proposed-fix.
 - [ ] **Ablation 1 (COMPASS + trajectory on/off) — DEFERRED, needs a Dell
       re-run.** The current `minister_runs.jsonl` dump records per-minister
       votes but **no** `compass_drift` or `trajectory`/`session_risk` fields
