@@ -9,6 +9,31 @@ that says `git checkout parv`.
 
 ---
 
+## ⭐ START HERE (morning summary — full detail below)
+
+**Before anything:** `ollama list` must show your model — **Dell:** `gemma4:26b`, **Parv:** `qwen2.5:7b`. Pull if missing.
+
+**ISHANI — Dell, in order (health-check after each ★):**
+1. **Boot:** `bash kavach_boot.sh --skip-patch` → `python corpus_loader.py --rebuild` → `curl -s http://127.0.0.1:8088/health | python -m json.tool` → **★ MUST show CHANNEL: 303.** If not 303, STOP — rebuild didn't take.
+2. **Launch dashboard:** `python tools/dell_lab.py` (status bar must show parliament green + `C303` + gemma4:26b).
+3. **AgentDojo** (PRIMARY, ~45–90 min) — runs baseline-first + WITH-Kavach in one command. **★ end-of-run KAVACH AUDIT must say `run_fully_defended: true` + non-zero baseline ASR. Fail-open = HARD STOP, numbers are fake.** The delta (baseline→defended ASR) is the headline.
+4. **InjecAgent** (SECONDARY) — sanity: DH loose ~0.90 / strict ~0.63; DS loose ~0.875 / strict ~0.44. Off? note & move on, don't re-run.
+5. **Red-team** (time permitting) — note the `evasion_report_*.json` filename; the loop needs it.
+6. **Improvement Loop** (LAST, needs step 5) — approve each pattern carefully (appends to corpus).
+7. **LOLBIN experiment** (HIGH-VALUE, only after 3+4 done) — capture baseline FIRST, then corpus_agent → staging → validate 3 gates → v2 rebuild → **FPR side-effect check** → report delta.
+8. **Optional Dell checks (cheap, back two paper claims):** with the server up, fire `curl http://127.0.0.1:8088/ledger/verify` (tamper-evidence), and kill+call to confirm fail-closed `deny`. Screenshot both.
+9. **Commit** to `parv-results` (NOT main).
+
+**PARV — laptop, in order:**
+1. Setup: `git pull`, `ollama pull qwen2.5:7b`.
+2. **Embedding comparison** (BGE / e5 / gte) — rebuild index per model → restart server with `KAVACH_EMBED_MODEL` + `KAVACH_CHROMA_PATH` → InjecAgent + AgentDojo 25-pair subset → **★ /health `model` must match + CHANNEL 303.**
+3. **Threshold recalibration** (510-case CHANNEL sweep) — post-Dell checklist item.
+4. **Commit** to `parv-results`.
+
+**INVARIANT (both, before AND after):** `md5sum kavach_corpus_v1_ORIGINAL.json` = `7ce71ec38c9bdd2f273a34205c13fc5e` — must be unchanged.
+
+---
+
 ## Before you leave home (both machines)
 
 ```bash
