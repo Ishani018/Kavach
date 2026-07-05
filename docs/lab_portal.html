@@ -78,13 +78,18 @@ header.top{padding:38px 0 20px; display:flex; flex-wrap:wrap; align-items:flex-e
 /* ── Dependency map ── */
 .mapwrap{margin:0 0 30px}
 .mapwrap .label{margin-bottom:10px; display:block}
-.flow{display:flex; gap:12px; flex-wrap:wrap; align-items:stretch; overflow-x:auto; padding-bottom:4px}
-.fnode{font-family:var(--sans); font-size:12px; font-weight:600; background:var(--card); border:1px solid var(--line);
-  border-radius:10px; padding:9px 12px; display:flex; flex-direction:column; gap:3px; min-width:118px; box-shadow:var(--shadow); position:relative}
-.fnode small{font-weight:500; color:var(--muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em}
-.fnode.gate{border-color:var(--sage); background:var(--sage-wash)}
-.fnode.seq::after{content:"→"; position:absolute; right:-13px; top:50%; transform:translateY(-50%); color:var(--muted); font-family:var(--sans); font-weight:700}
-.flow .grp{display:flex; gap:24px; align-items:center}
+.svgscroll{overflow-x:auto; background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:8px 10px}
+.depmap{display:block; width:100%; min-width:720px; height:auto; font-family:var(--sans)}
+.depmap .n rect{fill:var(--sand); stroke:var(--line); stroke-width:1.4}
+.depmap .n.gate rect{fill:var(--sage-wash); stroke:var(--sage)}
+.depmap .n.clay rect{fill:#f0e0d5; stroke:var(--stop)}
+.depmap .n.blue rect{fill:var(--blue-wash); stroke:var(--blue)}
+.depmap .n.sage rect{fill:var(--sage-wash); stroke:var(--sage)}
+.depmap .nt{fill:var(--clay-ink); font-size:13px; font-weight:700; text-anchor:middle}
+.depmap .ns{fill:var(--muted); font-size:10px; font-weight:500; text-anchor:middle; text-transform:uppercase; letter-spacing:.05em}
+.depmap .lane{fill:var(--muted); font-size:10.5px; font-weight:700; text-anchor:middle; letter-spacing:.08em}
+.depmap .lane.blue{fill:var(--blue-deep)}
+:root[data-theme="dark"] .depmap .n.clay rect{fill:#3a2c24}
 
 /* ── Track columns ── */
 .tracks{display:grid; grid-template-columns:1fr 1fr; gap:22px}
@@ -203,24 +208,79 @@ git pull origin main</pre>
     </div>
   </section>
 
-  <!-- Dependency map -->
+  <!-- Dependency map (hand-built inline SVG, no CDN) -->
   <section class="mapwrap">
-    <span class="label">What blocks what</span>
-    <div class="flow">
-      <div class="grp">
-        <div class="fnode gate seq"><small>gate</small>Boot ✓ C303</div>
-      </div>
-      <div class="grp" style="gap:12px">
-        <div class="fnode"><small>then, any order</small>AgentDojo</div>
-        <div class="fnode">InjecAgent</div>
-      </div>
-      <div class="grp" style="gap:12px; margin-left:8px">
-        <div class="fnode seq"><small>tertiary</small>Red-team</div>
-        <div class="fnode"><small>needs red-team</small>Improve Loop</div>
-      </div>
-      <div class="grp" style="margin-left:8px">
-        <div class="fnode"><small>after AD + IA</small>LOLBIN → Session</div>
-      </div>
+    <span class="label">What blocks what — the gating flow</span>
+    <div class="svgscroll">
+    <svg class="depmap" viewBox="0 0 940 300" role="img" aria-label="Lab-day dependency flow: boot gates both tracks, which converge at commit then post-Dell paper work." preserveAspectRatio="xMinYMid meet">
+      <defs>
+        <marker id="arw" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/>
+        </marker>
+      </defs>
+      <!-- edges (drawn first, under nodes) -->
+      <g fill="none" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#arw)" opacity=".7">
+        <path d="M150 60 C 200 60, 200 60, 236 60"/>            <!-- boot -> agentdojo -->
+        <path d="M150 60 C 200 132, 200 132, 236 132"/>          <!-- boot -> injecagent -->
+        <path d="M150 60 C 200 232, 480 232, 512 232"/>          <!-- boot -> parv setup -->
+        <path d="M404 60 C 440 60, 440 132, 236 132" opacity="0"/>
+        <path d="M404 132 C 470 132, 470 60, 512 96"/>           <!-- ad+ia -> lolbin -->
+        <path d="M404 60  C 470 60, 470 96, 512 96"/>            <!-- ad -> lolbin -->
+        <path d="M404 187 L512 187"/>                            <!-- redteam -> loop -->
+        <path d="M150 60 C 210 187, 210 187, 236 187"/>          <!-- boot -> redteam -->
+        <path d="M680 96  C 760 96, 760 150, 792 150"/>          <!-- lolbin -> commit -->
+        <path d="M680 187 C 760 187, 760 150, 792 150"/>         <!-- loop -> commit -->
+        <path d="M680 232 C 760 232, 760 165, 792 158"/>         <!-- parv -> commit -->
+        <path d="M900 150 L900 210 L120 210 L120 250" opacity="0"/>
+      </g>
+      <!-- boot gate -->
+      <g class="n gate">
+        <rect x="24" y="40" width="126" height="40" rx="9"/>
+        <text x="87" y="58" class="nt">Boot · C303</text>
+        <text x="87" y="72" class="ns">the gate</text>
+      </g>
+      <!-- Dell track nodes -->
+      <g class="n clay">
+        <rect x="236" y="40" width="168" height="40" rx="9"/>
+        <text x="320" y="58" class="nt">AgentDojo</text>
+        <text x="320" y="72" class="ns">primary · the delta</text>
+      </g>
+      <g class="n">
+        <rect x="236" y="112" width="168" height="40" rx="9"/>
+        <text x="320" y="130" class="nt">InjecAgent</text>
+        <text x="320" y="144" class="ns">secondary</text>
+      </g>
+      <g class="n">
+        <rect x="236" y="167" width="168" height="40" rx="9"/>
+        <text x="320" y="185" class="nt">Red-team</text>
+        <text x="320" y="199" class="ns">tertiary</text>
+      </g>
+      <g class="n">
+        <rect x="512" y="76" width="168" height="40" rx="9"/>
+        <text x="596" y="94" class="nt">LOLBIN → Session</text>
+        <text x="596" y="108" class="ns">after AD + IA</text>
+      </g>
+      <g class="n">
+        <rect x="512" y="167" width="168" height="40" rx="9"/>
+        <text x="596" y="185" class="nt">Improve Loop</text>
+        <text x="596" y="199" class="ns">needs red-team</text>
+      </g>
+      <!-- Parv track -->
+      <g class="n blue">
+        <rect x="512" y="212" width="168" height="40" rx="9"/>
+        <text x="596" y="230" class="nt">Parv · embedding</text>
+        <text x="596" y="244" class="ns">→ recalibration (∥)</text>
+      </g>
+      <!-- converge -->
+      <g class="n sage">
+        <rect x="792" y="130" width="124" height="40" rx="9"/>
+        <text x="854" y="148" class="nt">Commit</text>
+        <text x="854" y="162" class="ns">parv-results</text>
+      </g>
+      <!-- track labels -->
+      <text x="320" y="26" class="lane">— ISHANI · DELL —</text>
+      <text x="596" y="284" class="lane blue">— PARV · LAPTOP (parallel) —</text>
+    </svg>
     </div>
   </section>
 
@@ -231,7 +291,7 @@ git pull origin main</pre>
       <div class="track-head">
         <h2><span class="track-chip">Ishani</span> Dell Precision 3660</h2>
         <div class="machine">RTX 4090 · gemma4:26b · one browser dashboard</div>
-        <div class="progress"><span id="ish-count">0 / 7</span><div class="pbar"><i id="ish-bar"></i></div></div>
+        <div class="progress"><span id="ish-count">0 / 9</span><div class="pbar"><i id="ish-bar"></i></div></div>
       </div>
 
       <!-- BOOT -->
@@ -340,6 +400,7 @@ curl -s http://127.0.0.1:8088/health | python -m json.tool</pre>
             <span class="label">record</span>
             <div class="field"><label for="ish-ia-dh">Direct-harm (loose / strict / FPR)</label><span class="tgt">~0.90 / ~0.63 / ~23.5%</span><input id="ish-ia-dh" data-save placeholder="__ / __ / __%"></div>
             <div class="field"><label for="ish-ia-ds">Data-stealing (loose / strict / FPR)</label><span class="tgt">~0.875 / ~0.44 / 0.0%</span><input id="ish-ia-ds" data-save placeholder="__ / __ / __%"></div>
+            <div class="field"><label for="ish-ia-lat">Mean latency (p50)</label><span class="tgt">expect ~78 ms · CHANNEL may read 303 vs the old 288 — that's the CHAN-101 fix, expected</span><input id="ish-ia-lat" data-save placeholder="~78 ms"></div>
           </div>
         </div>
       </article>
@@ -358,6 +419,7 @@ curl -s http://127.0.0.1:8088/health | python -m json.tool</pre>
             <span class="label">record</span>
             <div class="field"><label for="ish-rt-file">evasion_report_*.json filename</label><input id="ish-rt-file" data-save placeholder="evasion_report_202607…json"></div>
             <div class="field"><label for="ish-rt-rate">evasion rate / n_evaded</label><span class="tgt">prior run ~3.36%</span><input id="ish-rt-rate" data-save placeholder="__% (n/__)"></div>
+            <div class="field"><label for="ish-rt-tools">which tools/patterns evaded</label><span class="tgt">feeds the loop</span><input id="ish-rt-tools" data-save placeholder="e.g. CHAN-089, base64…"></div>
           </div>
         </div>
       </article>
@@ -374,7 +436,9 @@ curl -s http://127.0.0.1:8088/health | python -m json.tool</pre>
           <p class="blurb">Dry-runs first (writes nothing). If <code>n_evaded &gt; 0</code>, it pauses for a <b>YES / NO</b> approval box. Approve carefully — each <code>yes</code> <b>appends</b> to <code>kavach_corpus_v1.json</code> (never edits/deletes). Ground truth stays frozen.</p>
           <div class="record">
             <span class="label">record</span>
-            <textarea class="notes" id="ish-loop-notes" data-save placeholder="patterns approved / evasion before→after / where it stopped"></textarea>
+            <div class="field"><label for="ish-loop-prop">patterns proposed / accepted</label><input id="ish-loop-prop" data-save placeholder="e.g. 4 proposed, 2 accepted"></div>
+            <div class="field"><label for="ish-loop-evo">evasion before → after</label><input id="ish-loop-evo" data-save placeholder="__% → __%"></div>
+            <textarea class="notes" id="ish-loop-notes" data-save placeholder="where it stopped / any notes"></textarea>
           </div>
         </div>
       </article>
@@ -473,7 +537,7 @@ git push -u origin parv-results</pre>
       <div class="track-head">
         <h2><span class="track-chip">Parv</span> Laptop</h2>
         <div class="machine">RTX 5060 · qwen2.5:7b · runs in parallel — no need to sync until end of day</div>
-        <div class="progress"><span id="parv-count">0 / 5</span><div class="pbar"><i id="parv-bar"></i></div></div>
+        <div class="progress"><span id="parv-count">0 / 6</span><div class="pbar"><i id="parv-bar"></i></div></div>
       </div>
 
       <!-- SETUP -->
@@ -583,6 +647,30 @@ python benchmarks/run_agentdojo_kavach.py --suite slack --model-id qwen2.5:7b \
             <div class="field"><label for="parv-gte-dh">strict recall DH / DS</label><input id="parv-gte-dh" data-save placeholder="__ / __"></div>
             <div class="field"><label for="parv-gte-fpr">FPR DH / DS</label><input id="parv-gte-fpr" data-save placeholder="__ / __"></div>
             <div class="field"><label for="parv-gte-ad">AgentDojo ASR / utility</label><input id="parv-gte-ad" data-save placeholder="__ / __"></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- RECALIBRATION -->
+      <article class="step" data-track="parv" data-key="parv-recal" data-needs="parv-bge">
+        <div class="step-top">
+          <button class="check" type="button" aria-label="mark done"><svg viewBox="0 0 20 20" fill="none"><path d="M4 10l4 4 8-9" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <div class="step-title">5 · Threshold recalibration (510-case sweep)</div>
+          <span class="pri sec">upgrades the 10-action finding</span>
+        </div>
+        <div class="step-body">
+          <p class="waiting">waiting on BGE baseline</p>
+          <p class="blurb">Full-population CHANNEL sweep so §4.4's overlap finding rests on 510 cases, not 10. <b>Method (per LAB_DAY Stage 4):</b> the gate floor is read by the <em>server</em> at startup, so sweep by restarting the server with <code>KAVACH_BM25_GATE_FLOOR</code> set to each θ, then run the benign gate against it. <b>Honest either way:</b> if there's still no separating knee, that <em>strengthens</em> "corpus recalibration, not threshold tuning."</p>
+          <div class="cmd" data-copy="# for TH in 0.45 0.50 0.55 0.60 — restart the SERVER with the gate set, then measure:&#10;#   terminal A:  KAVACH_BM25_GATE_FLOOR=$TH python -m uvicorn parliament.server:app --host 127.0.0.1 --port 8088&#10;#   terminal B:  python benchmarks/benign_gate_usercases.py \&#10;#                  --parliament-url http://127.0.0.1:8088 \&#10;#                  --out benchmarks/results_v2/recal_ch_${TH}.json"><pre># for TH in 0.45 0.50 0.55 0.60 — restart the SERVER with the gate set, then measure:
+#   terminal A:  KAVACH_BM25_GATE_FLOOR=$TH python -m uvicorn parliament.server:app --host 127.0.0.1 --port 8088
+#   terminal B:  python benchmarks/benign_gate_usercases.py \
+#                  --parliament-url http://127.0.0.1:8088 \
+#                  --out benchmarks/results_v2/recal_ch_${TH}.json</pre><button class="cbtn" type="button">⧉ copy</button></div>
+          <div class="expect"><span class="chip">operating point where FPR ↓ and recall holds — or "no knee" (also a result)</span><span class="chip stopc">post-Dell task (LAB_DAY Stage 4) — confirm the loop before relying on it</span></div>
+          <div class="record">
+            <span class="label">record — the operating-point finding</span>
+            <div class="field"><label for="parv-recal-knee">Separating knee found?</label><input id="parv-recal-knee" data-save placeholder="no knee / θ=0.__ at FPR __%"></div>
+            <div class="field"><label for="parv-recal-note">best θ_CHANNEL / FPR at that point</label><input id="parv-recal-note" data-save placeholder="benign FPR __ / attack recall __"></div>
           </div>
         </div>
       </article>
