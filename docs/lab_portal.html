@@ -89,7 +89,9 @@ header.top{padding:38px 0 20px; display:flex; flex-wrap:wrap; align-items:flex-e
 .depmap .ns{fill:var(--muted); font-size:10px; font-weight:500; text-anchor:middle; text-transform:uppercase; letter-spacing:.05em}
 .depmap .lane{fill:var(--muted); font-size:10.5px; font-weight:700; text-anchor:middle; letter-spacing:.08em}
 .depmap .lane.blue{fill:var(--blue-deep)}
-:root[data-theme="dark"] .depmap .n.clay rect{fill:#3a2c24}
+:root[data-theme="dark"] .depmap .n.clay rect{fill:#4a352a}
+@media (prefers-color-scheme:dark){.depmap .n.clay rect{fill:#4a352a}}
+:root[data-theme="light"] .depmap .n.clay rect{fill:#f0e0d5}
 
 /* ── Track columns ── */
 .tracks{display:grid; grid-template-columns:1fr 1fr; gap:22px}
