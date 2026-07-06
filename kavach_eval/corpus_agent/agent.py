@@ -17,11 +17,11 @@ Usage:
     python kavach_eval/corpus_agent/agent.py \
         --evasion-report kavach_eval/evasion_results/evasion_report_20260614T200623Z.json \
         --minister CHANNEL \
-        --model qwen2.5:3b \
+        --model qwen2.5:7b \
         --measure-closure
 
 Defaults: newest evasion_report in evasion_results/, minister CHANNEL,
-model qwen2.5:3b.
+model qwen2.5:7b.
 """
 
 from __future__ import annotations
@@ -121,8 +121,10 @@ def main() -> None:
     ap.add_argument("--minister", default="CHANNEL",
                     choices=["EXECUTOR", "VAULT", "CHANNEL", "NAVIGATOR", "ALL"],
                     help="Restrict to one minister's evasions (default: CHANNEL).")
-    ap.add_argument("--model", default="qwen2.5:3b",
-                    help="Ollama model for proposals (default: qwen2.5:3b).")
+    ap.add_argument("--model", default="qwen2.5:7b",
+                    help="Ollama model for proposals (default: qwen2.5:7b — "
+                         "qwen2.5:3b is not pulled on the Dell and 404s; must "
+                         "already be pulled, check `ollama list`).")
     ap.add_argument("--measure-closure", action="store_true",
                     help="Estimate gap closure (forward-looking, not a benchmark).")
     ap.add_argument("--verbose", action="store_true")
