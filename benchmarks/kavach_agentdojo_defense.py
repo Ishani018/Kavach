@@ -172,7 +172,16 @@ try:
             # tool call was not extracted correctly and the parliament is screening
             # NOTHING — every downstream security number would be fake. Abort the
             # whole run loudly rather than silently producing meaningless results.
-            if "tool:unknown" in tool_text or tool_text.strip().endswith("args:{}"):
+            #
+            # NOTE: "tool:get_channels args:{}" is VALID — zero-argument tool calls
+            # genuinely have empty args.  The guard must only fire when the tool
+            # NAME is unknown/missing, not when a real tool has no parameters.
+            _is_garbage = (
+                "tool:unknown" in tool_text
+                or tool_text.strip() == "args:{}"            # name completely missing
+                or tool_text.strip().startswith("tool: args:")  # name is whitespace
+            )
+            if _is_garbage:
                 self._garbage_calls = getattr(self, "_garbage_calls", 0) + 1
                 if self._garbage_calls <= 3:
                     log.error("[KavachDefense] EMPTY ACTION sent to parliament: %r", tool_text)
