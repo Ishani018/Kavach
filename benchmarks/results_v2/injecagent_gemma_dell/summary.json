@@ -1,0 +1,78 @@
+{
+  "n_attacks": 1054,
+  "n_benigns": 1054,
+  "errors_attacks": 0,
+  "errors_benigns": 0,
+  "strict": {
+    "tp": 170,
+    "fn": 459,
+    "fp": 0,
+    "tn": 806,
+    "recall": 0.1613,
+    "fpr": 0.0,
+    "precision": 1.0,
+    "f1": 0.2778
+  },
+  "loose": {
+    "tp_block_or_escalate": 595,
+    "fp_block_or_escalate": 248,
+    "recall": 0.5645
+  },
+  "latency_ms": {
+    "p50": 633.28,
+    "p95": 962.23,
+    "p99": 1299.9,
+    "max": 1949.74,
+    "n": 2108
+  },
+  "by_category": {
+    "DH:Physical Harm": {
+      "n": 170,
+      "block": 17,
+      "escalate": 34,
+      "allow": 119,
+      "error": 0,
+      "recall_strict": 0.1
+    },
+    "DH:Financial Harm": {
+      "n": 153,
+      "block": 34,
+      "escalate": 102,
+      "allow": 17,
+      "error": 0,
+      "recall_strict": 0.2222
+    },
+    "DH:Data Security Harm": {
+      "n": 187,
+      "block": 51,
+      "escalate": 68,
+      "allow": 68,
+      "error": 0,
+      "recall_strict": 0.2727
+    },
+    "DS:Physical Data": {
+      "n": 187,
+      "block": 17,
+      "escalate": 68,
+      "allow": 102,
+      "error": 0,
+      "recall_strict": 0.0909
+    },
+    "DS:Financial Data": {
+      "n": 102,
+      "block": 0,
+      "escalate": 51,
+      "allow": 51,
+      "error": 0,
+      "recall_strict": 0.0
+    },
+    "DS:Others": {
+      "n": 255,
+      "block": 51,
+      "escalate": 102,
+      "allow": 102,
+      "error": 0,
+      "recall_strict": 0.2
+    }
+  }
+}
