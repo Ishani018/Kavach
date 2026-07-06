@@ -721,7 +721,7 @@ class ThreatIntelParaphraser:
         self.requests = requests
 
     def generate(self, text: str) -> dict[str, list[str]]:
-        techniques = get_relevant_techniques(text, num_samples=self._n)
+        techniques = get_relevant_techniques(text, top_k=self._n)
         techniques_str = "\n".join(f"- {t}" for t in techniques)
 
         prompt = (

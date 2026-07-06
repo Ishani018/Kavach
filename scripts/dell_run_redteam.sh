@@ -49,7 +49,7 @@ fi
 # ── The run ──────────────────────────────────────────────────────────────────
 echo "[run] starting red-team evasion (250 seeds, LLM + threat-intel) ..."
 python kavach_eval/redteam_evasion_v0.py \
-  --use-llm --model "${MODEL}" \
+  --use-llm \
   --max-seeds 250 \
   --use-threat-intel \
   --out-dir "${OUTDIR}" \
