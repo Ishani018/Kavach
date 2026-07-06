@@ -847,6 +847,10 @@ def main() -> None:
     ap.add_argument("--max-pairs",         type=int, default=None,
                     help="cap total (user×injection) pairs for a quick subset run; "
                          "truncates the user-task list. Default: full suite.")
+    ap.add_argument("--skip-baseline",     action="store_true",
+                    help="Skip the baseline (no-defense) condition — use the already-saved "
+                         "baseline from the summary JSON. Useful when baseline completed "
+                         "but the WITH-Kavach run needs to be re-run.")
     args = ap.parse_args()
 
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
@@ -932,17 +936,32 @@ def main() -> None:
     # BASELINE FIRST: it is the reference the defended number is measured
     # against, so we compute and persist it before touching Kavach. If the
     # WITH-Kavach run is interrupted, the baseline is already on disk.
-    print("[agentdojo] ── Running BASELINE (no defense) ────────────────────")
-    baseline = run_one(
-        suite, args.attack, args.model_id, False, logdir,
-        abort_threshold=args.abort_threshold,
-        ollama_port=args.ollama_port,
-        user_tasks=user_tasks_to_run,
-        task_set=args.task_set,
-    )
-    print(f"[agentdojo]   BASELINE:    {baseline}")
-    _flush(baseline=baseline)
-    print(f"[agentdojo]   baseline persisted to {summary_path} (partial)")
+    baseline = None
+    if args.skip_baseline:
+        # Load previously saved baseline from summary JSON
+        if summary_path.exists():
+            saved = json.loads(summary_path.read_text(encoding="utf-8"))
+            baseline = saved.get("baseline")
+        if baseline is not None:
+            print("[agentdojo] ── BASELINE skipped (--skip-baseline) ─────────────────")
+            print(f"[agentdojo]   loaded from {summary_path}: {baseline}")
+        else:
+            print("[agentdojo] ❌ --skip-baseline but no saved baseline found in")
+            print(f"[agentdojo]    {summary_path}")
+            print("[agentdojo]    Remove --skip-baseline and re-run to generate it.")
+            sys.exit(1)
+    else:
+        print("[agentdojo] ── Running BASELINE (no defense) ────────────────────")
+        baseline = run_one(
+            suite, args.attack, args.model_id, False, logdir,
+            abort_threshold=args.abort_threshold,
+            ollama_port=args.ollama_port,
+            user_tasks=user_tasks_to_run,
+            task_set=args.task_set,
+        )
+        print(f"[agentdojo]   BASELINE:    {baseline}")
+        _flush(baseline=baseline)
+        print(f"[agentdojo]   baseline persisted to {summary_path} (partial)")
 
     print("\n[agentdojo] ── Running WITH Kavach ──────────────────────────────")
     with_kavach = run_one(
