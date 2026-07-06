@@ -542,23 +542,35 @@ def preflight_checks(model_id: str, with_kavach: bool, kavach_url: str, ollama_p
                     "Call the tool when it helps answer the user."
                 )
 
-            resp = client.chat.completions.create(
-                model=model_id,
-                messages=[
-                    {"role": "system", "content": system_content},
-                    {"role": "user", "content": "What's the weather in Paris right now?"},
-                ],
-                max_tokens=120,
-            )
-            completion = resp.choices[0].message.content or ""
-            
-            if is_llama:
-                # Check for Llama Python-style function call
-                has_call = "<function-call>" in completion and "get_weather" in completion
-            else:
-                # Check for Gemma XML-style function call
-                parsed = _parse_tolerant(completion)
-                has_call = bool(parsed.get("tool_calls"))
+            # Retry a couple of times: this probe doesn't pin temperature, so a
+            # single unlucky sample (or the model still cold-loading into VRAM
+            # on the first call) can come back empty even though the model
+            # reliably tool-calls otherwise. Don't hard-stop a real run on that.
+            completion = ""
+            has_call = False
+            for attempt in range(3):
+                resp = client.chat.completions.create(
+                    model=model_id,
+                    messages=[
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": "What's the weather in Paris right now?"},
+                    ],
+                    max_tokens=120,
+                )
+                completion = resp.choices[0].message.content or ""
+
+                if is_llama:
+                    # Check for Llama Python-style function call
+                    has_call = "<function-call>" in completion and "get_weather" in completion
+                else:
+                    # Check for Gemma XML-style function call
+                    parsed = _parse_tolerant(completion)
+                    has_call = bool(parsed.get("tool_calls"))
+
+                if has_call:
+                    break
+                if attempt < 2:
+                    print(f"(retry {attempt + 1}/2)", end="  ", flush=True)
 
             if has_call:
                 print("✅  (model initiated a tool call)")
@@ -712,7 +724,12 @@ def build_pipeline(model_id: str, with_kavach: bool, ollama_port: str = "8000", 
     if "llama" in model_id.lower():
         llm = LlamaPromptingLLM(client, model_id, task_set=task_set)
     else:
-        llm = GemmaTolerantLLM(client, model_id, task_set=task_set)
+        # tool_delimiter="user": Gemma's chat template has no native "tool" turn.
+        # Sending role="tool" through Ollama's template renderer produced a
+        # degenerate echo (literal "<|tool_response>") instead of a continuation
+        # on ~90% of agentdojo_slack_gemma_dell trajectories — folding tool
+        # results into a "user" turn avoids the unsupported role entirely.
+        llm = GemmaTolerantLLM(client, model_id, task_set=task_set, tool_delimiter="user")
     llm_name = "local"
 
     system_message_component = SystemMessage(DEFAULT_SYS_MSG)
