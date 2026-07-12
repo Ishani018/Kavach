@@ -639,6 +639,32 @@ measured this session at smaller scale.
   unaffected (no exemption leak; presence of `account_email` in context
   does not suppress a Slack/banking taint block).
 
+- **EXECUTOR's deny-list originally caught only direct/literal LOLBIN
+  invocations, missing import-aliased and variable-bound indirection**
+  (e.g. `import os as o; o.system(...)` or `from os import system as s;
+  s(...)` bypassed every regex rule entirely, since neither `os.system(`
+  nor a bare `system(` appears literally in the code). This was the
+  tractable half of §2.2's originally-planned "resolved-call-name
+  tracing" novel-work item — confirmed via git archaeology that no AST
+  work was ever attempted for EXECUTOR before this fix; the deny-list-only
+  Stage 1/2 builds shipped without it, undocumented, rather than as an
+  explicit scope cut. **Fixed**: `prefilters.py` now runs a lightweight
+  AST alias-resolution pass (`_build_alias_map`/`_resolve_call_name`)
+  alongside the existing regex checks — walks `Import`/`ImportFrom` nodes
+  to resolve aliased call names before comparing against the same
+  `EXECUTOR_DENYLIST` rule identities (`python-eval-exec`, `os-system-call`,
+  `subprocess-shell-true`), not a second list. Re-validated: both
+  import-alias and from-import-alias cases now BLOCK; the 13-case LOLBIN
+  set, 55-case benign set, and 22-session set are all unchanged (0 FPs,
+  0 regressions); 7 constructed adversarial-benign cases using legitimate
+  aliased imports (`import pandas as pd`, `from os import path as p`,
+  etc.) all correctly ALLOW. **Remains out of scope, by explicit choice,
+  not oversight**: the harder variable-bound case (`fn = os.system;
+  fn(...)`) needs real local dataflow/def-use tracking, not just import
+  resolution — this is the "decode-then-exec dataflow tracing" half of
+  §2.2's novel-work item, a meaningfully larger scope than a quick add,
+  and is left as a documented limitation for whoever continues this work.
+
 ## Open decisions for the next conversation (not resolved by this plan, by design — this doc scopes, it doesn't decide)
 
 1. Confidence-scale convention for deterministic detectors (§1) — a

@@ -28,11 +28,15 @@ now-inaccurate wording).
 """
 from __future__ import annotations
 
+import ast
 import json
+import logging
 import re
 from dataclasses import dataclass
 
 from .ministers import MinisterScan
+
+log = logging.getLogger("kavach.prefilters")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -55,15 +59,23 @@ def parse_call(text: str) -> ParsedCall | None:
     _format_tool_call and parliament/ministers.py's _tokenize). Returns
     None if the text doesn't match (e.g. free-text queries with no tool
     call) — pre-filters simply don't apply to those, same as the
-    ministers' existing behavior on non-tool-call text."""
+    ministers' existing behavior on non-tool-call text.
+
+    Malformed args JSON is treated the same way (returns None) rather
+    than silently degrading to an empty {} — an empty args dict looks
+    identical to a real call with no arguments, so a malformed call would
+    otherwise silently pass through every prefilter check as if it had no
+    args to scan at all. Logged so a malformed call is visible, not just
+    dropped."""
     m = _CALL_RE.match(text.strip())
     if not m:
         return None
     tool = m.group("tool")
     try:
         args = json.loads(m.group("args"))
-    except json.JSONDecodeError:
-        args = {}
+    except json.JSONDecodeError as e:
+        log.warning("parse_call: malformed args JSON for tool %r: %s", tool, e)
+        return None
     return ParsedCall(tool=tool, args=args, raw_text=text)
 
 
@@ -227,9 +239,127 @@ EXECUTOR_DENYLIST: list[tuple[str, re.Pattern, str]] = [
 ]
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Import-alias resolution (AST) — closes the tractable half of
+# REARCHITECTURE_PLAN.md §2.2's "resolved-call-name tracing" novel-work
+# item: `import os as o; o.system(...)` and `from os import system as s;
+# s(...)` both defeat EXECUTOR_DENYLIST's pure string matching, since
+# neither substring `os.system(` nor a bare `system(` (without knowing it
+# resolves to os.system) appears literally in the code. The harder
+# variable-bound case (`fn = os.system; fn(...)`) needs real local
+# dataflow/def-use tracking, not just import resolution -- deliberately
+# OUT OF SCOPE for this pass (REARCHITECTURE_PLAN.md's own §2.2 language
+# separates "resolved-call-name tracing" from "decode-then-exec dataflow
+# tracing" as two distinct novel-work items; only the former is closed
+# here). Left as a documented limitation, not attempted.
+#
+# Only three EXECUTOR_DENYLIST rules are genuinely Python-call-shaped
+# (the rest are shell/PowerShell/curl-pipe patterns with no Python AST to
+# walk) -- reused here as the ground truth for "dangerous," per instruction
+# not to invent a second list:
+#   python-eval-exec       -> eval(...) / exec(...)
+#   os-system-call         -> os.system(...)
+#   subprocess-shell-true  -> subprocess.{run,Popen,call,check_output}(..., shell=True)
+_AST_DANGEROUS_CALLS: dict[str, str] = {
+    "eval":         "python-eval-exec",
+    "exec":         "python-eval-exec",
+    "os.system":    "os-system-call",
+}
+_AST_SUBPROCESS_FUNCS = frozenset({"subprocess.run", "subprocess.Popen", "subprocess.call", "subprocess.check_output"})
+_AST_DENYLIST_SOURCE: dict[str, str] = {name: source for name, _pattern, source in EXECUTOR_DENYLIST}
+
+
+def _build_alias_map(tree: ast.AST) -> dict[str, str]:
+    """Walk Import/ImportFrom nodes, return {local_name: resolved_dotted_name}.
+    `import os as o` -> {"o": "os"}. `from os import system as s` -> {"s": "os.system"}.
+    Unaliased imports are included too (`import os` -> {"os": "os"}, `from os
+    import system` -> {"system": "os.system"}) so the resolver below has one
+    uniform lookup regardless of whether the code happened to alias anything."""
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name
+                aliases[local] = alias.name
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                local = alias.asname or alias.name
+                aliases[local] = f"{node.module}.{alias.name}"
+    return aliases
+
+
+def _resolve_call_name(func_node: ast.expr, aliases: dict[str, str]) -> str | None:
+    """Resolve a Call node's func expression to a dotted name, through the
+    alias map. Handles the two shapes _build_alias_map's entries produce:
+    a bare Name (`s(...)` where s is an aliased `from` import) or an
+    Attribute on a Name (`o.system(...)` where o is an aliased `import`)."""
+    if isinstance(func_node, ast.Name):
+        return aliases.get(func_node.id, func_node.id)
+    if isinstance(func_node, ast.Attribute) and isinstance(func_node.value, ast.Name):
+        base = aliases.get(func_node.value.id, func_node.value.id)
+        return f"{base}.{func_node.attr}"
+    return None
+
+
+def _check_executor_ast(text: str) -> MinisterScan | None:
+    """AST-based call-name resolution over one candidate string. Returns
+    None (not a match, not an error) whenever the text isn't valid Python
+    or contains no resolvable dangerous call -- must never crash or flag
+    plain non-code text, since EXECUTOR scans arbitrary arg strings that
+    are usually NOT code at all."""
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return None
+
+    aliases = _build_alias_map(tree)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        resolved = _resolve_call_name(node.func, aliases)
+        if resolved is None:
+            continue
+
+        if resolved in _AST_DANGEROUS_CALLS:
+            rule_name = _AST_DANGEROUS_CALLS[resolved]
+            return MinisterScan(
+                minister="EXECUTOR",
+                verdict="BLOCK",
+                confidence=1.0,
+                matched_id=f"EXECUTOR-PREFILTER-AST:{rule_name}",
+                matched_text=f"AST-resolved call {resolved!r} (rule {rule_name!r}) via alias resolution",
+                matched_level="deterministic",
+                source=_AST_DENYLIST_SOURCE.get(rule_name),
+                retrieval_mode="deterministic",
+            )
+
+        if resolved in _AST_SUBPROCESS_FUNCS:
+            has_shell_true = any(
+                kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True
+                for kw in node.keywords
+            )
+            if has_shell_true:
+                return MinisterScan(
+                    minister="EXECUTOR",
+                    verdict="BLOCK",
+                    confidence=1.0,
+                    matched_id="EXECUTOR-PREFILTER-AST:subprocess-shell-true",
+                    matched_text=f"AST-resolved call {resolved!r} with shell=True via alias resolution",
+                    matched_level="deterministic",
+                    source=_AST_DENYLIST_SOURCE.get("subprocess-shell-true"),
+                    retrieval_mode="deterministic",
+                )
+    return None
+
+
 def check_executor(call: ParsedCall) -> MinisterScan | None:
     values = _flatten_arg_values(call.args)
     haystacks = [call.tool] + values
+
+    # Cheapest check first: literal regex, exactly as before -- unchanged
+    # behavior for every existing case (LOLBIN shell patterns, direct
+    # os.system(/eval(/exec( strings, etc).
     for text in haystacks:
         for name, pattern, source in EXECUTOR_DENYLIST:
             m = pattern.search(text)
@@ -244,6 +374,16 @@ def check_executor(call: ParsedCall) -> MinisterScan | None:
                     source=source,
                     retrieval_mode="deterministic",
                 )
+
+    # AST alias resolution only runs on haystacks the regex pass above
+    # didn't already flag -- catches import-aliased/from-import-aliased
+    # indirection (import os as o; o.system(...)) that no literal
+    # substring match can see.
+    for text in haystacks:
+        ast_hit = _check_executor_ast(text)
+        if ast_hit is not None:
+            return ast_hit
+
     return None
 
 
