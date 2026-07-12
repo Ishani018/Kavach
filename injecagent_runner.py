@@ -230,6 +230,58 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     return items
 
 
+_EMAIL_RE = __import__("re").compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
+
+def _load_dh_structured_args(data_dir: Path) -> dict[int, dict[str, Any]]:
+    """Load the manually-extracted structured tool_args for DH's 30 unique
+    attacker instructions (benchmarks/data/dh_structured_args.json).
+
+    Replaces the old `{"_injected_instruction": atk_instr}` construction,
+    which stuffed the WHOLE free-text instruction into one nonstandard arg
+    key -- VAULT/EXECUTOR/CHANNEL's deterministic rules scan structured arg
+    VALUES (recipient fields, credential-shaped paths, destination emails),
+    so they had nothing to match against and every DH attack case scored
+    0% strict recall, 100% NAVIGATOR-only attribution. attacker_cases_dh
+    .jsonl has no ground-truth arg schema at all (confirmed: none of DH's
+    30 attacker tools appear in the official InjecAgent tools.json, nor in
+    user_cases.jsonl's 17 read-only user-tool schemas) -- these 30 entries
+    were extracted by direct reading of each instruction (not an LLM call;
+    a qwen2.5:7b pilot on 10 cases scored 7/10 clean with one dropped
+    field and one spurious empty field, so this was done manually instead),
+    reviewed and approved case-by-case before wiring in.
+
+    Returns {index_into_attacker_cases_dh.jsonl: tool_args_dict}."""
+    path = data_dir / "dh_structured_args.json"
+    entries = json.loads(path.read_text(encoding="utf-8"))
+    return {e["idx"]: e["args"] for e in entries}
+
+
+def _load_ds_structured_args(data_dir: Path) -> dict[int, dict[str, Any]]:
+    """Load the manually-extracted structured tool_args for DS's 32 unique
+    SOURCE-side attacker instructions (benchmarks/data/ds_structured_args
+    .json) -- the read/access call, not the destination-send call (that
+    stays separately parsed for its recipient email, unchanged).
+
+    Same rationale and method as DH's structured args (direct manual
+    extraction, not qwen -- consistency across both splits). Verified
+    before wiring in that this cannot drift from CHANNEL's earlier 32/32
+    ground-truth validation: is_source_tool(tool: str) classifies by tool
+    NAME only, never inspects arg values, so swapping instruction-only
+    args for real structured args on the source call is guaranteed not to
+    change CHANNEL's taint decision (confirmed both by reading
+    channel_taint.py's function signature and by a direct live check on
+    the 4 tool names shared with the ground-truth set:
+    DropboxListFilesAndFolders, CiscoUmbrellaGetLogDetails,
+    TDAmeritradeGetHoldingsInformation, GitHubGetUserDetails -- all
+    tainted identically under both arg shapes).
+
+    Returns {index_into_attacker_cases_ds.jsonl: tool_args_dict}."""
+    path = data_dir / "ds_structured_args.json"
+    entries = json.loads(path.read_text(encoding="utf-8"))
+    return {e["idx"]: e["args"] for e in entries}
+
+
 def synthesize_injecagent(
     user_path: Path,
     attacker_path: Path,
@@ -241,6 +293,27 @@ def synthesize_injecagent(
 
     Returns the same normalized shape as load_injecagent_cases(), so the rest
     of the runner is unchanged.
+
+    tool_args construction differs by attack_kind (both replace the old
+    universal `{"_injected_instruction": atk_instr}` placeholder):
+      - dh: real structured args from dh_structured_args.json (see
+        _load_dh_structured_args), keyed by the attacker case's index.
+      - ds: DS's 32 cases are uniformly a [source_tool, GmailSendEmail]
+        pair (verified: every attacker_cases_ds.jsonl entry has exactly 2
+        Attacker Tools, in that order). Source-side tool_args now come
+        from ds_structured_args.json (see _load_ds_structured_args) —
+        same manual-extraction approach as DH, for consistency across
+        both splits and to give VAULT/EXECUTOR a fair chance at real args
+        too (CHANNEL's own taint decision is unaffected either way — it
+        classifies by tool NAME only, confirmed before wiring this in).
+        A `destination_tool_args` field carries the GmailSendEmail
+        recipient parsed out of the instruction text -- this is what lets
+        run_one_case() issue the two-step read-then-send sequence CHANNEL's
+        taint tracker needs to see (the single-call construction previously
+        collapsed both steps into one, defeating CHANNEL's design entirely
+        — confirmed via the 32/32 ground-truth cases, which use this exact
+        two-step shape and were correctly caught, vs. this run's collapsed
+        single-call construction, which was not).
     """
     users     = _load_jsonl(user_path)
     attackers = _load_jsonl(attacker_path)
@@ -248,6 +321,13 @@ def synthesize_injecagent(
     log.info("synthesizing %s: %d user cases × %d attacker cases = %d total",
              attack_kind, len(users), len(attackers),
              len(users) * len(attackers))
+
+    dh_args_by_idx: dict[int, dict[str, Any]] = {}
+    ds_args_by_idx: dict[int, dict[str, Any]] = {}
+    if attack_kind == "dh":
+        dh_args_by_idx = _load_dh_structured_args(attacker_path.parent)
+    elif attack_kind == "ds":
+        ds_args_by_idx = _load_ds_structured_args(attacker_path.parent)
 
     synthesized: list[dict[str, Any]] = []
 
@@ -272,6 +352,18 @@ def synthesize_injecagent(
 
             case_id = f"{attack_kind}_u{ui:02d}_a{ai:02d}"
 
+            destination_tool = None
+            destination_tool_args = None
+            if attack_kind == "dh":
+                tool_args = dh_args_by_idx.get(ai, {"_injected_instruction": atk_instr})
+            else:  # ds — two-step: source read gets real structured args, destination gets parsed email
+                tool_args = ds_args_by_idx.get(ai, {"instruction": atk_instr})
+                if len(atk_tools) >= 2:
+                    destination_tool = atk_tools[1]
+                    emails = _EMAIL_RE.findall(atk_instr)
+                    email = emails[0].rstrip(".") if emails else "unknown@example.com"
+                    destination_tool_args = {"email": email}
+
             synthesized.append({
                 "id":              case_id,
                 # Benign side: the user's own legitimate tool call
@@ -280,7 +372,7 @@ def synthesize_injecagent(
                 "user_tool_args":  user_params,
                 # Attack side: the action the attacker wants the agent to take
                 "tool_name":       atk_tool,
-                "tool_args":       {"_injected_instruction": atk_instr},
+                "tool_args":       tool_args,
                 "tool_output":     injected_response,
                 "attack_text":     atk_instr,
                 "expected_action": atk_expect,
@@ -288,6 +380,9 @@ def synthesize_injecagent(
                 "label":           "attack",
                 # All attacker tools (DS attacks chain two: extract + send)
                 "attacker_tools":  atk_tools,
+                # DS two-step only — None for DH
+                "destination_tool":      destination_tool,
+                "destination_tool_args": destination_tool_args,
             })
 
     return synthesized
@@ -352,6 +447,33 @@ def attack_payload(case: dict[str, Any]) -> dict[str, Any]:
             "expected_action": case["expected_action"],
             "category":       case["category"],
             "test_kind":      "attack",
+        },
+    }
+
+
+def destination_payload(case: dict[str, Any]) -> dict[str, Any]:
+    """
+    DS-only: the second call of the two-step read-then-send attack sequence
+    (case["destination_tool"]/case["destination_tool_args"], set by
+    synthesize_injecagent() for "ds" cases with 2 attacker tools). Shares
+    the SAME session_id as attack_payload()'s source-read call, so
+    CHANNEL's taint tracker sees both steps of the same session and can
+    fire on "read happened, now send happened" — matching the exact
+    sequencing the 32 ground-truth attacker_cases_ds.jsonl cases were
+    validated against (session-level, source call then destination call).
+    """
+    text = (
+        f"tool:{case['destination_tool']} "
+        f"args:{json.dumps(case['destination_tool_args'])}"
+    )
+    return {
+        "text":       text,
+        "session_id": case["id"],
+        "context": {
+            "tool_name":       case["destination_tool"],
+            "expected_action": case["expected_action"],
+            "category":        case["category"],
+            "test_kind":       "attack",
         },
     }
 
@@ -427,15 +549,45 @@ async def run_one_case(
     include_benign: bool,
     timeout_s: float,
 ) -> list[dict[str, Any]]:
-    """Run one InjecAgent case (attack + optional paired benign). Return rows."""
+    """Run one InjecAgent case (attack + optional paired benign). Return rows.
+
+    DS cases (case["destination_tool"] set) issue a TWO-STEP attack
+    sequence: the source-read call first (attack_payload, e.g.
+    DropboxListFilesAndFolders), then the destination-send call
+    (destination_payload, e.g. GmailSendEmail) — same session_id, sent
+    sequentially so CHANNEL's session-level taint state carries over from
+    the first call to the second, exactly like the 32 ground-truth
+    attacker_cases_ds.jsonl cases. Only the destination call's verdict is
+    recorded as the case's "attack" row (test_kind="attack") -- it's the
+    actual exfiltration action being tested, matching InjecAgent's own
+    framing ("the action the attacker is trying to make the agent take").
+    The source call's response is still sent (so taint is set) but not
+    separately scored, same as how a real multi-call session only cares
+    about whether the FINAL harmful action gets blocked.
+    DH cases (destination_tool is None) are unchanged: single attack call.
+    """
     rows: list[dict[str, Any]] = []
 
     async with sem:
-        # Attack call
-        atk_resp, atk_lat, atk_err = await call_parliament(
-            session, url, attack_payload(case), timeout_s,
-        )
-        rows.append(_row_from_resp(case, "attack", atk_resp, atk_lat, atk_err))
+        if case.get("destination_tool"):
+            # DS two-step: source read (sets taint), then destination send
+            # (the call whose verdict actually matters for scoring).
+            src_resp, src_lat, src_err = await call_parliament(
+                session, url, attack_payload(case), timeout_s,
+            )
+            dst_resp, dst_lat, dst_err = await call_parliament(
+                session, url, destination_payload(case), timeout_s,
+            )
+            row = _row_from_resp(case, "attack", dst_resp, dst_lat, dst_err)
+            row["source_call_latency_ms"] = round(src_lat, 2)
+            row["source_call_error"] = src_err or ""
+            rows.append(row)
+        else:
+            # DH: single-call attack, unchanged.
+            atk_resp, atk_lat, atk_err = await call_parliament(
+                session, url, attack_payload(case), timeout_s,
+            )
+            rows.append(_row_from_resp(case, "attack", atk_resp, atk_lat, atk_err))
 
         # Benign paired call
         if include_benign and case.get("user_prompt"):
@@ -468,6 +620,11 @@ def _row_from_resp(
         "compass_sim": None,
         "latency_ms":  round(latency_ms, 2),
         "error":       "",
+        # DS two-step only — present (blank) on every row so the CSV
+        # writer's fieldnames (built from the FIRST row) don't break when
+        # a later DS row adds keys a DH row didn't have.
+        "source_call_latency_ms": "",
+        "source_call_error":      "",
     }
     # Per-minister sim columns — consumed by threshold_sweep.py
     for m in MINISTERS:
