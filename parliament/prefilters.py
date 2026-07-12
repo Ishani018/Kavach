@@ -122,7 +122,18 @@ VAULT_PATTERNS: list[tuple[str, re.Pattern, str]] = [
      re.compile(r"(^|[/\\])\.ssh[/\\]"),
      "MITRE ATT&CK T1552.004"),
     ("pem-key-file",
-     re.compile(r"\.pem$"),
+     # Boundary-aware, not end-of-string-anchored (was `r"\.pem$"`, found
+     # to miss .pem paths embedded in a longer string -- e.g. a narrative
+     # sentence like "tar czf ... /workspace/privatekeyfile.pem && curl
+     # ..." never matched, since the value doesn't END in .pem, only
+     # contains it -- confirmed to affect check_vault()'s real production
+     # matching, not just a test artifact). Mirrors ssh-private-key-path's
+     # boundary-check style: `.pem` must be followed by end-of-string or a
+     # non-word-non-dot character (so a real extension boundary), NOT
+     # another dot (rules out `.pem.example`/`.pem.sample`-style false
+     # matches on a `.pem`-containing-but-not-`.pem`-extension filename)
+     # and NOT a word character (rules out `.pem_backup`).
+     re.compile(r"\.pem(?=$|[^\w.])"),
      "MITRE ATT&CK T1552.004"),
     ("aws-access-key-id",
      re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
