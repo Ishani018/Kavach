@@ -636,9 +636,22 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # Step 3: Run activated ministers in parallel — hybrid BM25+dense retrieval
     # when an index exists, sharing action_vec (embed-once) and the
     # trajectory-modulated per-minister thresholds for this call.
+    #
+    # STAGE 2 (VAULT swap, REARCHITECTURE_PLAN.md): VAULT is EXCLUDED from
+    # this cosine-similarity dispatch loop entirely — its ChromaDB collection
+    # is no longer queried for verdicts at request time (still loaded at
+    # startup; corpus_loader.py untouched). VAULT's deterministic detector
+    # (prefilters.check_vault) is now its ONLY source of truth, scored
+    # synchronously below, unconditionally (regardless of routing — a router
+    # miss must never skip VAULT, same fail-open discipline as Stage 1's
+    # additive pre-filters). EXECUTOR/CHANNEL/NAVIGATOR are unchanged: still
+    # dispatched through the normal cosine path when the router activates
+    # them.
     loop = asyncio.get_event_loop()
     minister_tasks = []
     for minister in activated:
+        if minister == "VAULT":
+            continue  # Stage 2: VAULT no longer runs the cosine path at all.
         bm25_idx  = _state["bm25_indexes"].get(minister)
         tech_coll = _state["tech_collections"].get(minister)
         m_thresholds = _get_minister_thresholds(minister, call_thresholds)
@@ -674,17 +687,35 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
 
     minister_results: list[MinisterScan] = await asyncio.gather(*minister_tasks)
 
-    # Step 3b: Stage 1 re-architecture — deterministic pre-filters (VAULT
-    # credential-path/secret regex, EXECUTOR LOLBIN/dangerous-call deny-list).
-    # REARCHITECTURE_PLAN.md Stage 1: additive, run on EVERY call regardless
-    # of routing (a router miss must never skip a deterministic rule), never
-    # replaces or short-circuits the existing minister loop above — the
-    # pre-filter hits are simply appended to minister_results so they flow
-    # through the SAME unmodified speaker.py veto-fusion logic ("any single
-    # BLOCK is sufficient"). No changes to _route(), run_minister_hybrid(),
-    # speaker.py, trajectory.py, or provenance.py's resolution logic.
-    prefilter_hits: list[MinisterScan] = prefilters.run_prefilters(req.text)
-    minister_results = minister_results + prefilter_hits
+    # Step 3a2: Stage 2 — VAULT's deterministic verdict, unconditional (not
+    # gated on `activated`, same fail-open reasoning as Stage 1). Synchronous,
+    # no embedding, no ChromaDB query — check_vault() is pure regex over the
+    # parsed call. A None result (no rule fired) is turned into an explicit
+    # ALLOW MinisterScan so VAULT never silently disappears from
+    # minister_results / minister_dict / the ledger.
+    parsed_call = prefilters.parse_call(req.text)
+    vault_scan = prefilters.check_vault(parsed_call) if parsed_call is not None else None
+    if vault_scan is None:
+        vault_scan = MinisterScan(
+            minister="VAULT",
+            verdict="ALLOW",
+            confidence=0.0,
+            matched_id=None,
+            matched_text=None,
+            matched_level="deterministic",
+            source=None,
+            retrieval_mode="deterministic",
+        )
+    minister_results = minister_results + [vault_scan]
+
+    # Step 3b: Stage 1 re-architecture — EXECUTOR's deterministic pre-filter
+    # (LOLBIN/dangerous-call deny-list) stays ADDITIVE alongside EXECUTOR's
+    # cosine path, exactly as Stage 1 shipped it. VAULT's prefilter check is
+    # no longer run here — it is Step 3a2 above now, VAULT's only path, not
+    # an addition to a cosine result VAULT no longer produces.
+    executor_hit = prefilters.check_executor(parsed_call) if parsed_call is not None else None
+    if executor_hit is not None:
+        minister_results = minister_results + [executor_hit]
 
     # Step 4: Speaker combines verdicts (under the modulated thresholds).
     speaker_v: SpeakerVerdict = combine_verdicts(
