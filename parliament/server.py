@@ -63,6 +63,7 @@ try:
     from . import trajectory as traj
     from . import provenance as prov
     from . import prefilters
+    from . import channel_taint
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -78,6 +79,7 @@ except ImportError:
     from parliament import trajectory as traj
     from parliament import provenance as prov
     from parliament import prefilters
+    from parliament import channel_taint
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration loading
@@ -164,6 +166,7 @@ _state: dict[str, Any] = {
     "router":     None,
     "intents":    {},    # session_id → np.ndarray (BGE vector of user intent)
     "history":    defaultdict(traj.new_history),  # session_id → deque[ActionRecord]
+    "channel_taint": defaultdict(channel_taint.new_taint_state),  # session_id → SessionTaint
 }
 
 
@@ -637,22 +640,23 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # when an index exists, sharing action_vec (embed-once) and the
     # trajectory-modulated per-minister thresholds for this call.
     #
-    # STAGE 2 (VAULT + EXECUTOR swaps, REARCHITECTURE_PLAN.md): VAULT and
-    # EXECUTOR are EXCLUDED from this cosine-similarity dispatch loop
-    # entirely — their ChromaDB collections are no longer queried for
-    # verdicts at request time (still loaded at startup; corpus_loader.py
-    # untouched). Their deterministic detectors (prefilters.check_vault /
-    # check_executor) are now each minister's ONLY source of truth, scored
+    # STAGE 2 (VAULT + EXECUTOR + CHANNEL swaps, REARCHITECTURE_PLAN.md):
+    # VAULT, EXECUTOR, and CHANNEL are EXCLUDED from this cosine-similarity
+    # dispatch loop entirely — their ChromaDB collections are no longer
+    # queried for verdicts at request time (still loaded at startup;
+    # corpus_loader.py untouched). Their deterministic detectors
+    # (prefilters.check_vault / check_executor / channel_taint.check_
+    # channel_taint) are now each minister's ONLY source of truth, scored
     # synchronously below, unconditionally (regardless of routing — a router
     # miss must never skip a deterministic minister, same fail-open
-    # discipline as Stage 1's additive pre-filters). CHANNEL/NAVIGATOR are
+    # discipline as Stage 1's additive pre-filters). NAVIGATOR is
     # unchanged: still dispatched through the normal cosine path when the
-    # router activates them.
+    # router activates it.
     loop = asyncio.get_event_loop()
     minister_tasks = []
     for minister in activated:
-        if minister in ("VAULT", "EXECUTOR"):
-            continue  # Stage 2: VAULT/EXECUTOR no longer run the cosine path at all.
+        if minister in ("VAULT", "EXECUTOR", "CHANNEL"):
+            continue  # Stage 2: VAULT/EXECUTOR/CHANNEL no longer run the cosine path at all.
         bm25_idx  = _state["bm25_indexes"].get(minister)
         tech_coll = _state["tech_collections"].get(minister)
         m_thresholds = _get_minister_thresholds(minister, call_thresholds)
@@ -731,13 +735,35 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         )
     minister_results = minister_results + [executor_scan]
 
-    # Step 3b: Stage 1 re-architecture's separate additive-prefilter-append
-    # step. VAULT and EXECUTOR both moved to their own unconditional Step
-    # 3a2/3a3 blocks above (Stage 2 swaps) — there is nothing left for this
-    # step to append for either minister. CHANNEL and NAVIGATOR have never
-    # had prefilter rules defined (Stage 1 scope was VAULT+EXECUTOR only),
-    # so this block is now fully dead code. Left in place, not deleted,
-    # pending an explicit decision — see Stage 2 EXECUTOR-swap report.
+    # Step 3a4: Stage 2 — CHANNEL's deterministic verdict, same shape and
+    # fail-open reasoning as VAULT/EXECUTOR's Step 3a2/3a3 above, with one
+    # difference: channel_taint.check_channel_taint() is SESSION-STATEFUL
+    # (a read-then-send taint tracker, not a single-call regex), so it
+    # takes this session's persistent SessionTaint object rather than being
+    # purely a function of req.text. State lives in _state["channel_taint"],
+    # a defaultdict(channel_taint.new_taint_state) keyed by session_id —
+    # mirrors _state["history"]'s existing session_id-keyed pattern exactly
+    # (same lifecycle: created lazily on first use, persists for the
+    # process lifetime, no eviction — an existing characteristic of
+    # _state["history"]/_state["intents"] already, not a new risk class).
+    # A None result (no taint present, or a source-tool call that only sets
+    # taint without itself returning a verdict) becomes an explicit ALLOW
+    # MinisterScan so CHANNEL never silently disappears from
+    # minister_results / minister_dict / the ledger.
+    taint_state = _state["channel_taint"][req.session_id]
+    channel_scan = channel_taint.check_channel_taint(req.text, taint_state)
+    if channel_scan is None:
+        channel_scan = MinisterScan(
+            minister="CHANNEL",
+            verdict="ALLOW",
+            confidence=0.0,
+            matched_id=None,
+            matched_text=None,
+            matched_level="deterministic",
+            source=None,
+            retrieval_mode="deterministic",
+        )
+    minister_results = minister_results + [channel_scan]
 
     # Step 4: Speaker combines verdicts (under the modulated thresholds).
     speaker_v: SpeakerVerdict = combine_verdicts(

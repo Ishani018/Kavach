@@ -615,6 +615,20 @@ live-run and scope-router prototype already demonstrated empirically —
 not a hypothetical improvement, a re-application of a result already
 measured this session at smaller scale.
 
+## Limitations (documented, not TODOs — real gaps found during Stage 2 builds)
+
+- **CHANNEL's destination allow-list is empty by default and cannot
+  distinguish self-directed from attacker-directed data sharing.** For the
+  workspace suite, AgentDojo does expose a real per-task identity
+  (`Inbox.account_email`) that could seed the allow-list — Kavach does not
+  currently capture or pass this through anywhere, so closing this gap is
+  a wiring task, not a missing-data problem. For Slack and banking, no
+  analogous identity field exists in AgentDojo's environment model at
+  all — this is a permanent limitation absent a new identity source
+  invented outside AgentDojo's own model. Demonstrated concretely: 3/3
+  constructed "send sensitive data to self" cases false-positive under
+  the current empty allow-list.
+
 ## Open decisions for the next conversation (not resolved by this plan, by design — this doc scopes, it doesn't decide)
 
 1. Confidence-scale convention for deterministic detectors (§1) — a
