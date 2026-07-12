@@ -192,13 +192,47 @@ def _destination_values(call: ParsedCall) -> list[str]:
 # Allow-list — deliberately empty by default (see module docstring). A real
 # deployment must seed this with the session's own verified user identity
 # (email/Slack handle) from a source Kavach does not currently capture.
+#
+# WORKSPACE FIX (self-send exemption, added after the empty allow-list's
+# false-positive gap was demonstrated concretely -- 3/3 constructed "send
+# sensitive data to self" cases false-positived): AgentDojo's workspace
+# suite genuinely exposes a real, populated, per-task identity field for
+# EMAIL destinations specifically -- Inbox.account_email (confirmed
+# directly against the installed agentdojo package: populated with a real
+# default like "emma.johnson@bluesparrowtech.com", structurally distinct
+# from the recipients send_email() is called with). Kavach did not
+# previously capture or pass this through anywhere; it now can, via an
+# optional `account_email` on the /hook/parliament request's existing
+# `context` dict (server.py Step 3a4).
+#
+# Scope, explicitly: this exemption applies ONLY to EMAIL-shaped
+# destination tools (send_email, share_file, and GmailSendEmail -- the
+# InjecAgent corpus's wire-format name for the same shape), because
+# account_email is specifically an EMAIL identity and AgentDojo's own
+# environment model only associates it with the Inbox/Calendar objects.
+# It does NOT apply to Slack tools (send_direct_message,
+# send_channel_message, invite_user_to_slack, add_user_to_channel) or
+# banking tools (send_money, schedule_transaction) -- confirmed directly
+# against the installed agentdojo package that NEITHER suite exposes any
+# analogous verified-identity field (Slack's environment model has no
+# "which user am I" marker at all; banking's BankAccount.iban is not
+# semantically distinguished from a recipient IBAN). This remains a
+# permanent limitation for those two suites, unchanged by this fix -- no
+# identity source was invented for them.
 # ──────────────────────────────────────────────────────────────────────────────
 
 DESTINATION_ALLOWLIST: frozenset[str] = frozenset()
 
+_EMAIL_DESTINATION_TOOLS: frozenset[str] = frozenset({"send_email", "share_file", "GmailSendEmail"})
 
-def _destination_allowed(values: list[str]) -> bool:
-    return all(v in DESTINATION_ALLOWLIST for v in values) if values else False
+
+def _destination_allowed(tool: str, values: list[str], account_email: str | None) -> bool:
+    if not values:
+        return False
+    if account_email and tool in _EMAIL_DESTINATION_TOOLS:
+        if all(v == account_email or v in DESTINATION_ALLOWLIST for v in values):
+            return True
+    return all(v in DESTINATION_ALLOWLIST for v in values)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -223,10 +257,20 @@ def new_taint_state() -> SessionTaint:
 # Public entry point
 # ──────────────────────────────────────────────────────────────────────────────
 
-def check_channel_taint(text: str, state: SessionTaint) -> MinisterScan | None:
+def check_channel_taint(
+    text: str,
+    state: SessionTaint,
+    account_email: str | None = None,
+) -> MinisterScan | None:
     """Score ONE call against the session's taint state, mutating `state` in
     place (source calls set taint; the caller owns state's lifetime, keyed
     per session_id exactly like trajectory.py's history deque).
+
+    account_email: the session's own verified email identity, if known
+    (e.g. AgentDojo workspace suite's Inbox.account_email, passed through
+    server.py's request context). None by default -- callers that don't
+    have this (or Slack/banking sessions, which have no such field at all)
+    simply get the original empty-allow-list behavior unchanged.
 
     Returns a MinisterScan on a destination-tool BLOCK; None otherwise
     (source-tool calls taint the state but do not themselves return a
@@ -244,7 +288,7 @@ def check_channel_taint(text: str, state: SessionTaint) -> MinisterScan | None:
 
     if is_destination_tool(call.tool):
         values = _destination_values(call)
-        if state.tainted and not _destination_allowed(values):
+        if state.tainted and not _destination_allowed(call.tool, values, account_email):
             return MinisterScan(
                 minister="CHANNEL",
                 verdict="BLOCK",

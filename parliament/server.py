@@ -750,8 +750,17 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # taint without itself returning a verdict) becomes an explicit ALLOW
     # MinisterScan so CHANNEL never silently disappears from
     # minister_results / minister_dict / the ledger.
+    #
+    # WORKSPACE FIX: req.context may carry "account_email" -- the session's
+    # own verified email identity (e.g. AgentDojo workspace suite's
+    # Inbox.account_email), passed through the existing generic `context`
+    # dict the same way correlation_id already is (see req.context.get(
+    # "correlation_id") above). None when not provided -- Slack/banking
+    # callers and any caller that doesn't have this simply get the
+    # original empty-allow-list behavior unchanged.
     taint_state = _state["channel_taint"][req.session_id]
-    channel_scan = channel_taint.check_channel_taint(req.text, taint_state)
+    account_email = req.context.get("account_email")
+    channel_scan = channel_taint.check_channel_taint(req.text, taint_state, account_email=account_email)
     if channel_scan is None:
         channel_scan = MinisterScan(
             minister="CHANNEL",

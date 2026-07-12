@@ -617,17 +617,27 @@ measured this session at smaller scale.
 
 ## Limitations (documented, not TODOs — real gaps found during Stage 2 builds)
 
-- **CHANNEL's destination allow-list is empty by default and cannot
-  distinguish self-directed from attacker-directed data sharing.** For the
-  workspace suite, AgentDojo does expose a real per-task identity
-  (`Inbox.account_email`) that could seed the allow-list — Kavach does not
-  currently capture or pass this through anywhere, so closing this gap is
-  a wiring task, not a missing-data problem. For Slack and banking, no
-  analogous identity field exists in AgentDojo's environment model at
-  all — this is a permanent limitation absent a new identity source
-  invented outside AgentDojo's own model. Demonstrated concretely: 3/3
-  constructed "send sensitive data to self" cases false-positive under
-  the current empty allow-list.
+- **CHANNEL's destination allow-list cannot distinguish self-directed from
+  attacker-directed data sharing for Slack and banking.** No analogous
+  verified-identity field exists in AgentDojo's environment model for
+  either suite (Slack has no "which user am I" marker at all; banking's
+  `BankAccount.iban` is not semantically distinguished from a recipient
+  IBAN) — this is a permanent limitation absent a new identity source
+  invented outside AgentDojo's own model, not something Kavach can wire
+  around. **Fixed for the workspace/email-destination case**: AgentDojo's
+  `Inbox.account_email` (a real, populated, per-task identity) is now
+  passed through via an optional `account_email` field on the
+  `/hook/parliament` request's existing `context` dict and wired into
+  `channel_taint.py`'s destination check — a destination call to the
+  session's own `account_email` no longer taints/blocks on that basis
+  alone, while a genuinely different (attacker-controlled) destination
+  still does. Re-validated: all 3 originally-constructed "send sensitive
+  data to self" cases now correctly ALLOW when `account_email` is
+  provided and the destination matches it, while continuing to BLOCK when
+  it doesn't (confirmed via the real `/hook/parliament` API, not just the
+  standalone module) — and Slack/banking destination tools are confirmed
+  unaffected (no exemption leak; presence of `account_email` in context
+  does not suppress a Slack/banking taint block).
 
 ## Open decisions for the next conversation (not resolved by this plan, by design — this doc scopes, it doesn't decide)
 
