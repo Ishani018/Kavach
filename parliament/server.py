@@ -62,6 +62,7 @@ try:
     from .speaker import SpeakerVerdict, combine_verdicts
     from . import trajectory as traj
     from . import provenance as prov
+    from . import prefilters
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -76,6 +77,7 @@ except ImportError:
     from parliament.speaker import SpeakerVerdict, combine_verdicts
     from parliament import trajectory as traj
     from parliament import provenance as prov
+    from parliament import prefilters
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration loading
@@ -672,6 +674,18 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
 
     minister_results: list[MinisterScan] = await asyncio.gather(*minister_tasks)
 
+    # Step 3b: Stage 1 re-architecture — deterministic pre-filters (VAULT
+    # credential-path/secret regex, EXECUTOR LOLBIN/dangerous-call deny-list).
+    # REARCHITECTURE_PLAN.md Stage 1: additive, run on EVERY call regardless
+    # of routing (a router miss must never skip a deterministic rule), never
+    # replaces or short-circuits the existing minister loop above — the
+    # pre-filter hits are simply appended to minister_results so they flow
+    # through the SAME unmodified speaker.py veto-fusion logic ("any single
+    # BLOCK is sufficient"). No changes to _route(), run_minister_hybrid(),
+    # speaker.py, trajectory.py, or provenance.py's resolution logic.
+    prefilter_hits: list[MinisterScan] = prefilters.run_prefilters(req.text)
+    minister_results = minister_results + prefilter_hits
+
     # Step 4: Speaker combines verdicts (under the modulated thresholds).
     speaker_v: SpeakerVerdict = combine_verdicts(
         minister_results,
@@ -735,14 +749,20 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         decided_by=speaker_v.decided_by,
         confidence=speaker_v.confidence,
         reason=speaker_v.reason,
+        # Keyed by r.minister (not positionally zipped with `activated`) so
+        # Stage 1 pre-filter hits — which run regardless of routing and can
+        # name a minister the router didn't activate — are logged under
+        # their own correct minister name rather than silently mispaired
+        # with whatever minister the old positional zip(activated, ...)
+        # happened to line up against.
         ministers={
-            m: {
+            r.minister: {
                 "verdict":        r.verdict,
                 "confidence":     r.confidence,
                 "matched_id":     r.matched_id,
                 "retrieval_mode": r.retrieval_mode,
             }
-            for m, r in zip(activated, minister_results)
+            for r in minister_results
         },
         compass_sim=compass_sim,
         latency_ms=latency_ms,
