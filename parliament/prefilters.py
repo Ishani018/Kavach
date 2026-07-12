@@ -115,9 +115,21 @@ VAULT_PATTERNS: list[tuple[str, re.Pattern, str]] = [
     ("aws-access-key-id",
      re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
      "MITRE ATT&CK T1552.001"),
-    ("aws-secret-key-shape",
-     re.compile(r"\b(?=[A-Za-z0-9/+=]{40}\b)[A-Za-z0-9/+=]*[A-Z][A-Za-z0-9/+=]*[a-z][A-Za-z0-9/+=]*[0-9][A-Za-z0-9/+=]*\b"),
-     "MITRE ATT&CK T1552.001"),
+    # NOTE: an earlier "aws-secret-key-shape" rule (generic 40-char
+    # mixed-case/digit blob, no anchor) was deliberately dropped before
+    # commit. Adversarial testing showed it both false-positives on
+    # ordinary 40-char tokens (session IDs, hashes, JWT-fragment-shaped
+    # strings) whenever they happen to land a regex \b boundary at
+    # exactly position 40, AND misses real AWS secret keys that are off
+    # by even one character or lack a clean boundary at that offset --
+    # a rule that is simultaneously too loose and too brittle, built on
+    # a coincidence of length rather than a real signal. gitleaks' own
+    # real AWS-secret rule pairs the shape with nearby context (a
+    # preceding aws_secret_access_key key name or an adjacent AKIA...
+    # access-key-id), not shape alone -- the AKIA rule above already
+    # covers the more reliable, structurally-anchored half of a real
+    # AWS credential leak. Left as a documented gap, not silently
+    # dropped, for whoever revisits VAULT's rule set in Stage 2.
     ("gcp-service-account-json-shape",
      re.compile(r'"type"\s*:\s*"service_account"'),
      "MITRE ATT&CK T1552.001"),
