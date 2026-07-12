@@ -637,21 +637,22 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # when an index exists, sharing action_vec (embed-once) and the
     # trajectory-modulated per-minister thresholds for this call.
     #
-    # STAGE 2 (VAULT swap, REARCHITECTURE_PLAN.md): VAULT is EXCLUDED from
-    # this cosine-similarity dispatch loop entirely — its ChromaDB collection
-    # is no longer queried for verdicts at request time (still loaded at
-    # startup; corpus_loader.py untouched). VAULT's deterministic detector
-    # (prefilters.check_vault) is now its ONLY source of truth, scored
+    # STAGE 2 (VAULT + EXECUTOR swaps, REARCHITECTURE_PLAN.md): VAULT and
+    # EXECUTOR are EXCLUDED from this cosine-similarity dispatch loop
+    # entirely — their ChromaDB collections are no longer queried for
+    # verdicts at request time (still loaded at startup; corpus_loader.py
+    # untouched). Their deterministic detectors (prefilters.check_vault /
+    # check_executor) are now each minister's ONLY source of truth, scored
     # synchronously below, unconditionally (regardless of routing — a router
-    # miss must never skip VAULT, same fail-open discipline as Stage 1's
-    # additive pre-filters). EXECUTOR/CHANNEL/NAVIGATOR are unchanged: still
-    # dispatched through the normal cosine path when the router activates
-    # them.
+    # miss must never skip a deterministic minister, same fail-open
+    # discipline as Stage 1's additive pre-filters). CHANNEL/NAVIGATOR are
+    # unchanged: still dispatched through the normal cosine path when the
+    # router activates them.
     loop = asyncio.get_event_loop()
     minister_tasks = []
     for minister in activated:
-        if minister == "VAULT":
-            continue  # Stage 2: VAULT no longer runs the cosine path at all.
+        if minister in ("VAULT", "EXECUTOR"):
+            continue  # Stage 2: VAULT/EXECUTOR no longer run the cosine path at all.
         bm25_idx  = _state["bm25_indexes"].get(minister)
         tech_coll = _state["tech_collections"].get(minister)
         m_thresholds = _get_minister_thresholds(minister, call_thresholds)
@@ -708,14 +709,35 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         )
     minister_results = minister_results + [vault_scan]
 
-    # Step 3b: Stage 1 re-architecture — EXECUTOR's deterministic pre-filter
-    # (LOLBIN/dangerous-call deny-list) stays ADDITIVE alongside EXECUTOR's
-    # cosine path, exactly as Stage 1 shipped it. VAULT's prefilter check is
-    # no longer run here — it is Step 3a2 above now, VAULT's only path, not
-    # an addition to a cosine result VAULT no longer produces.
-    executor_hit = prefilters.check_executor(parsed_call) if parsed_call is not None else None
-    if executor_hit is not None:
-        minister_results = minister_results + [executor_hit]
+    # Step 3a3: Stage 2 — EXECUTOR's deterministic verdict, same shape and
+    # same fail-open reasoning as VAULT's Step 3a2 above. Synchronous, no
+    # embedding, no ChromaDB query — check_executor() is pure regex over the
+    # parsed call (LOLBIN/dangerous-call deny-list, proven 13/13 catch /
+    # 0/55 FP in Stage 1's additive measurement). A None result (no rule
+    # fired) becomes an explicit ALLOW MinisterScan so EXECUTOR never
+    # silently disappears from minister_results / minister_dict / the
+    # ledger.
+    executor_scan = prefilters.check_executor(parsed_call) if parsed_call is not None else None
+    if executor_scan is None:
+        executor_scan = MinisterScan(
+            minister="EXECUTOR",
+            verdict="ALLOW",
+            confidence=0.0,
+            matched_id=None,
+            matched_text=None,
+            matched_level="deterministic",
+            source=None,
+            retrieval_mode="deterministic",
+        )
+    minister_results = minister_results + [executor_scan]
+
+    # Step 3b: Stage 1 re-architecture's separate additive-prefilter-append
+    # step. VAULT and EXECUTOR both moved to their own unconditional Step
+    # 3a2/3a3 blocks above (Stage 2 swaps) — there is nothing left for this
+    # step to append for either minister. CHANNEL and NAVIGATOR have never
+    # had prefilter rules defined (Stage 1 scope was VAULT+EXECUTOR only),
+    # so this block is now fully dead code. Left in place, not deleted,
+    # pending an explicit decision — see Stage 2 EXECUTOR-swap report.
 
     # Step 4: Speaker combines verdicts (under the modulated thresholds).
     speaker_v: SpeakerVerdict = combine_verdicts(
