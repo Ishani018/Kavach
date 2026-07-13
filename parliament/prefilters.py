@@ -162,6 +162,211 @@ VAULT_PATTERNS: list[tuple[str, re.Pattern, str]] = [
     ("generic-secret-keyword-path",
      re.compile(r"(^|[/\\])(secrets?|credentials?)\.(json|ya?ml|txt)$", re.IGNORECASE),
      "MITRE ATT&CK T1552.001"),
+    # ---- corpus-driven expansion (Track 2, overnight session) ----
+    ("env-secret-harvest",
+     # corpus provenance: VAULT-002 (env_secret_harvest)
+     re.compile(r"os\.environ\.copy\(\)|dict\(os\.environ\)|/proc/self/environ"),
+     "MITRE ATT&CK T1552.001"),
+    ("dotenv-read-call",
+     # corpus provenance: VAULT-003 (dotenv_file_read)
+     re.compile(r"dotenv\.values\(|load_dotenv\("),
+     "MITRE ATT&CK T1552.001"),
+    ("git-credential-store-path",
+     # corpus provenance: VAULT-005 (git_credential_store)
+     re.compile(r"\.git-credentials|\.netrc\b"),
+     "MITRE ATT&CK T1552.001"),
+    ("k8s-serviceaccount-token",
+     # corpus provenance: VAULT-006/VAULT-056 (kubernetes_service_account)
+     re.compile(r"/var/run/secrets/kubernetes\.io/serviceaccount|/run/secrets/kubernetes\.io/serviceaccount"),
+     "MITRE ATT&CK T1552.007"),
+    ("docker-registry-config",
+     # corpus provenance: VAULT-007/VAULT-066 (docker_registry_config)
+     re.compile(r"\.docker[/\\]config\.json"),
+     "MITRE ATT&CK T1552.001"),
+    ("terraform-state-secrets",
+     # corpus provenance: VAULT-008 (terraform_state_secrets)
+     re.compile(r"terraform\.tfstate|\.tfstate\b|\.terraform[/\\]backend"),
+     "MITRE ATT&CK T1552.001"),
+    ("cloud-metadata-imds",
+     # corpus provenance: VAULT-009/VAULT-010/VAULT-011/VAULT-055 (cloud_metadata_imds)
+     re.compile(r"169\.254\.169\.254|metadata\.google\.internal"),
+     "MITRE ATT&CK T1552.005"),
+    ("gpg-private-key-material",
+     # corpus provenance: VAULT-012/VAULT-077 (gpg_private_key_export)
+     re.compile(r"--export-secret-keys|\.gnupg[/\\](private-keys-v1\.d|secring\.gpg)"),
+     "MITRE ATT&CK T1552.004"),
+    ("password-manager-db",
+     # corpus provenance: VAULT-013/VAULT-058 (password_manager_db)
+     re.compile(r"\.kdbx\b|\bpass show\b|\bgopass show\b|\bbw get item\b|\bop item get\b|\blpass show\b"),
+     "MITRE ATT&CK T1555.005"),
+    ("npm-token-rc",
+     # corpus provenance: VAULT-014/VAULT-079 (npm_token_from_rc)
+     re.compile(r"\.npmrc\b|_authToken\s*="),
+     "MITRE ATT&CK T1552.001"),
+    ("pypirc-token",
+     # corpus provenance: VAULT-015/VAULT-079 (pypi_token_from_pypirc)
+     re.compile(r"\.pypirc\b"),
+     "MITRE ATT&CK T1552.001"),
+    ("browser-localstorage-leveldb",
+     # corpus provenance: VAULT-016 (jwt_from_browser_storage)
+     re.compile(r"leveldb.{0,40}localStorage|webappsstore\.sqlite|localStorage\.getItem"),
+     "MITRE ATT&CK T1539"),
+    ("cloud-provider-env-key",
+     # corpus provenance: VAULT-018/021/022/023/024/025/045/048/049 (named-service env key read)
+     re.compile(r"os\.environ(\.get)?\(['\"](STRIPE_SECRET_KEY|STRIPE_API_KEY|DD_API_KEY|SONAR_TOKEN|HEROKU_API_KEY|TWILIO_AUTH_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY|VAULT_TOKEN|CONSUL_HTTP_TOKEN|GITHUB_TOKEN|GH_TOKEN)['\"]\)|os\.getenv\(['\"](STRIPE_SECRET_KEY|STRIPE_API_KEY|DD_API_KEY|SONAR_TOKEN|HEROKU_API_KEY|TWILIO_AUTH_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY|VAULT_TOKEN|CONSUL_HTTP_TOKEN|GITHUB_TOKEN|GH_TOKEN)['\"]\)"),
+     "MITRE ATT&CK T1552.001"),
+    ("database-connection-string",
+     # corpus provenance: VAULT-019/VAULT-085 (database_connection_string)
+     re.compile(r"\b(postgres|mysql|mongodb(\+srv)?)://[^\s'\"]*:[^\s'\"]*@|DATABASE_URL\b"),
+     "MITRE ATT&CK T1552.001"),
+    ("gcloud-application-credentials",
+     # corpus provenance: VAULT-026/VAULT-065 (gcloud_application_credentials)
+     re.compile(r"GOOGLE_APPLICATION_CREDENTIALS|application_default_credentials\.json"),
+     "MITRE ATT&CK T1552.001"),
+    ("jenkins-secrets-path",
+     # corpus provenance: VAULT-027 (jenkins_secret_file)
+     re.compile(r"JENKINS_HOME.{0,20}(credentials\.xml|secrets[/\\]master\.key)"),
+     "MITRE ATT&CK T1552.001"),
+    ("firebase-service-account-json",
+     # corpus provenance: VAULT-028 (firebase_service_account)
+     re.compile(r"firebase-adminsdk-.*\.json|FIREBASE_CREDENTIALS"),
+     "MITRE ATT&CK T1552.001"),
+    ("redis-conf-password",
+     # corpus provenance: VAULT-029 (redis_password_from_conf)
+     re.compile(r"requirepass\b.{0,20}redis\.conf|redis\.conf.{0,20}requirepass"),
+     "MITRE ATT&CK T1552.001"),
+    ("ansible-vault-password",
+     # corpus provenance: VAULT-030 (ansible_vault_password)
+     re.compile(r"ANSIBLE_VAULT_PASSWORD_FILE|\.vault_pass\.txt"),
+     "MITRE ATT&CK T1552.001"),
+    ("maven-settings-credentials",
+     # corpus provenance: VAULT-031 (maven_settings_credentials)
+     re.compile(r"\.m2[/\\]settings\.xml"),
+     "MITRE ATT&CK T1552.001"),
+    ("ruby-gem-credentials",
+     # corpus provenance: VAULT-032 (ruby_gem_credentials)
+     re.compile(r"\.gem[/\\]credentials"),
+     "MITRE ATT&CK T1552.001"),
+    ("cargo-registry-token",
+     # corpus provenance: VAULT-033 (cargo_registry_token)
+     re.compile(r"\.cargo[/\\]credentials\.toml|CARGO_REGISTRY_TOKEN"),
+     "MITRE ATT&CK T1552.001"),
+    ("pulumi-access-token",
+     # corpus provenance: VAULT-034 (pulumi_access_token)
+     re.compile(r"\.pulumi[/\\]credentials\.json|PULUMI_ACCESS_TOKEN"),
+     "MITRE ATT&CK T1552.001"),
+    ("pgpass-credentials",
+     # corpus provenance: VAULT-036 (pgpass_credentials)
+     re.compile(r"\.pgpass\b|PGPASSFILE"),
+     "MITRE ATT&CK T1552.001"),
+    ("windows-credential-manager-cmd",
+     # corpus provenance: VAULT-038/VAULT-082 (windows_credential_manager)
+     re.compile(r"\bcmdkey\s+/list\b|\bvaultcmd\s+/listcreds\b|Get-StoredCredential\b"),
+     "MITRE ATT&CK T1555.004"),
+    ("macos-keychain-dump",
+     # corpus provenance: VAULT-039/VAULT-083 (macos_keychain_dump)
+     re.compile(r"security\s+dump-keychain|security\s+find-generic-password|security\s+find-internet-password"),
+     "MITRE ATT&CK T1555.001"),
+    ("okta-token-cache",
+     # corpus provenance: VAULT-041 (okta_token_theft)
+     re.compile(r"\.okta[/\\]okta\.yaml|\.okta-aws-cli[/\\]cache"),
+     "MITRE ATT&CK T1552.001"),
+    ("chrome-login-data-sqlite",
+     # corpus provenance: VAULT-043/VAULT-051 (chrome_saved_passwords)
+     re.compile(r"['\"]Login Data['\"]|logins\.json\b"),
+     "MITRE ATT&CK T1555.003"),
+    ("terraform-cloud-token",
+     # corpus provenance: VAULT-047 (terraform_cloud_token)
+     re.compile(r"\.terraform\.d[/\\]credentials\.tfrc\.json|TF_TOKEN_"),
+     "MITRE ATT&CK T1552.001"),
+    ("artifactory-token",
+     # corpus provenance: VAULT-050 (artifactory_token_read)
+     re.compile(r"\.jfrog[/\\]jfrog-cli\.conf|JFROG_CLI_ACCESS_TOKEN"),
+     "MITRE ATT&CK T1552.001"),
+    ("dotenv-outside-workspace",
+     # corpus provenance: VAULT-053 (dotenv_in_repo)
+     re.compile(r"secrets\.env\b"),
+     "MITRE ATT&CK T1552.001"),
+    ("gh-glab-cli-creds",
+     # corpus provenance: VAULT-054/VAULT-080 (git_credential_files / github_token_disclosure)
+     re.compile(r"\.config[/\\]gh[/\\]hosts\.yml|glab-cli[/\\]config\.yml|glab[/\\]config\.yml"),
+     "MITRE ATT&CK T1552.001"),
+    ("ssh-agent-socket-hijack",
+     # corpus provenance: VAULT-057 (ssh_agent_socket)
+     re.compile(r"SSH_AUTH_SOCK\b"),
+     "MITRE ATT&CK T1563.001"),
+    ("shell-history-credential-grep",
+     # corpus provenance: VAULT-059 (shell_history_credential_scrape)
+     re.compile(r"\.bash_history\b|\.zsh_history\b|\.psql_history\b|\.mysql_history\b"),
+     "MITRE ATT&CK T1552.003"),
+    ("lsass-memory-dump",
+     # corpus provenance: VAULT-060 (process_memory_credential)
+     re.compile(r"\blsass\.exe\b|comsvcs\.dll.{0,20}MiniDump|\bprocdump\b", re.IGNORECASE),
+     "MITRE ATT&CK T1003.001"),
+    ("git-history-secret-scan",
+     # corpus provenance: VAULT-062 (secrets_in_git_history)
+     re.compile(r"\bgitleaks\b|\btrufflehog\b|\bdetect-secrets\b"),
+     "MITRE ATT&CK T1552.001"),
+    ("azure-token-cache",
+     # corpus provenance: VAULT-064 (azure_credential_cache)
+     re.compile(r"\.azure[/\\](msal_token_cache|accessTokens|azureProfile)\.json"),
+     "MITRE ATT&CK T1528"),
+    ("vscode-jetbrains-secrets-file",
+     # corpus provenance: VAULT-067 (vscode_settings_secrets)
+     re.compile(r"\.config[/\\]Code[/\\]User[/\\]settings\.json|JetBrains.{0,20}security\.xml"),
+     "MITRE ATT&CK T1552.001"),
+    ("etc-shadow-sam-ntds",
+     # corpus provenance: VAULT-070 (etc_shadow_attempt)
+     re.compile(r"/etc/shadow\b|/etc/master\.passwd\b|System32\\\\config\\\\SAM|NTDS\.dit"),
+     "MITRE ATT&CK T1003.008"),
+    ("kubernetes-secrets-dump-cmd",
+     # corpus provenance: VAULT-071 (kubernetes_secrets_dump)
+     re.compile(r"kubectl\s+get\s+secrets\b"),
+     "MITRE ATT&CK T1552.007"),
+    ("secret-manager-bulk-dump-cmd",
+     # corpus provenance: VAULT-072 (vault_or_secret_manager_dump)
+     re.compile(r"\bvault\s+kv\s+(list|get)\b|secretsmanager\s+(list-secrets|get-secret-value)\b"),
+     "MITRE ATT&CK T1552.001"),
+    ("dns-exfil-tool-call",
+     # corpus provenance: VAULT-073 (credential_exfil_via_dns)
+     re.compile(r"\b(dig|nslookup)\b.{0,60}\b(base32|base64)\b", re.IGNORECASE),
+     "MITRE ATT&CK T1048.003"),
+    ("kerberos-ticket-cache",
+     # corpus provenance: VAULT-081 (kerberos_ticket_cache)
+     re.compile(r"/tmp/krb5cc_|\bklist\s+-e\b"),
+     "MITRE ATT&CK T1558.004"),
+    ("openvpn-wireguard-creds",
+     # corpus provenance: VAULT-084 (openvpn_credential_files)
+     re.compile(r"auth-user-pass\b|anyconnect\.xml\b|PrivateKey\s*=.{0,10}wireguard", re.IGNORECASE),
+     "MITRE ATT&CK T1552.001"),
+    ("java-keystore-dump",
+     # corpus provenance: VAULT-087 (java_keystore)
+     re.compile(r"keytool\s+-list\s+-keystore\b"),
+     "MITRE ATT&CK T1552.004"),
+    ("redis-mongo-unauth-dump",
+     # corpus provenance: VAULT-088 (redis_dump_unauthenticated)
+     re.compile(r"redis-cli\s+(KEYS\s+\*|SCAN\s+0)\b"),
+     "MITRE ATT&CK T1552.001"),
+    ("proc-environ-multi-pid",
+     # corpus provenance: VAULT-089 (process_environment_via_proc)
+     re.compile(r"/proc/\*/environ|/proc/\*/cmdline"),
+     "MITRE ATT&CK T1552.003"),
+    ("swap-hiberfil-rawmem",
+     # corpus provenance: VAULT-090 (memory_swap_credential)
+     re.compile(r"hiberfil\.sys\b|/dev/kmem\b|/var/vm/swapfile"),
+     "MITRE ATT&CK T1003.001"),
+    ("json-token-shape-grep",
+     # corpus provenance: VAULT-098 (json_token_pattern_grep). Matches a
+     # grep/ripgrep/ag invocation whose OWN regex argument literally
+     # contains a credential-shaped search pattern (e.g. someone scanning
+     # the filesystem for "AKIA[0-9A-Z]{16}"-style strings), not a text
+     # containing an actual credential -- that case is already covered by
+     # the existing aws-access-key-id rule above. Fixed a double-escaping
+     # artifact in the original draft (`ya29\\\\?\.` matched a literal
+     # backslash-question-mark, not the intended "ya29\." grep-pattern
+     # substring) before merge.
+     re.compile(r"AKIA\[0-9A-Z\]|ghp_\[A-Za-z0-9\]|sk-\[A-Za-z0-9\]|ya29\\\.\["),
+     "MITRE ATT&CK T1552.001"),
 ]
 
 
@@ -247,6 +452,178 @@ EXECUTOR_DENYLIST: list[tuple[str, re.Pattern, str]] = [
     ("nc-reverse-shell",
      re.compile(r"\bnc\b.{0,40}-e\s+/bin/(sh|bash)", re.IGNORECASE),
      "T1059.004"),
+    # ---- corpus-driven expansion (Track 2, overnight session) ----
+    ("pickle-loads-untrusted",
+     # corpus provenance: EXEC-006 (deserialization_exec)
+     re.compile(r"pickle\.loads\(|marshal\.loads\("),
+     "CWE-502"),
+    ("yaml-load-unsafe",
+     # corpus provenance: EXEC-006/EXEC-067 (deserialization_exec)
+     re.compile(r"yaml\.load\((?!.*SafeLoader)"),
+     "CWE-502"),
+    ("ld-preload-env-assign",
+     # corpus provenance: EXEC-008/EXEC-023/EXEC-063 (dynamic_library_load / ld_preload_injection)
+     re.compile(r"LD_PRELOAD\s*=|/etc/ld\.so\.preload\b"),
+     "MITRE ATT&CK T1574.006"),
+    ("pythonpath-hijack",
+     # corpus provenance: EXEC-010 (python_import_hijack)
+     re.compile(r"sys\.path\.insert\(0,|PYTHONPATH\s*="),
+     "MITRE ATT&CK T1574.007"),
+    ("xargs-shell-exec",
+     # corpus provenance: EXEC-013 (xargs_injection)
+     re.compile(r"\bxargs\b.{0,40}(-I\{\}|sh -c)", re.IGNORECASE),
+     "CWE-78"),
+    ("docker-privileged-run",
+     # corpus provenance: EXEC-015 (docker_privileged_escape)
+     re.compile(r"docker\s+run\b.{0,80}(--privileged|-v\s+/:/host|--cap-add=SYS_ADMIN)", re.IGNORECASE),
+     "MITRE ATT&CK T1611"),
+    ("cgroup-release-agent-escape",
+     # corpus provenance: EXEC-022 (cgroup_escape)
+     re.compile(r"/sys/fs/cgroup/release_agent|notify_on_release"),
+     "MITRE ATT&CK T1611"),
+    ("kernel-module-load-cmd",
+     # corpus provenance: EXEC-024/EXEC-064 (kernel_module_load)
+     re.compile(r"\binsmod\b|\bmodprobe\b.{0,60}(/tmp|/var/tmp)|\bkldload\b", re.IGNORECASE),
+     "MITRE ATT&CK T1547.006"),
+    ("interpreter-repl-sandbox-escape",
+     # corpus provenance: EXEC-026 (interpreter_repl_escape)
+     re.compile(r"__class__\.__base__\.__subclasses__\(\)|ctypes\.CDLL\(None\)\.system"),
+     "CWE-95"),
+    ("cron-drop-in-write",
+     # corpus provenance: EXEC-028/EXEC-084 (cron_d_drop)
+     re.compile(r"/etc/cron\.d/|/etc/cron\.hourly/|/etc/cron\.daily/|/var/spool/cron/"),
+     "MITRE ATT&CK T1053.003"),
+    ("systemd-unit-install",
+     # corpus provenance: EXEC-029/EXEC-085 (systemd_service_install)
+     re.compile(r"/etc/systemd/system/.*\.(service|timer|path)\b"),
+     "MITRE ATT&CK T1543.002"),
+    ("launchd-plist-persistence",
+     # corpus provenance: EXEC-030/EXEC-086 (launchd_persistence)
+     re.compile(r"LaunchAgents/.*\.plist|LaunchDaemons/.*\.plist"),
+     "MITRE ATT&CK T1543.001"),
+    ("wmi-event-subscription",
+     # corpus provenance: EXEC-031/EXEC-089 (wmi_subscription)
+     re.compile(r"New-WMIEventSubscription|__EventFilter|__EventConsumer|__FilterToConsumerBinding"),
+     "MITRE ATT&CK T1546.003"),
+    ("browser-extension-load-flag",
+     # corpus provenance: EXEC-033/EXEC-077 (browser_extension_install)
+     re.compile(r"--load-extension="),
+     "MITRE ATT&CK T1176"),
+    ("jndi-lookup-string",
+     # corpus provenance: EXEC-041 (jndi_injection)
+     re.compile(r"\$\{jndi:(ldap|rmi|dns)://"),
+     "CWE-917"),
+    ("fifo-mkfifo-exec",
+     # corpus provenance: EXEC-047 (fifo_exec_trigger)
+     re.compile(r"\bmkfifo\b\s+\S+.{0,40}(echo|>)"),
+     "CWE-78"),
+    ("container-runtime-escape-cmd",
+     # corpus provenance: EXEC-051 (container_runtime_escape)
+     re.compile(r"\bnsenter\b|\bunshare\b.{0,40}--mount"),
+     "MITRE ATT&CK T1611"),
+    ("git-hook-file-write",
+     # corpus provenance: EXEC-054 (git_hook_install)
+     re.compile(r"\.git[/\\]hooks[/\\](pre-commit|post-checkout|post-merge)\b"),
+     "MITRE ATT&CK T1546.999"),
+    ("git-hookspath-config",
+     # corpus provenance: EXEC-055 (git_hook_install)
+     re.compile(r"core\.hooksPath\b"),
+     "MITRE ATT&CK T1546.999"),
+    ("ci-workflow-run-block",
+     # corpus provenance: EXEC-058 (ci_pipeline_modification)
+     re.compile(r"\.github[/\\]workflows[/\\].*\.ya?ml|\.gitlab-ci\.ya?ml\b|\.circleci[/\\]config\.ya?ml"),
+     "MITRE ATT&CK T1195.002"),
+    ("lockfile-integrity-tamper",
+     # corpus provenance: EXEC-060 (supply_chain_dependency_swap)
+     re.compile(r"package-lock\.json\b.{0,20}(integrity|resolved)|yarn\.lock\b|Cargo\.lock\b"),
+     "MITRE ATT&CK T1195.001"),
+    ("dependency-local-path-override",
+     # corpus provenance: EXEC-061 (supply_chain_dependency_swap)
+     re.compile(r"\[patch\.crates-io\]|path\s*=\s*['\"]\.\.?/"),
+     "MITRE ATT&CK T1195.001"),
+    ("direnv-envrc-write",
+     # corpus provenance: EXEC-062 (auto_loaded_config)
+     re.compile(r"\.envrc\b"),
+     "MITRE ATT&CK T1546.004"),
+    ("ssh-authorized-keys-append",
+     # corpus provenance: EXEC-078 (ssh_authorized_keys)
+     re.compile(r"\.ssh[/\\]authorized_keys2?\b"),
+     "MITRE ATT&CK T1098.004"),
+    ("sudoers-write",
+     # corpus provenance: EXEC-080 (sudoers_modification)
+     re.compile(r"/etc/sudoers(\.d[/\\][^\s]+)?\b|/etc/doas\.conf\b"),
+     "MITRE ATT&CK T1548.003"),
+    ("polkit-rule-write",
+     # corpus provenance: EXEC-081 (polkit_rule_install)
+     re.compile(r"/etc/polkit-1/rules\.d/"),
+     "MITRE ATT&CK T1548.003"),
+    ("path-env-prepend",
+     # corpus provenance: EXEC-083 (path_hijack)
+     re.compile(r"export\s+PATH=.{0,10}:\$PATH"),
+     "MITRE ATT&CK T1574.007"),
+    ("windows-run-key-write",
+     # corpus provenance: EXEC-087 (windows_registry_run_key). Bug found
+     # and fixed during independent-source generalization testing: the
+     # original draft used a double-escaped `\\\\Run` (matching two
+     # literal backslashes before "Run"), which never occurs in real
+     # `reg add`/PowerShell registry-path syntax (single backslash) --
+     # so this rule matched NOTHING in either of its own generalization
+     # test variants despite looking superficially plausible. Corrected
+     # to a single literal backslash; re-validated against both
+     # `reg add "HKCU\...\CurrentVersion\Run"` and PowerShell's
+     # `-Path 'HKLM:\...\CurrentVersion\RunOnce'` forms.
+     re.compile(r"CurrentVersion\\Run(Once)?(Ex)?\b"),
+     "MITRE ATT&CK T1547.001"),
+    ("windows-service-create",
+     # corpus provenance: EXEC-088 (windows_service_install)
+     re.compile(r"\bsc\s+create\b|New-Service\b"),
+     "MITRE ATT&CK T1543.003"),
+    ("powershell-profile-write",
+     # corpus provenance: EXEC-090 (powershell_profile_persistence)
+     re.compile(r"\$PROFILE\b|Microsoft\.PowerShell_profile\.ps1"),
+     "MITRE ATT&CK T1546.013"),
+    ("chrome-devtools-protocol-connect",
+     # corpus provenance: EXEC-092 (browser_devtools_protocol)
+     re.compile(r"localhost:9222\b|Runtime\.evaluate\b"),
+     "MITRE ATT&CK T1185"),
+    ("docker-socket-abuse",
+     # corpus provenance: EXEC-093 (docker_socket_abuse)
+     re.compile(r"/var/run/docker\.sock\b|/run/containerd/containerd\.sock\b"),
+     "MITRE ATT&CK T1610"),
+    ("kubectl-exec-cmd",
+     # corpus provenance: EXEC-094 (kubernetes_exec)
+     re.compile(r"\bkubectl\s+exec\b|\bkubectl\s+debug\b"),
+     "MITRE ATT&CK T1609"),
+    ("k8s-privileged-pod-manifest",
+     # corpus provenance: EXEC-095 (kubernetes_privileged_pod)
+     re.compile(r"privileged:\s*true|hostPID:\s*true|hostNetwork:\s*true"),
+     "MITRE ATT&CK T1610"),
+    ("sts-assume-role-cmd",
+     # corpus provenance: EXEC-097 (cloud_iam_role_assume)
+     re.compile(r"sts\s+assume-role(-with-web-identity)?\b"),
+     "MITRE ATT&CK T1550.001"),
+    ("interpreter-inline-eval-payload",
+     # corpus provenance: EXEC-052 (interpreter_arg_injection). Narrowed
+     # before merge from a bare `python -c`/`node -e` flag match (which
+     # would have fired on completely ordinary developer one-liners like
+     # `python -c "print(1)"`) to require BOTH the inline-eval flag AND
+     # suspicious payload content (os.system/subprocess/exec/eval/base64/
+     # a backtick shell-out/an outbound network call) within the same
+     # call, mirroring how a real attacker payload actually looks in
+     # practice (confirmed against Type B: still catches 11/12 of the
+     # `python -c "os.system(...)"`-shaped obfuscated-exfil cases the
+     # original broad draft caught, with the same 0 benign FPs across all
+     # 144 benign-set calls + 7 LOLBIN-legit cases). Still broader than
+     # most other rules in this file by design (inline code execution is
+     # inherently more example-shaped than a fixed credential path), so
+     # kept as its own distinctly-named rule for easy review/revert.
+     re.compile(
+         r"\b(python3?|node|perl|ruby)\b\s+(-c|--eval|-e)\s.{0,300}"
+         r"(os\.system|subprocess|exec\s*\(|eval\s*\(|base64|`.*`|requests\.(get|post)|"
+         r"urllib|socket\.|\bcurl\b|\bwget\b|Popen)",
+         re.IGNORECASE | re.DOTALL,
+     ),
+     "MITRE ATT&CK T1059.006"),
 ]
 
 
