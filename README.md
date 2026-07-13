@@ -227,6 +227,172 @@ e631399  fix: LLM tiebreaker non_standard_source prompt — partial fix, honest 
 
 ---
 
+## The full arc: how Kavach got here
+
+A research narrative, not a marketing timeline. Every claim below traces to a specific file, commit, or dataset in this repo — cited inline so a reader (or a future contributor) can verify it directly rather than take it on faith.
+
+### 1. Original architecture — cosine-similarity baseline
+
+Kavach v2 (`cbe0805`, "parliament-of-ministers semantic firewall") is four parallel-specialist ministers — VAULT (credential detector), EXECUTOR (execution detector), CHANNEL (exfil detector), NAVIGATOR (drift detector), all implemented in `parliament/ministers.py` — each scoring a candidate tool call by hybrid BM25 + BGE dense embedding retrieval (`bge-base-en-v1.5`, 768-d) against a curated corpus (`kavach_corpus_v1.json`, first compiled at `84245dc` with 200 patterns across the four ministers, later grown to ~100/minister and ~300 CHANNEL docs). COMPASS (`parliament/server.py`) is a per-call intent-drift oracle — cosine similarity between a session's seeded intent vector and the proposed action. A Speaker (`parliament/speaker.py`) combines all minister verdicts by **pure veto**: any minister at BLOCK blocks the call, full stop — not the weighted-risk aggregation described in an earlier design deck, which `ADAPTIVE_FINDINGS.md` explicitly confirms was never implemented in this repo.
+
+`docs/RESEARCH_FINDINGS.md` (June 2, 2026) frames the design's intended novelty against the 2025–2026 agent-security literature: "the corpus-retrieval + parallel-specialist-voting axis is the cleanest 'no one else does this' claim," with COMPASS's dynamic threshold modulation as "the strongest single novel mechanism contribution." The full `ARCHITECTURE.md` diagram — router activating ministers, COMPASS feeding drift signal to the Speaker, hash-chained SQLite ledger, provenance resolution against ATLAS/ATT&CK/CWE — describes this baseline exactly as it shipped.
+
+### 2. The BM25 false-positive bug
+
+Commit `59f75f1` documents a real production bug: CHANNEL and EXECUTOR were wrongly BLOCKing completely benign calls like `get_webpage` and `read_inbox`. Root cause, stated in the commit body: **BM25/IDF inflation on generic argument-name tokens in the small (~300-doc) corpus.** `OVERNIGHT_LOG.md` quantifies it directly — the offending tokens (`url`, `user`, `data`, `content`) sat in a 0.901–2.604 IDF band in the live CHANNEL corpus, statistically indistinguishable from genuinely rare, genuinely dangerous terms (`curl`, `payload`) that happened to land in a similar band purely because the corpus was small enough for ordinary words to look artificially rare.
+
+This is why the bug resisted a quick patch: the corpus wasn't large enough for BM25's rarity signal to reliably separate "this word is rare because it's a dangerous technical term" from "this word is rare because our corpus only has 300 documents and doesn't happen to repeat it often."
+
+### 3. BM25 fix attempts — explored, none applied
+
+Four distinct fixes were investigated on this exact problem, in parallel with the dense-embedding track (`59f75f1`: "separate BM25/tokenization investigation" run alongside the fine-tuning work in §4). None shipped:
+
+- **Curated stopword / filler-word list.** `OVERNIGHT_LOG.md` / `OVERNIGHT_SUMMARY.md` propose dropping or replacing the flagged filler tokens directly. **Not applied** — the boundary between "generic filler" and "attack-specific" was too blurry to draw a clean, general cutoff (the same failure mode as the original bug: `curl` and `url` sit at nearly the same rarity level, and a rule broad enough to exclude one risks excluding the other).
+- **SPLADE / learned-sparse retrieval / cross-encoder reranking.** Investigated in `kavach_eval/reference_corpus_v0/proposed_minister_v0/bge_m3_investigation/` (`BGE_M3_VERDICT.md`, `BEST_OF_BOTH_VERDICT.md`). Fixed the original bug partially but **regressed overall detection** — this approach solves a genuinely different problem (paraphrase/rewording evasion) than the rarity-inflation false positive, and introducing a second model into the critical path adds real latency cost for a partial fix.
+- **Regex/exact-match L3-surface allowlist + decoupled candidate selection.** Investigated in `kavach_eval/reference_corpus_v0/proposed_minister_v0/decoupled_retrieval/` (`DESIGN.md`, `VERDICT.md`). **Failed the held-out set, overfit** to the specific cases it was tuned against — a literal/exact-match layer on L3 (concrete syntax) has no way to reason about the L1/L2 (intent/mechanism) levels the corpus also encodes, so it couldn't generalize past its training examples.
+
+All four remain honestly unresolved via BM25 patching alone — none of them closed the gap cleanly enough to ship, which is part of what motivated the pivot to fine-tuning below.
+
+### 4. The fine-tune regression, the STEWARD pivot, and the real conclusion
+
+**The fine-tune.** The team's working hypothesis was that the deeper issue was BGE's structural blindness, not just BM25's weighting — so a small adapter was fine-tuned on frozen BGE using a real training set: 1,895 pairs (1,069 positive / 826 negative; sources include LOLBAS 187, GTFOBins 63, atomic-red-team 456, corpus L3 363 on the positive side, BFCL 793 and AgentDojo/InjecAgent 33 on the negative side — `kavach_eval/reference_corpus_v0/training_pairs_v0.jsonl`), 3 epochs, CosineSimilarityLoss, final training loss 0.058 (`adapter_checkpoints/full_run/run_report_1783456302.json`). **Result: 7x separation improvement on the target false-positive cases, but real attack recall regressed from 63.3% to 26.7%** — a genuine, measured tradeoff, correctly not merged into production.
+
+**The deeper gap it exposed.** That regression's root cause traced to something the corpus had never encoded at all: business-logic and authorization attacks (a fabricated financial transaction, an unauthorized permission escalation) have no lexical or structural signature in the call text itself — no amount of embedding tuning finds a signal that was never there. This motivated investigating a **new, 5th minister — STEWARD** — purpose-built for this attack class, drafted with real external corroboration: OWASP's BOLA/BFLA authorization-vulnerability taxonomy, MITRE ATT&CK for ICS (including a documented 2008 tram-derailment case as a real-world precedent for authorization-bypass consequences), CWE, and an empirical bug-bounty study.
+
+**The falsifying test.** A discriminability test (`proposed_minister_v0/discriminability_test_RESULTS.json`) took 3 real, matched AgentDojo pairs — same tool, same argument shape, one legitimately user-requested and one injected/malicious — and scored both against STEWARD's draft patterns. Result: **mean delta +0.0125, within embedding noise** (the two versions of each call scored 0.90–0.94 similar *to each other*). This falsified STEWARD as a pattern-matcher outright: the call's text genuinely does not encode whether it was authorized, so no amount of better patterns or more training data could fix it. A follow-up (`option_a_compass_test_RESULTS.json`) tried reusing COMPASS's own session-intent cosine machinery against the same pairs (Option A) — 2 of 3 pairs showed no separation, and the one that did separate turned out to be a lexical coincidence (the user's prompt happened to contain the literal password string), not evidence the mechanism understood authorization.
+
+**Option B and the real coverage ceiling.** A more sophisticated, explicitly non-cosine approach was then designed: structured constraint-matching against session-specific facts, with three constraint types — **literal** (a value named directly by the user, cheap and deterministic), **provenance** (a value must trace to a source the user named, needs tool-result visibility Kavach didn't have), and **runtime-binding** (a value computed mid-session, e.g. "the largest file," needs the same missing infrastructure plus per-tool re-derivation logic). This was tested against a real, full classification of AgentDojo's 24 injection tasks with a ground-truth tool call (`FINDINGS_SUMMARY.md`): **6/24 (25%) were the cheap literal tier, 4/24 (17%) needed the expensive provenance tier, 1/24 (4%) needed runtime-binding — 11/24 (46%) genuinely Option-B-shaped in total.** Separately, **9/24 (38%) turned out to be exfiltration-shaped pairs (search/read → send/post to attacker) already inside CHANNEL's territory**, coverable directly by a pattern already drafted (CHAN-102, later merged into the live corpus). The remaining **4/24 (17%)** fit neither STEWARD nor Option B — 2 were magnitude/structuring attacks needing behavioral checks closer to `trajectory.py`'s accumulation logic, 2 were content-safety attacks (phishing URLs) closer to EXECUTOR/CHANNEL's existing pattern checks.
+
+**The real, stated conclusion** — not a retrospective synthesis, the investigation's own documented finding: *a new specialized minister is not the fix.* Even the best-designed, purpose-built, structured, non-cosine alternative topped out at 46% real coverage of its own target category, and the shortfall was blocked on missing infrastructure (tool-result visibility, structured per-session state), not on missing patterns or a weaker model. This directly foreshadows Stage 2's later decision (§7 below) to rearchitect the **internals of existing ministers** (VAULT, EXECUTOR, CHANNEL) rather than add new ones — a real throughline from a mid-2026 investigation to this session's own architectural choice.
+
+### 5. R2 red-team coverage findings
+
+A second, independent line of evidence — this one specifically indicting cosine scoring for VAULT/EXECUTOR — comes from `kavach_eval/R2_FINDINGS.md`:
+
+**R2a — coverage census (25 LOLBINs surveyed): HIGH-risk = 12, MEDIUM = 2, LOW = 11.** The blind spot was sharp and specific: Windows signed-binary LOLBINs (`certutil`, `mshta`, `rundll32`, `regsvr32`, `cmstp`, `IEX`) absent from the corpus **by name**, but "recognized" semantically by dense retrieval scoring above threshold anyway — a gate-mechanism failure, not a missing-pattern problem, since Unix-side transfer tools (`curl`, `ssh`, `rsync`) were already lexically covered.
+
+**R2b — full hybrid pipeline evasion (13 real tools, live `run_minister_hybrid`): 11/13 evaded.** The exact mechanism: `hybrid_conf = dense_sim × lexical_gate` with `GATE_FLOOR = 0.65` — a case evades when `dense_sim` clears the minister's threshold but the multiplicative lexical gate floors near 0.65-0.878, dragging the combined score back under threshold. Anchor example: `certutil` — dense similarity 0.586 (above the 0.55 EXECUTOR threshold), lexical gate 0.878, combined 0.515 (below threshold) → evaded. A controlled mitigation experiment (naive lexical patching, on a throwaway branch, corpus reverted byte-identical afterward) fixed 6 of the 11 evaders but left 5 still evading — proving naive lexical patching is pattern-placement-dependent, not a reliable fix, and is the direct empirical motivation for the corpus-improvement agent's validated-pattern-authoring approach (`kavach_eval/corpus_agent/`).
+
+### 6. Why cosine similarity was the wrong tool — four independent lines of evidence
+
+Synthesizing §2–§5: four separate investigations, run for different reasons at different times, converged on the same architectural conclusion.
+
+1. **STEWARD's discriminability test (§4)**: authorization/maliciousness distinctions have *no signal in the call text itself* for any embedding-similarity approach to find — mean delta 0.0125, within noise.
+2. **R2a/R2b (§5)**: even where a signal genuinely exists, dense retrieval has structural blind spots to unseen-but-real lexical patterns (12 HIGH-risk LOLBIN gaps, 11/13 pipeline evasions) — the multiplicative gate mechanism itself, not just corpus coverage, produces the failure.
+3. **BM25's small-corpus rarity distortion (§2–§3)**: four independent fix attempts, none of which cleanly separated "rare because dangerous" from "rare because the corpus is small," without either missing real attacks or regressing detection elsewhere.
+4. **The fine-tune's recall/precision trap (§4)**: even directly optimizing the embedding space for the target false-positive cases produced a 7x improvement there at the cost of a 63.3%→26.7% real attack-recall regression — the same representational space cannot be pulled in both directions at once without a structural change.
+
+None of these four are the same failure mode. That convergence — not any single finding alone — is what justified abandoning cosine-similarity *scoring* for VAULT/EXECUTOR/CHANNEL specifically, rather than attempting a fifth patch.
+
+### 7. The new plan — `REARCHITECTURE_PLAN.md`'s actual staged design
+
+`REARCHITECTURE_PLAN.md` (root of the repo, 681 lines, scoping-only, no detection code, originally on branch `rearchitecture-v0`) locks a build order — **VAULT → EXECUTOR → CHANNEL → NAVIGATOR** — and a two-to-three-stage discipline per minister:
+
+- **Stage 1 (additive)**: a new deterministic detector runs alongside the existing cosine minister, zero risk, no router/minister-internals/speaker/trajectory/provenance/ledger changes.
+- **Stage 2 (full swap)**: the cosine path is retired entirely for that minister, gated on a real measured before/after.
+- **Stage 3 (conditional)**: a possible router-mechanism upgrade, explicitly gated on "a measured routing-miss rate from real evaluation data" — not attempted until that data existed (see the Stage 3 gate-check below).
+
+Per-minister, the plan states exactly what's borrowed versus genuinely novel (§2.5's summary table, quoted directly):
+
+| minister | borrowed | Kavach-specific/novel |
+|---|---|---|
+| VAULT | gitleaks/truffleHog-style regex patterns | taint tag on credential reads feeding CHANNEL |
+| EXECUTOR | `ast` module, LOLBIN name lists | resolved-call-name tracing, decode-then-exec dataflow, shell-chain source→sink detection |
+| CHANNEL | taint-tracking model (Denning 1976 lattice, realized in agent contexts by CaMeL/arXiv:2503.18813, FIDES/arXiv:2505.23643, NeuroTaint/arXiv:2604.23374) | applied to Kavach's specific tool-call graph + destination allow-list for the actual tool surfaces screened |
+| NAVIGATOR | AuthGraph/arXiv:2605.26497 clean-context extraction + DRIFT/arXiv:2506.12104's Secure Planner + Dynamic Validator shape | the literal/provenance/runtime-binding constraint taxonomy already built and partially validated in the STEWARD investigation (§4's Option B), applied to Kavach's session/ledger architecture |
+
+### 8. What was actually built (this session)
+
+Following the locked order exactly:
+
+- **VAULT swap** (`d372c83`): cosine retired, `parliament/prefilters.py`'s `check_vault()` becomes sole source of truth. Benign FPs 3→0; the one genuine attack-recall gap traced case-by-case to a read-then-send pattern outside VAULT's domain by design, handed to CHANNEL.
+- **EXECUTOR swap** (`eeaf9da`) + **AST alias resolution** (`268b7e6`): cosine retired, LOLBIN deny-list is sole source of truth, plus a lightweight AST pass closing the import-alias evasion (`import os as o; o.system(...)`) that pure string matching couldn't see. FPs 0→0, zero genuine system-wide recall misses.
+- **CHANNEL swap** (`5c9b2b5`, workspace fix `c7089ec`): the only minister needing an entirely new mechanism — session-level taint tracking (`parliament/channel_taint.py`), the Denning-1976-lineage model from §7's table. Full-scale DS rescore: **544/544 (100%) strict recall**, 0.0% FPR, versus a 43.75% baseline.
+- **NAVIGATOR — attempted, correctly abandoned**: a Stage 2 swap was scoped and attempted, but a mandatory prerequisite ablation found a wash (6 vs 7 truly-discriminating cases) even after fixing a real bug in the comparator (a date-format string-equality bug, root-caused and fixed in `ablation_v0_daterefix/`, re-run confirmed still a wash, 7 vs 7, net zero gain). Per the locked stop condition, the build halted rather than shipping a rebuild on a mechanism proven not to clear the bar.
+- **Stage 1 corpus-driven expansion** (`88b63ae`): 85 new deterministic rules mined from `kavach_corpus_v1.json`'s L3_surface field, merged into the live rule lists — **VAULT 9→58 rules (7/100→74/100 corpus patterns matched), EXECUTOR 19→55 rules (10/100→41/100 corpus patterns matched)**.
+- **Independent-source generalization testing**: 2 new, independently-constructed technique instances per rule (not paraphrases) tested against the merged rules — **151/170 (88.8%) real generalization**, including one genuine regex bug (`windows-run-key-write`'s double-escaped backslash) found and fixed specifically because this test was run.
+- **LLM tiebreaker** (`e631399`): a split-extraction escalation tier for VAULT/EXECUTOR's remaining narrative-phrasing gap — validated in pilot (16/17), a real benign FP found on full-pipeline validation, a prompt fix applied and re-tested (0 new FPs, 4/5 on a genuine generalization check) — **documented as "partially addressed, generalization unconfirmed," not wired into live dispatch.**
+- **Stage 3 gate-check**: formally checked against real data for the first time — 0 routing misses found across every case where a check was possible, and VAULT/EXECUTOR/CHANNEL no longer route through the router at all (a direct structural consequence of the Stage 2 swaps above) — **condition not met, closed out, no router replacement built.**
+- **Pipeline short-circuit optimization** (`bd6570f`): VAULT/EXECUTOR/CHANNEL's deterministic checks now run before COMPASS/routing/NAVIGATOR; a confident BLOCK on an eligible rule (a 4-rule denylist excludes the newest/least-proven rules) returns immediately, with COMPASS/NAVIGATOR completing the ledger row asynchronously afterward. **0/411 verdict mismatches, blended mean latency 3720ms→2914ms (−22%), short-circuited calls ~10x faster (mean 410ms vs ~3.7s), 24.1% blended trigger rate (36.7% on the Type-B-malicious-only subset).**
+
+### 9. Old vs new — side-by-side
+
+| | **Old (cosine, `main`)** | **New (`kavach-rearch`, this session)** |
+|---|---|---|
+| VAULT mechanism | BGE dense + BM25 hybrid retrieval vs ~100-pattern corpus | Deterministic regex, 58 rules (9 original + 49 corpus-mined) |
+| EXECUTOR mechanism | BGE dense + BM25 hybrid retrieval | Deterministic deny-list + AST alias resolution, 55 rules (19 original + 36 corpus-mined) |
+| CHANNEL mechanism | BGE dense + BM25 hybrid retrieval | Session-level taint tracking (read→send detection) |
+| NAVIGATOR mechanism | BGE dense + BM25 hybrid retrieval | Unchanged — cosine retained, swap attempted and correctly abandoned |
+| VAULT benign FPs | 3 (55+22-case set) | 0 |
+| EXECUTOR benign FPs | 0 | 0 (unchanged, already proven at Stage 1) |
+| CHANNEL (DS) strict recall | 43.75% | 544/544 = 100% |
+| CHANNEL (DS) FPR | 0.0% | 0.0% |
+| VAULT/EXECUTOR corpus-pattern coverage | 7/100, 10/100 | 74/100, 41/100 |
+| VAULT/EXECUTOR generalization (independent-instance test) | not measured (cosine had no discrete "rules" to test this way) | 151/170 (88.8%) |
+| Narrative-phrasing gap (267-case Type B) | 2–5% own-domain catch rate | 98/267 caught by deterministic rules alone; LLM tiebreaker partially addresses the remainder, not wired in |
+| End-to-end latency, blended | p50 3.69s / p95 7.42s (CPU, every call pays full embedding+routing cost) | blended mean 2914ms (−22%); short-circuited calls ~410ms (~10x faster) |
+| Router role | Gates all four ministers | Gates NAVIGATOR only — VAULT/EXECUTOR/CHANNEL bypass routing entirely (Stage 2 consequence) |
+| Known limitations | BM25 rarity distortion, R2 LOLBIN blind spots, STEWARD-class authorization attacks entirely uncovered | Narrative-phrasing gap narrowed not eliminated (~26%/~59% of VAULT/EXECUTOR corpus patterns still need semantic judgment, by design); CHANNEL's Slack/banking destination-identity gap; NAVIGATOR's corpus-scope gap for DH/authorization attacks (STEWARD's original target, still uncovered) |
+
+### 10. The architecture, then and now
+
+**Old architecture — every minister cosine-scored, router gating all four:**
+
+```mermaid
+flowchart LR
+  A["Tool Call"] --> B["Embed Once<br/>BGE-base 768-d"]
+  B --> R["Semantic Router<br/>activate ministers >= 0.40"]
+  R --> M["VAULT / EXECUTOR /<br/>CHANNEL / NAVIGATOR<br/>all: hybrid BM25 + dense cosine"]
+  B --> CO["COMPASS<br/>intent drift"]
+  M --> S["Speaker<br/>pure-veto combine"]
+  CO --> S
+  S --> L[("Ledger")]
+  S --> V["BLOCK / ESCALATE / ALLOW"]
+```
+
+**New architecture — deterministic ministers bypass routing, short-circuit skips COMPASS/NAVIGATOR on a confident BLOCK:**
+
+```mermaid
+flowchart LR
+  A["Tool Call"] --> B["Embed Once"]
+  B --> D["VAULT / EXECUTOR / CHANNEL<br/>deterministic + AST + taint<br/>UNCONDITIONAL, no routing"]
+  D -->|"confident BLOCK,<br/>eligible rule"| SC["Return immediately<br/>(~10x faster)"]
+  D -->|"no eligible BLOCK"| R["Semantic Router<br/>NAVIGATOR only"]
+  SC -.->|"async, non-blocking"| CN["COMPASS + NAVIGATOR<br/>ledger completion only"]
+  R --> N["NAVIGATOR<br/>hybrid BM25 + dense cosine<br/>(sole cosine minister)"]
+  B --> CO["COMPASS<br/>intent drift"]
+  D --> S["Speaker<br/>pure-veto combine"]
+  N --> S
+  CO --> S
+  S --> L[("Ledger")]
+  S --> V["BLOCK / ESCALATE / ALLOW"]
+  CN -.-> L
+
+  classDef fastpath fill:#4d8a8c,stroke:#333,color:#fff
+  class D,SC fastpath
+```
+
+**The causal chain, end to end:**
+
+```mermaid
+flowchart TD
+  BUG["BM25 false-positive bug<br/>(get_webpage/read_inbox wrongly BLOCKed,<br/>rarity distortion in a ~300-doc corpus)"]
+  BUG --> FIX["4 BM25 fix attempts<br/>(stopwords, SPLADE/cross-encoder,<br/>regex/L3 allowlist, decoupled retrieval)<br/>all explored, none shipped"]
+  FIX --> FT["BGE fine-tune attempt<br/>7x separation gain,<br/>but 63.3%->26.7% attack-recall regression"]
+  FT --> ST["STEWARD 5th-minister investigation<br/>discriminability test: delta ~0.01,<br/>Option B tops out at 46% coverage"]
+  ST --> CONCL["Real conclusion:<br/>'a new minister is not the fix'"]
+  R2["R2 red-team findings<br/>(independent line of evidence)<br/>R2a: 12 HIGH-risk LOLBIN gaps<br/>R2b: 11/13 pipeline evasions"] --> DECISION
+  CONCL --> DECISION["Decision: rearchitect EXISTING<br/>ministers' internals, not add new ones"]
+  DECISION --> PLAN["REARCHITECTURE_PLAN.md<br/>locked order + Stage 1/2/3 discipline"]
+  PLAN --> S1["Stage 1: additive deterministic<br/>pre-filters (VAULT/EXECUTOR)"]
+  S1 --> S2["Stage 2: full swap<br/>VAULT -> EXECUTOR -> CHANNEL<br/>NAVIGATOR attempted, correctly abandoned"]
+  S2 --> EXP["Corpus-driven expansion<br/>85 rules, 151/170 generalization"]
+  EXP --> S3["Stage 3 gate-check<br/>0 routing misses found, closed out"]
+  S3 --> SC["Pipeline short-circuit<br/>-22% blended latency"]
+```
+
+---
+
 ## Everything below this line describes the pre-re-architecture system
 
 The sections that follow (Detection Coverage, Deployment, Research Tooling, Configuration, Repository Map, Getting Started, prior Evaluation numbers, prior Limitations) describe `main`'s architecture and have not yet been updated for `kavach-rearch`. They remain accurate for `main`. Treat the sections above this line as the current source of truth for `kavach-rearch`; the sections below as the `main`-branch baseline this work is measured against.
