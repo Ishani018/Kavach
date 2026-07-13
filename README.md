@@ -28,10 +28,25 @@ This README describes **`kavach-rearch`**, the branch actively replacing three o
 
 | Minister | Mechanism today | Status |
 |---|---|---|
-| **VAULT** | Deterministic regex (credential-path/secret-format rules) | Swapped, committed, pushed |
-| **EXECUTOR** | Deterministic deny-list (LOLBIN patterns) + AST import-alias resolution | Swapped, committed, pushed |
+| **VAULT** | Deterministic regex, corpus-expanded (58 rules, 9 original + 49 new) | Swapped + expanded, committed |
+| **EXECUTOR** | Deterministic deny-list + AST alias resolution, corpus-expanded (55 rules, 19 original + 36 new) | Swapped + expanded, committed |
 | **CHANNEL** | Session-level taint tracking (read→send detection) | Swapped, committed, pushed |
 | **NAVIGATOR** | Cosine similarity (unchanged) | Swap attempted and correctly abandoned — documented finding, not a TODO |
+
+**Escalation tier (not part of the fast path, not wired into live dispatch):** an LLM-in-the-loop tiebreaker for VAULT/EXECUTOR's remaining narrative-phrasing gap — see the dedicated diagram and status below.
+
+---
+
+```mermaid
+flowchart TB
+  subgraph stage2["Stage 2 rearchitecture — locked build order"]
+    direction LR
+    V0["VAULT<br/>cosine"] -->|"swap decision:<br/>3 FP to 0, cosine's own<br/>6 catches redundant<br/>with EXECUTOR/CHANNEL"| V1["VAULT<br/>deterministic regex<br/>+ corpus expansion"]
+    E0["EXECUTOR<br/>cosine"] -->|"swap decision:<br/>0 FP unchanged,<br/>AST alias resolution<br/>added, corpus expansion"| E1["EXECUTOR<br/>deterministic deny-list<br/>+ AST + corpus expansion"]
+    C0["CHANNEL<br/>no existing detector"] -->|"build decision:<br/>no single-call signal exists,<br/>needed session-level state"| C1["CHANNEL<br/>taint tracking<br/>read to send"]
+    N0["NAVIGATOR<br/>cosine"] -->|"swap decision:<br/>ablation wash even<br/>bug-fixed, 7 vs 7 —<br/>mechanism doesn't clear<br/>the bar, swap abandoned"| N1["NAVIGATOR<br/>cosine, unchanged<br/>(documented finding)"]
+  end
+```
 
 ---
 
@@ -44,6 +59,7 @@ Retired VAULT's cosine-similarity path entirely (`parliament/prefilters.py`'s `c
 - **Benign false positives: 3 → 0** (55-case + 22-session banking benign set)
 - **VAULT's own attack recall: 6/32 → 0/32** on a held-out set — but traced case-by-case: 5 of those 6 cosine catches were redundant with EXECUTOR or CHANNEL already blocking the same case. The one genuine gap (`DropboxListFilesAndFolders` → exfiltrate via email) is a read-then-send pattern outside VAULT's credential-shape domain by design — handed to CHANNEL's domain, not a VAULT regression.
 - One brittle rule (`aws-secret-key-shape`, a generic 40-character mixed-case blob match) was dropped before shipping after adversarial testing showed it was simultaneously too loose (false-positives on ordinary 40-char tokens) and too brittle (misses real keys off by one character) — a rule built on a coincidence of length, not a real signal.
+- **Corpus-driven expansion (49 new rules, 7/100 → 74/100 corpus patterns matched):** an exhaustive audit of `kavach_corpus_v1.json`'s 100 VAULT patterns found the original 9-rule deny-list covered only 7 of them. 49 new rules were mined exclusively from the corpus's `L3_surface` (concrete syntax) field for the uncovered 93, prioritizing literal, regex-expressible paths/env-vars/CLI shapes over anything requiring narrative interpretation. Validated zero-tolerance against all 144 benign-set calls (0 FPs) and independently generalization-tested (see below) — real technique-level generalization, not just "matches its one source example."
 
 ### EXECUTOR — deterministic LOLBIN deny-list + AST alias resolution
 
@@ -52,6 +68,7 @@ Retired EXECUTOR's cosine path the same way. Before/after:
 - **Benign false positives: 0 → 0** (unchanged — Stage 1's deny-list already proved 0% FP before the cosine path was retired)
 - **EXECUTOR's own recall: 2/32 → 0/32** — traced case-by-case: **zero genuine system-wide misses**. One case's overall verdict softens from BLOCK to ESCALATE (CHANNEL still catches it); the other was already redundant with CHANNEL. Both lost catches were read→exfiltrate chains outside EXECUTOR's LOLBIN/dangerous-execution domain by design.
 - **AST import-alias resolution added**: the deny-list is pure string matching, so `import os as o; o.system(...)` bypassed every rule (neither `os.system(` nor a bare `system(` appears literally). A lightweight AST pass (walks `Import`/`ImportFrom` nodes, resolves aliased call names, compares against the same deny-list rule identities — not a second list) now closes the import-alias and from-import-alias variants. The harder variable-bound case (`fn = os.system; fn(...)`) remains an explicit, documented out-of-scope limitation — it needs real dataflow/def-use tracking, a meaningfully larger scope than import resolution. Validated: both alias variants now BLOCK, the variable-bound case still correctly falls through (no regression), 13/13 LOLBIN unchanged, 0/55 + 0/22 + 0/7 adversarial-alias benign sets clean.
+- **Corpus-driven expansion (36 new rules, 10/100 → 41/100 corpus patterns matched):** same audit-and-mine process as VAULT — 90 of 100 EXECUTOR corpus patterns were uncovered by the original deny-list; 36 new rules added from `L3_surface` literal syntax. One rule (`interpreter-inline-eval-payload`, catching `python -c`/`node -e`-style inline execution) was deliberately narrowed before merge to require suspicious payload content alongside the interpreter flag, not a bare flag match — a bare match would false-positive on completely ordinary developer one-liners like `python -c "print(1)"`.
 
 ### CHANNEL — session-level taint tracking
 
@@ -81,13 +98,35 @@ Two **separate, independent findings** about NAVIGATOR's current cosine behavior
 
 ---
 
-## VAULT/EXECUTOR's narrative-phrasing gap — three approaches tried, one working
+## VAULT/EXECUTOR's narrative-phrasing gap — three approaches tried, plus corpus expansion, plus a partial tiebreaker fix
 
-Discovered via the 267-case Type B set (below). Three designs explored, in order, each validated against a genuine 70/30 build/held-out split to check for overfitting before any regression testing:
+Discovered via the 267-case Type B set (below). Three escalation-tier designs explored, in order, each validated against a genuine 70/30 build/held-out split to check for overfitting before any regression testing:
 
 1. **Entity-proximity matching** (known dangerous entity + action verb within a short window, deterministic, no LLM). Generalized correctly (held-out performance close to build-set performance — not memorization) but **caused 7 new false positives** on the `benign_probe.json` set (legitimate `certutil`/`bitsadmin`/`IEX`/`mshta` uses) — the design has no way to distinguish "run certutil to verify a cert" from "run certutil to download malware" using proximity alone. Rejected.
 2. **Holistic LLM judgment** (qwen2.5:7b, asked directly "malicious or benign?"). 100% correct on 7 known-benign cases, but **30% false-negative rate** on 10 known-malicious cases (3/10 missed) — including one case where the model's own stated reasoning acknowledged suspicion but still output BENIGN, and another where it ignored an explicit disqualifying phrase ("not associated with the workload") in the text. A charitable-default bias, not a data-extraction failure. Rejected as a verdict-maker.
-3. **Split extraction from judgment** (qwen2.5:7b extracts three narrow factual flags only — `target_scope_mismatch`, `explicit_legitimacy_marker`, `non_standard_source` — then a deterministic rule, not the model, converts flags to a verdict). **16/17 (94.1%) correct** in pilot, correctly resolving both cases the holistic design missed. This is the design being wired into a real escalation pipeline — a rare tier only reached when deterministic rules find nothing AND a narrow entity+verb pre-flag says the call is worth asking about (~35–40s/call, confirmed too slow for the fast path, fine for a rare tier). **Status: pipeline code written, validation of the full wired pipeline in progress — not yet committed or wired into live dispatch.**
+3. **Split extraction from judgment** (qwen2.5:7b extracts three narrow factual flags only — `target_scope_mismatch`, `explicit_legitimacy_marker`, `non_standard_source` — then a deterministic rule, not the model, converts flags to a verdict). **16/17 (94.1%) correct** in pilot. Built into a full pipeline (`parliament/llm_tiebreaker.py`) and re-validated against all 144 real benign-set calls: **1 new false positive found** (the `non_standard_source` flag misread "internally-authored, stored on the local disk" as a non-standard source). A prompt clarification was added and re-tested — 0 new FPs, the originally-failing case now resolves correctly, and a genuine generalization check (5 new phrasings not used to write the fix, plus 3 negative controls) found **4/5 correct, 1 miss** ("an internal HTA... run locally from the ops share" still misfires on the network-share phrasing). **Status: real, partial generalization — not memorization-only, but not a clean fix either. Documented honestly as "partially addressed, generalization unconfirmed," not wired into live dispatch, and Type B was deliberately not re-run against this tier given the confirmed remaining gap.**
+
+```mermaid
+flowchart TB
+  A["VAULT/EXECUTOR deterministic<br/>regex/AST rules"] -->|"hit"| BLOCK1["BLOCK<br/>(fast path, unchanged)"]
+  A -->|"no hit"| B["Pre-flag: entity + action-verb<br/>window check<br/>(reuses existing rule entities,<br/>not tuned to any test set)"]
+  B -->|"not worth escalating"| ALLOW1["ALLOW<br/>(fast path)"]
+  B -->|"worth escalating<br/>(~4-5% trigger rate<br/>on real benign traffic)"| C["qwen2.5:7b — extract<br/>3 factual flags ONLY,<br/>not a verdict<br/>(~35-90s/call)"]
+  C --> D{"Deterministic rule<br/>(not the LLM)"}
+  D -->|"mismatch OR<br/>non-standard source"| BLOCK2["BLOCK"]
+  D -->|"explicit legitimacy<br/>marker"| ALLOW2["ALLOW"]
+  D -->|"none of the above"| ESC["ESCALATE"]
+  C -.->|"timeout / call failure<br/>(fail-open)"| ALLOW1
+
+  classDef status fill:#4d8a8c,stroke:#333,color:#fff
+  class C,D status
+```
+
+**Tiebreaker status: validated in pilot, partially fixed on re-test, generalization confirmed as real-but-incomplete — not wired into `server.py`'s live dispatch.** This is an escalation tier, never a per-call gate: only reached when the deterministic rules find nothing AND the pre-flag thinks it's worth asking about (4-5% trigger rate measured against 144 real benign calls). Wiring it in needs explicit review given it's a new architecture layer (LLM-in-the-loop), independent of whether the remaining generalization gap gets closed.
+
+**Separately, VAULT/EXECUTOR's literal-syntax coverage was substantially widened via corpus mining** (VAULT 7/100 → 74/100, EXECUTOR 10/100 → 41/100 corpus patterns matched — see the sections above). This narrows the domain the narrative-phrasing gap and tiebreaker need to cover, but doesn't eliminate it — the corpus categories still uncovered by literal rules are, by construction, the ones that required narrative/behavioral interpretation to design a rule for in the first place (see Limitations).
+
+**Real independent-source generalization test for the 85 corpus-expansion rules** (run separately from the tiebreaker's own generalization test above): each rule was tested against 2 new, independent real-world instances of its technique (different tool/API/CLI shapes, not paraphrases of its one source example) — **151/170 (88.8%)** caught both variants or, in 13 cases, one of two. 3 rules caught neither and are documented as genuinely narrow (not patched): `dotenv-read-call` (Python-only, misses `dotenv_values(`/Node's dotenv API), `redis-mongo-unauth-dump` (requires `KEYS`/`SCAN` immediately adjacent to `redis-cli`, doesn't tolerate a `-h host` flag in between), `path-env-prepend` (a `.{0,10}` gap too tight for realistic path lengths). One genuine bug was found and fixed during this test: `windows-run-key-write` had a double-escaping artifact (`\\\\Run`, requiring two literal backslashes) that matched neither of its own variants — corrected to a single backslash, re-verified against both. **This 151/170 figure is the honest generalization number and is distinct from the 97-new-Type-B-catches figure reported during initial design** — the two measure different things (technique-level generalization vs. real catches on an existing malicious set) and should not be blended into one headline number.
 
 ---
 
@@ -97,11 +136,14 @@ Discovered via the 267-case Type B set (below). Three designs explored, in order
 |---|---|---|---|
 | InjecAgent DH | 30 unique / up to 510 synthesized | paired | Harness bug found and fixed (synthesized cases were sending free text stuffed into a nonstandard arg key instead of real structured args); 30 unique instructions manually extracted into structured args, reviewed before wiring in |
 | InjecAgent DS | 32 unique / 544 synthesized | paired | Same harness-construction bug, same fix; **full 544-case rescore complete** (100% strict recall, 0% FPR) |
-| Type B (267 recovered) | 267 (96 VAULT, 66 CHANNEL, 60 EXECUTOR, 45 NAVIGATOR) | — | Recovered from an earlier-session red-team evasion investigation (`kavach_eval/evasion_results/`) — 2,869 raw candidate rows filtered down to genuine concrete code/command snippets (not template-mangled prose), deduped, confirmed via manual review these are faithful reconstructions of real attack techniques, not semantic drift |
+| Type B (267 recovered) | 267 (96 VAULT, 66 CHANNEL, 60 EXECUTOR, 45 NAVIGATOR) | — | Recovered from an earlier-session red-team evasion investigation (`kavach_eval/evasion_results/`) — 2,869 raw candidate rows filtered down to genuine concrete code/command snippets (not template-mangled prose), deduped, confirmed via manual review these are faithful reconstructions of real attack techniques, not semantic drift. **After the corpus expansion: 98/267 caught by VAULT/EXECUTOR's deterministic rules alone** (72 VAULT + 28 EXECUTOR attributions). |
 | Banking benign | 55 independent calls + 22 multi-call sessions | — | Real qwen2.5:7b banking trajectories from earlier this session |
 | `benign_probe.json` | — | 25 | Curated LOLBIN-legitimate-use boundary cases (self-documented as a stopgap probe, not the full Dell benign set) |
+| Corpus generalization set (170 constructed) | 170 (2 independent instances × 85 new rules) | — | Built specifically to test technique-level generalization, not source-syntax memorization — real-world tool/API/CLI variety per technique, not paraphrases. **151/170 (88.8%) caught.** See `kavach_eval/reference_corpus_v0/proposed_minister_v0/overnight_v1/rule_generalization_results.json`. |
 
 All InjecAgent counts are **unique attacker instructions** — the "synthesized" number is that instruction cross-multiplied against 17 user-task pairings, not independent attack content.
+
+**AgentHarm, ASB, Agent-SafetyBench, SafeClawBench were surveyed as candidate additional benchmarks and found not directly replayable** the way InjecAgent's DH/DS turned out to be — all four require either live LLM-agent tool-call generation or full sandboxed execution graded by a state-oracle over final world state, not a static structured-args extraction job. A lower-rigor manual approximation (Claude-constructed plausible tool calls from AgentHarm's task descriptions + its own `target_functions` ground truth, explicitly tagged `"extraction_type": "manual_approximation"` to distinguish from DH/DS's real extracted-from-recorded-data rigor) is in progress for AgentHarm specifically — see `kavach_eval/reference_corpus_v0/proposed_minister_v0/overnight_v1/` for the sample under review.
 
 ---
 
@@ -119,7 +161,8 @@ Every proposed tool call is still embedded once, routed to the relevant minister
 flowchart LR
   A["Tool Call"] --> B["Embed Once<br/>BGE-base 768-d"]
   B --> R["Semantic Router<br/>activate ministers >= 0.40"]
-  R --> M["Ministers<br/>VAULT/EXECUTOR/CHANNEL: deterministic<br/>NAVIGATOR: cosine"]
+  R --> M["Ministers<br/>VAULT: 58 deterministic rules<br/>EXECUTOR: 55 deterministic rules + AST<br/>CHANNEL: taint tracking<br/>NAVIGATOR: cosine"]
+  M -.->|"no rule hit<br/>(rare escalation)"| TB["LLM tiebreaker<br/>NOT wired into<br/>live dispatch"]
   B --> CO["COMPASS<br/>intent drift"]
   B --> T["Trajectory<br/>session risk"]
   M --> S["Speaker<br/>pure-veto combine"]
@@ -128,14 +171,18 @@ flowchart LR
   S --> P["Provenance<br/>technique to tactic to stage"]
   P --> L[("Ledger<br/>SHA-256 chain")]
   S --> V["BLOCK / ESCALATE / ALLOW"]
+
+  classDef notwired stroke-dasharray: 5 5,fill:#999,color:#fff
+  class TB notwired
 ```
 
 | Component | File | Role |
 |---|---|---|
 | **Semantic Router** | `parliament/server.py` | Embeds the action once and activates ministers whose domain similarity exceeds `router_min = 0.40`. Unchanged by the re-architecture — VAULT/EXECUTOR/CHANNEL are still considered by the router the same as before; only their *scoring* mechanism changed once activated. |
-| **VAULT/EXECUTOR** | `parliament/prefilters.py` | Deterministic regex (VAULT) / deny-list + AST alias resolution (EXECUTOR). No embedding, no ChromaDB query at request time. |
+| **VAULT/EXECUTOR** | `parliament/prefilters.py` | Deterministic regex (VAULT, 58 rules) / deny-list + AST alias resolution (EXECUTOR, 55 rules). No embedding, no ChromaDB query at request time. |
 | **CHANNEL** | `parliament/channel_taint.py` | Session-level taint tracker. Per-session state in `_state["channel_taint"]`, mirroring the existing `_state["history"]` pattern. |
 | **NAVIGATOR** | `parliament/ministers.py` | Unchanged — `run_minister_hybrid` (dense cosine + BM25 fusion) over the `kavach_navigator` ChromaDB collection. |
+| **LLM tiebreaker** | `parliament/llm_tiebreaker.py` | Escalation tier for VAULT/EXECUTOR's narrative-phrasing gap. **Not wired into `server.py`'s live dispatch** — validated in pilot/re-test, generalization confirmed real-but-partial (4/5), left for explicit review. |
 | **COMPASS** | `parliament/server.py` | Session-level intent oracle, unchanged. |
 | **Trajectory** | `parliament/trajectory.py` | Session-level risk accumulation, unchanged. |
 | **Speaker** | `parliament/speaker.py` | Deterministic pure-veto combiner, unchanged — now also handles a `matched_level == "deterministic"` reason-string case so BLOCK reasons don't say "at sim X" for a rule hit. |
@@ -155,9 +202,14 @@ eeaf9da  feat: Stage 2 re-architecture — EXECUTOR swap (deterministic-only)
 c7089ec  fix: CHANNEL workspace self-send false positive via account_email allow-list seed
 268b7e6  feat: EXECUTOR import-alias resolution via lightweight AST pass
 f8b8c51  fix: InjecAgent harness — real structured args for DH, two-step dispatch for DS
+8ac7e00  fix: VAULT pem-key-file regex anchoring bug (missed .pem paths embedded in longer strings)
+88b63ae  feat: corpus-driven VAULT/EXECUTOR expansion — 85 new rules merged, 151/170 real generalization
+e631399  fix: LLM tiebreaker non_standard_source prompt — partial fix, honest generalization result
+<readme>  docs: README — corpus expansion numbers, tiebreaker status, new architecture diagrams
+<data>    data: stage full-session result data (Type B, DH/DS, corpus coverage, generalization tests)
 ```
 
-`main` remains at `9e00ac4` throughout — none of this has been merged. `kavach_corpus_v1_ORIGINAL.json`'s MD5 (`7ce71ec38c9bdd2f273a34205c13fc5e`) has been confirmed unchanged before and after every commit above.
+`main` remains at `9e00ac4` throughout — none of this has been merged. Corpus MD5 (`32f6306835523b858b3f94242b4124e2`, current/committed value — see the morning report for why the earlier-recorded `7ce71ec38c9bdd2f273a34205c13fc5e` baseline was stale, not evidence of drift) has been confirmed unchanged before and after every commit above.
 
 ---
 
@@ -447,9 +499,12 @@ Both `main`'s original limitations and `kavach-rearch`'s newly-discovered ones �
 **New on `kavach-rearch`:**
 - **CHANNEL's destination allow-list is a permanent gap for Slack and banking.** No verified-identity field exists in AgentDojo's environment model for either suite — fixed for workspace/email via `account_email`, not fixable for the other two without inventing an identity source outside AgentDojo's own model.
 - **EXECUTOR's variable-bound aliasing case remains open.** `fn = os.system; fn(...)` needs real dataflow/def-use tracking; import-alias resolution (a smaller, tractable subset) is closed.
-- **VAULT/EXECUTOR's narrative-phrasing gap.** Deterministic rules catch literal code/command syntax reliably (0 FPs, high catch rate on literal attacks) but miss the same techniques described in prose (2–5% catch rate on the 267-case Type B set). A split-extraction LLM escalation tier is validated in pilot (16/17) and being wired into a real pipeline — not yet shipped.
+- **VAULT/EXECUTOR's narrative-phrasing gap is narrowed, not eliminated.** The corpus-driven expansion moved literal-syntax coverage from 7/100 → 74/100 (VAULT) and 10/100 → 41/100 (EXECUTOR), but the categories still uncovered — roughly **26% of VAULT's and 59% of EXECUTOR's corpus patterns** — were *deliberately skipped* during expansion specifically because their `L3_surface` text required semantic/behavioral judgment (attacker-vs-legitimate data flow, contextual intent) rather than literal regex-expressible syntax (e.g. `credential_exfil_via_image_url`, `ssrf_exec`, `race_condition_exec`, `template_injection`). No amount of further corpus mining closes this remaining slice — it structurally needs a different mechanism (the LLM tiebreaker, or similar), not more regexes. On the narrative-phrasing test itself (267-case Type B set), deterministic rules now catch 98/267 (up from the original 2–5% own-domain rate, though this combines all four ministers' contributions, not VAULT/EXECUTOR alone at the original narrower framing). The LLM tiebreaker escalation tier (pilot: 16/17) had a real benign false positive on first full-pipeline validation, got a partial prompt fix (re-tested: 0 new FPs, but genuine generalization testing found 4/5 — one confirmed remaining miss on "internal network share" phrasing), and remains **not wired into live dispatch**, documented as "partially addressed, generalization unconfirmed" rather than claimed fixed.
+- **The 85 corpus-expansion rules are generalization-tested, not perfectly generalized.** 151/170 (88.8%) real independent-instance catches across constructed technique variants (not just their one source example). 3 rules (`dotenv-read-call`, `redis-mongo-unauth-dump`, `path-env-prepend`) caught neither of their two independent test variants and are left as documented narrow-but-correct rules (zero benign FPs on their validated case, just not proven to generalize) rather than broadened without further testing.
 - **NAVIGATOR's corpus scope was never validated against DH/physical/financial-authorization attack shapes.** Confirmed via direct corpus audit, not assumed — the corpus was built for Linux/infrastructure attacks. The Stage 2 swap attempt for NAVIGATOR was correctly abandoned rather than shipped on a mechanism proven (via a bug-fixed re-run of an existing ablation) not to clear the bar.
 - **DH's full rescore is incomplete.** A partial run (215/510) confirmed the harness fix works; a complete strict/loose recall number for DH under the current deterministic VAULT/EXECUTOR is not yet in hand.
+- **AgentHarm/ASB/Agent-SafetyBench/SafeClawBench are not integrated as replayable benchmarks** — all four need live-agent execution or full sandboxed runs graded by a state-oracle, unlike InjecAgent's DH/DS which turned out to be staticaly replayable once real structured args were extracted. A lower-rigor manual-approximation pass for AgentHarm specifically is in progress, explicitly tagged to distinguish it from DH/DS's higher-rigor extraction.
+- **A pre-existing, unrelated benign false positive was surfaced (not caused) during this round's validation.** `bitsadmin-transfer` (one of the original 19 EXECUTOR rules) flags a legitimate "download an approved Windows Update via bitsadmin" case — a bare command-shape match with no legitimacy carve-out, same class of gap as the `.pem` bug fixed earlier this session, just in a different, not-yet-fixed rule.
 - **The paper (`paper/`) has not been updated for any of this branch's findings.** All numbers above are from this session's direct measurement, not yet reflected in the LaTeX source.
 
 ---
