@@ -1,5 +1,17 @@
 # Handoff: 5 tasks that would benefit from a stronger local model
 
+**Priority for today's follow-up session: Task 1 and Task 3 first.** Both
+turned up concrete, confirmed findings today that a stronger model is
+most likely to move: Task 1's tiebreaker prompt fix landed at a real but
+incomplete 4/5 generalization result (one confirmed remaining miss on
+"internal network share" phrasing), and Task 3's independent
+generalization test on the 85 corpus-expansion rules directly caught one
+genuine bug (`windows-run-key-write`'s double-escaped regex) plus 3 rules
+that don't generalize past their source syntax — a stronger model doing
+this same check more thoroughly across all 85 is high-value, proven-
+useful work, not speculative. Tasks 2, 4, 5 are still worth doing but are
+lower-priority given today's findings.
+
 Context: this session has been running Kavach (a runtime security monitor
 for LLM agents, AISec 2026 target) on a laptop with `qwen2.5:7b` via
 Ollama as the only available local model. Several tasks below hit a real
