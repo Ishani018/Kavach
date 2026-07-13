@@ -292,6 +292,7 @@ def _init_db() -> None:
             latency_ms      REAL,
             provenance_json TEXT,
             retrieval_mode  TEXT,
+            short_circuited INTEGER,
             prev_hash       TEXT,
             entry_hash      TEXT
         )
@@ -308,6 +309,15 @@ def _init_db() -> None:
         conn.execute("ALTER TABLE votes ADD COLUMN provenance_json TEXT")
     if "retrieval_mode" not in cols:
         conn.execute("ALTER TABLE votes ADD COLUMN retrieval_mode TEXT")
+    if "short_circuited" not in cols:
+        # Pipeline-reordering optimization: marks ledger rows written by
+        # the short-circuit response path (VAULT/EXECUTOR/CHANNEL
+        # confident BLOCK, COMPASS/routing/NAVIGATOR skipped on the
+        # response path and backfilled asynchronously afterward via a
+        # separate stage="parliament_async_completion" row with the same
+        # correlation_id). NULL/0 for every row written before this
+        # optimization existed or by the full synchronous pipeline.
+        conn.execute("ALTER TABLE votes ADD COLUMN short_circuited INTEGER")
     conn.commit()
     conn.close()
 
@@ -337,6 +347,12 @@ def _entry_hash(prev_hash: str, row: dict) -> str:
     # identically under both old and new code. (June-10 self-audit fix.)
     if row.get("provenance_json") is not None:
         fields.append("provenance_json")
+    # Same backward-compatible pattern for short_circuited (pipeline-
+    # reordering optimization): only enters the hash when explicitly set,
+    # so every row written before this optimization existed hashes
+    # identically under old and new code.
+    if row.get("short_circuited") is not None:
+        fields.append("short_circuited")
     canonical = json.dumps(
         {k: row[k] for k in fields},
         sort_keys=True, separators=(",", ":"), default=str,
@@ -365,6 +381,7 @@ def _log_vote(
     traj_risk: float | None = None,
     provenance: dict | None = None,
     retrieval_mode: str = "dense",
+    short_circuited: bool | None = None,
 ) -> None:
     conn = sqlite3.connect(DB_PATH)
     row = {
@@ -382,6 +399,7 @@ def _log_vote(
         "traj_risk":      traj_risk,
         "latency_ms":     latency_ms,
         "provenance_json": json.dumps(provenance, sort_keys=True) if provenance else None,
+        "short_circuited": (1 if short_circuited else 0) if short_circuited is not None else None,
     }
     prev_hash  = _last_hash(conn)
     entry_hash = _entry_hash(prev_hash, row)
@@ -389,13 +407,14 @@ def _log_vote(
         """INSERT INTO votes
            (ts, session_id, correlation_id, stage, input_text, verdict,
             decided_by, confidence, reason, ministers_json, compass_sim,
-            traj_risk, latency_ms, provenance_json, retrieval_mode, prev_hash, entry_hash)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            traj_risk, latency_ms, provenance_json, retrieval_mode,
+            short_circuited, prev_hash, entry_hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (*[row[k] for k in (
             "ts", "session_id", "correlation_id", "stage", "input_text",
             "verdict", "decided_by", "confidence", "reason", "ministers_json",
             "compass_sim", "traj_risk", "latency_ms", "provenance_json")],
-         retrieval_mode, prev_hash, entry_hash),
+         retrieval_mode, row["short_circuited"], prev_hash, entry_hash),
     )
     conn.commit()
     conn.close()
@@ -555,6 +574,7 @@ class ParliamentResponse(BaseModel):
     correlation_id: str
     latency_ms:     float
     ts:             str
+    short_circuited: bool = False
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -599,9 +619,171 @@ async def check_drift(req: ParliamentRequest) -> dict[str, Any]:
     }
 
 
+def _run_deterministic_ministers(req_text: str, session_id: str, account_email: str | None) -> list[MinisterScan]:
+    """VAULT/EXECUTOR/CHANNEL's deterministic verdicts — unconditional,
+    synchronous, no embedding, no ChromaDB query (Stage 2). Factored out
+    of the main handler so both the short-circuit path and the full
+    pipeline call the exact same logic — no risk of the two diverging.
+    A None result from any checker becomes an explicit ALLOW MinisterScan
+    so none of the three ever silently disappears from minister_results/
+    minister_dict/the ledger, same fail-open discipline as before this
+    refactor."""
+    parsed_call = prefilters.parse_call(req_text)
+
+    vault_scan = prefilters.check_vault(parsed_call) if parsed_call is not None else None
+    if vault_scan is None:
+        vault_scan = MinisterScan(
+            minister="VAULT", verdict="ALLOW", confidence=0.0,
+            matched_id=None, matched_text=None, matched_level="deterministic",
+            source=None, retrieval_mode="deterministic",
+        )
+
+    executor_scan = prefilters.check_executor(parsed_call) if parsed_call is not None else None
+    if executor_scan is None:
+        executor_scan = MinisterScan(
+            minister="EXECUTOR", verdict="ALLOW", confidence=0.0,
+            matched_id=None, matched_text=None, matched_level="deterministic",
+            source=None, retrieval_mode="deterministic",
+        )
+
+    taint_state = _state["channel_taint"][session_id]
+    channel_scan = channel_taint.check_channel_taint(req_text, taint_state, account_email=account_email)
+    if channel_scan is None:
+        channel_scan = MinisterScan(
+            minister="CHANNEL", verdict="ALLOW", confidence=0.0,
+            matched_id=None, matched_text=None, matched_level="deterministic",
+            source=None, retrieval_mode="deterministic",
+        )
+
+    return [vault_scan, executor_scan, channel_scan]
+
+
+def _short_circuit_candidate(deterministic_results: list[MinisterScan]) -> MinisterScan | None:
+    """Returns the first deterministic MinisterScan that both (a) confidently
+    BLOCKs and (b) is short-circuit-eligible (prefilters.is_short_circuit_
+    eligible — the denylist of newest/least-validated rules that must
+    still go through the full synchronous pipeline). None if no such scan
+    exists, meaning the caller falls through to the full pipeline exactly
+    as before this optimization existed."""
+    for scan in deterministic_results:
+        if scan.verdict == "BLOCK" and scan.confidence >= 1.0 and prefilters.is_short_circuit_eligible(scan.matched_id):
+            return scan
+    return None
+
+
+async def _complete_ledger_async(
+    session_id: str,
+    correlation_id: str,
+    req_text: str,
+    action_vec: np.ndarray,
+    deterministic_results: list[MinisterScan],
+    speaker_v: SpeakerVerdict,
+    traj_risk: float,
+) -> None:
+    """Fire-and-forget task kicked off AFTER a short-circuited response has
+    already been returned to the caller. Runs the skipped COMPASS drift
+    check, router, and NAVIGATOR's cosine scan purely to complete the
+    ledger's provenance picture — never changes the verdict already sent
+    to the caller (which is final the moment the response goes out).
+    Writes a SEPARATE follow-up ledger row (same correlation_id, a
+    distinct `stage` value) rather than mutating the original row, since
+    the hash chain is append-only/content-addressed by design — editing
+    an already-hashed row would break every subsequent entry_hash.
+    Exceptions here are logged, never raised — a failure to complete the
+    ledger's async half must never look like a live-request failure,
+    since by construction no live request is waiting on this."""
+    try:
+        drift, compass_sim = _compass_drift(session_id, req_text, action_vec)
+        activated = _route(req_text)
+
+        navigator_scan: MinisterScan | None = None
+        if "NAVIGATOR" in activated:
+            m_thresholds = _get_minister_thresholds("NAVIGATOR", dict(CFG["thresholds"]))
+            bm25_idx  = _state["bm25_indexes"].get("NAVIGATOR")
+            tech_coll = _state["tech_collections"].get("NAVIGATOR")
+            loop = asyncio.get_event_loop()
+            if tech_coll:
+                navigator_scan = await loop.run_in_executor(
+                    None, run_minister_dual_hybrid, "NAVIGATOR", req_text,
+                    _state["collections"]["NAVIGATOR"], tech_coll, bm25_idx,
+                    _embed_query, m_thresholds, 10, action_vec,
+                )
+            else:
+                navigator_scan = await loop.run_in_executor(
+                    None, run_minister_hybrid, "NAVIGATOR", req_text,
+                    _state["collections"]["NAVIGATOR"], bm25_idx,
+                    _embed_query, m_thresholds, 10, action_vec,
+                )
+
+        completion_ministers = {
+            r.minister: {
+                "verdict": r.verdict, "confidence": r.confidence,
+                "matched_id": r.matched_id, "retrieval_mode": r.retrieval_mode,
+            }
+            for r in deterministic_results
+        }
+        if navigator_scan is not None:
+            completion_ministers["NAVIGATOR"] = {
+                "verdict": navigator_scan.verdict, "confidence": navigator_scan.confidence,
+                "matched_id": navigator_scan.matched_id, "retrieval_mode": navigator_scan.retrieval_mode,
+            }
+
+        _log_vote(
+            session_id=session_id,
+            correlation_id=correlation_id,
+            stage="parliament_async_completion",
+            input_text=req_text,
+            verdict=speaker_v.verdict,
+            # Same convention as every other ledger row: decided_by is
+            # always the MINISTER name (e.g. "VAULT"), never a matched_id
+            # — matches speaker_v.decided_by, which the original
+            # synchronous row already used, so the two rows for one
+            # correlation_id agree on who decided.
+            decided_by=speaker_v.decided_by,
+            confidence=speaker_v.confidence,
+            reason=f"async completion of short-circuited call — original verdict unchanged, "
+                   f"this row fills in compass_sim/NAVIGATOR for ledger completeness only",
+            ministers=completion_ministers,
+            compass_sim=compass_sim,
+            latency_ms=0.0,
+            traj_risk=traj_risk,
+            provenance=None,
+            retrieval_mode=_state.get("retrieval_mode", "dense"),
+            short_circuited=True,
+        )
+    except Exception:
+        log.exception(
+            "async ledger completion failed for correlation_id=%s (short-circuited "
+            "response was already returned and is unaffected)", correlation_id,
+        )
+
+
 @app.post("/hook/parliament", response_model=ParliamentResponse)
 async def parliament(req: ParliamentRequest) -> ParliamentResponse:
-    """Full pipeline: COMPASS drift + router + activated ministers + speaker."""
+    """Full pipeline: COMPASS drift + router + activated ministers + speaker.
+
+    PIPELINE SHORT-CIRCUIT (response-latency optimization): VAULT/EXECUTOR/
+    CHANNEL's deterministic checks are microseconds; COMPASS's drift check
+    and the embedding router are the measured bottleneck (BGE embedding
+    cost, ~2.9-3.7s p50 CPU-only — see README's latency-correction
+    section). Validated via a feasibility/safety check against this
+    session's full evaluation data before being built: a confident
+    deterministic BLOCK is genuinely common (98/267 = 36.7% on the Type B
+    malicious set) and COMPASS/`_route()` were confirmed to be pure reads
+    with no cross-call session-state writes (trajectory.py's
+    record_action() only consumes action_vec/verdict/confidence/
+    decided_by/is_denial — none of which come from COMPASS or NAVIGATOR),
+    so skipping them cannot corrupt trajectory's session-risk
+    accumulation. The one real cost identified: the ledger currently logs
+    compass_sim and NAVIGATOR's score on every row regardless of who
+    decided — short-circuiting would lose that provenance UNLESS it's
+    backfilled, which is exactly what _complete_ledger_async() above does
+    as a fire-and-forget task after the response is already sent.
+    Eligibility is denylist-gated (prefilters.SHORT_CIRCUIT_INELIGIBLE_
+    RULE_NAMES) so the newest/least-validated rules still get full
+    COMPASS+NAVIGATOR confirmation synchronously, same as before this
+    optimization existed, until they've earned more real-world
+    confidence."""
     t0 = time.perf_counter()
     correlation_id = req.context.get("correlation_id") or str(uuid.uuid4())
 
@@ -613,6 +795,107 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # not yet appended). Pure cosine math over cached vectors — no embed.
     hist = _state["history"][req.session_id]
     traj_res = traj.trajectory_risk(hist, intent_vec=_state["intents"].get(req.session_id), current_vec=action_vec)
+
+    # Step 0d: VAULT/EXECUTOR/CHANNEL's deterministic verdicts, computed
+    # BEFORE COMPASS/routing (moved up from their old Step 3a2-3a4
+    # position) specifically so the short-circuit check below can run
+    # before paying the embedding+routing cost. Fail-open discipline is
+    # unchanged: these three run unconditionally regardless of what
+    # happens next, exactly as they did before this optimization existed.
+    account_email = req.context.get("account_email")
+    deterministic_results = _run_deterministic_ministers(req.text, req.session_id, account_email)
+
+    short_circuit_scan = _short_circuit_candidate(deterministic_results)
+    if short_circuit_scan is not None:
+        call_thresholds = dict(CFG["thresholds"])
+        speaker_v: SpeakerVerdict = combine_verdicts(
+            deterministic_results,
+            compass_drift=False,
+            compass_sim=1.0,  # no intent-drift signal available on the short-circuit path
+            thresholds=call_thresholds,
+            traj_risk=traj_res.risk,
+        )
+
+        traj.record_action(
+            hist,
+            action_vec=action_vec,
+            verdict=speaker_v.verdict,
+            confidence=speaker_v.confidence,
+            decided_by=speaker_v.decided_by,
+            is_denial=(speaker_v.verdict == "BLOCK"),
+        )
+
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+        ts = datetime.now(timezone.utc).isoformat()
+
+        minister_dict: dict[str, MinisterResult] = {
+            r.minister: MinisterResult(
+                verdict=r.verdict, confidence=r.confidence,
+                matched_id=r.matched_id, matched_text=r.matched_text,
+                retrieval_mode=r.retrieval_mode,
+            )
+            for r in deterministic_results
+        }
+        provenance = prov.resolve(short_circuit_scan.source, short_circuit_scan.minister)
+        provenance_dict = provenance.to_dict()
+
+        _log_vote(
+            session_id=req.session_id,
+            correlation_id=correlation_id,
+            stage="parliament",
+            input_text=req.text,
+            verdict=speaker_v.verdict,
+            decided_by=speaker_v.decided_by,
+            confidence=speaker_v.confidence,
+            reason=speaker_v.reason,
+            ministers={
+                r.minister: {
+                    "verdict": r.verdict, "confidence": r.confidence,
+                    "matched_id": r.matched_id, "retrieval_mode": r.retrieval_mode,
+                }
+                for r in deterministic_results
+            },
+            compass_sim=None,
+            latency_ms=latency_ms,
+            traj_risk=round(traj_res.risk, 4),
+            provenance=provenance_dict,
+            retrieval_mode=_state.get("retrieval_mode", "dense"),
+            short_circuited=True,
+        )
+
+        # Fire-and-forget: completes the ledger's compass_sim/NAVIGATOR
+        # picture asynchronously, AFTER the response below has already
+        # been returned. Never awaited, never blocks the response —
+        # errors are caught and logged inside the task itself.
+        asyncio.create_task(_complete_ledger_async(
+            session_id=req.session_id,
+            correlation_id=correlation_id,
+            req_text=req.text,
+            action_vec=action_vec,
+            deterministic_results=deterministic_results,
+            speaker_v=speaker_v,
+            traj_risk=round(traj_res.risk, 4),
+        ))
+
+        return ParliamentResponse(
+            verdict=speaker_v.verdict,
+            speaker={
+                "decided_by": speaker_v.decided_by,
+                "confidence": speaker_v.confidence,
+                "reason":     speaker_v.reason,
+            },
+            ministers=minister_dict,
+            pattern=short_circuit_scan.matched_id or "none",
+            provenance=provenance_dict,
+            compass_sim=None,
+            traj_risk=round(traj_res.risk, 4),
+            retrieval_mode=_state.get("retrieval_mode", "dense"),
+            activated=[],
+            correlation_id=correlation_id,
+            latency_ms=round(latency_ms, 2),
+            ts=ts,
+            short_circuited=True,
+        )
 
     # Step 0c: modulate this call's block threshold by COMPASS + trajectory.
     # A suspicious build-up lowers the bar to BLOCK on this call.
@@ -692,87 +975,13 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
 
     minister_results: list[MinisterScan] = await asyncio.gather(*minister_tasks)
 
-    # Step 3a2: Stage 2 — VAULT's deterministic verdict, unconditional (not
-    # gated on `activated`, same fail-open reasoning as Stage 1). Synchronous,
-    # no embedding, no ChromaDB query — check_vault() is pure regex over the
-    # parsed call. A None result (no rule fired) is turned into an explicit
-    # ALLOW MinisterScan so VAULT never silently disappears from
-    # minister_results / minister_dict / the ledger.
-    parsed_call = prefilters.parse_call(req.text)
-    vault_scan = prefilters.check_vault(parsed_call) if parsed_call is not None else None
-    if vault_scan is None:
-        vault_scan = MinisterScan(
-            minister="VAULT",
-            verdict="ALLOW",
-            confidence=0.0,
-            matched_id=None,
-            matched_text=None,
-            matched_level="deterministic",
-            source=None,
-            retrieval_mode="deterministic",
-        )
-    minister_results = minister_results + [vault_scan]
-
-    # Step 3a3: Stage 2 — EXECUTOR's deterministic verdict, same shape and
-    # same fail-open reasoning as VAULT's Step 3a2 above. Synchronous, no
-    # embedding, no ChromaDB query — check_executor() is pure regex over the
-    # parsed call (LOLBIN/dangerous-call deny-list, proven 13/13 catch /
-    # 0/55 FP in Stage 1's additive measurement). A None result (no rule
-    # fired) becomes an explicit ALLOW MinisterScan so EXECUTOR never
-    # silently disappears from minister_results / minister_dict / the
-    # ledger.
-    executor_scan = prefilters.check_executor(parsed_call) if parsed_call is not None else None
-    if executor_scan is None:
-        executor_scan = MinisterScan(
-            minister="EXECUTOR",
-            verdict="ALLOW",
-            confidence=0.0,
-            matched_id=None,
-            matched_text=None,
-            matched_level="deterministic",
-            source=None,
-            retrieval_mode="deterministic",
-        )
-    minister_results = minister_results + [executor_scan]
-
-    # Step 3a4: Stage 2 — CHANNEL's deterministic verdict, same shape and
-    # fail-open reasoning as VAULT/EXECUTOR's Step 3a2/3a3 above, with one
-    # difference: channel_taint.check_channel_taint() is SESSION-STATEFUL
-    # (a read-then-send taint tracker, not a single-call regex), so it
-    # takes this session's persistent SessionTaint object rather than being
-    # purely a function of req.text. State lives in _state["channel_taint"],
-    # a defaultdict(channel_taint.new_taint_state) keyed by session_id —
-    # mirrors _state["history"]'s existing session_id-keyed pattern exactly
-    # (same lifecycle: created lazily on first use, persists for the
-    # process lifetime, no eviction — an existing characteristic of
-    # _state["history"]/_state["intents"] already, not a new risk class).
-    # A None result (no taint present, or a source-tool call that only sets
-    # taint without itself returning a verdict) becomes an explicit ALLOW
-    # MinisterScan so CHANNEL never silently disappears from
-    # minister_results / minister_dict / the ledger.
-    #
-    # WORKSPACE FIX: req.context may carry "account_email" -- the session's
-    # own verified email identity (e.g. AgentDojo workspace suite's
-    # Inbox.account_email), passed through the existing generic `context`
-    # dict the same way correlation_id already is (see req.context.get(
-    # "correlation_id") above). None when not provided -- Slack/banking
-    # callers and any caller that doesn't have this simply get the
-    # original empty-allow-list behavior unchanged.
-    taint_state = _state["channel_taint"][req.session_id]
-    account_email = req.context.get("account_email")
-    channel_scan = channel_taint.check_channel_taint(req.text, taint_state, account_email=account_email)
-    if channel_scan is None:
-        channel_scan = MinisterScan(
-            minister="CHANNEL",
-            verdict="ALLOW",
-            confidence=0.0,
-            matched_id=None,
-            matched_text=None,
-            matched_level="deterministic",
-            source=None,
-            retrieval_mode="deterministic",
-        )
-    minister_results = minister_results + [channel_scan]
+    # Step 3a: Stage 2 — VAULT/EXECUTOR/CHANNEL's deterministic verdicts.
+    # Already computed once at Step 0d (before the short-circuit check
+    # above), factored into _run_deterministic_ministers() so both the
+    # short-circuit path and this full-pipeline fallthrough path use the
+    # exact same logic — reused here rather than recomputed, same
+    # unconditional/fail-open semantics as before this refactor.
+    minister_results = minister_results + deterministic_results
 
     # Step 4: Speaker combines verdicts (under the modulated thresholds).
     speaker_v: SpeakerVerdict = combine_verdicts(
@@ -857,6 +1066,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         traj_risk=round(traj_res.risk, 4),
         provenance=provenance_dict,
         retrieval_mode=active_retrieval,
+        short_circuited=False,
     )
 
     return ParliamentResponse(
@@ -876,6 +1086,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         correlation_id=correlation_id,
         latency_ms=round(latency_ms, 2),
         ts=ts,
+        short_circuited=False,
     )
 
 

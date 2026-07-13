@@ -797,3 +797,55 @@ def run_prefilters(text: str) -> list[MinisterScan]:
     if e:
         hits.append(e)
     return hits
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Pipeline short-circuit eligibility (server.py's response-path optimization)
+# ──────────────────────────────────────────────────────────────────────────────
+# A denylist, not an allowlist: rules NOT in this set are eligible for
+# short-circuit by default, so a new rule automatically earns eligibility
+# unless explicitly excluded here — the opposite of requiring every new
+# rule to be manually added to a growing allowlist. Per the validated
+# design: newest/least-validated rules stay on the FULL synchronous
+# pipeline (COMPASS+NAVIGATOR still run before responding) even when they
+# fire, until they've earned the same real-world confidence as the
+# original, longer-proven rule set. Expand this by REMOVING an entry once
+# a rule has enough validation history, not by growing an allowlist.
+#
+# interpreter-inline-eval-payload: the broadest-match-surface rule in the
+# corpus expansion (bare-ish python -c/-e + suspicious-payload heuristic),
+# explicitly flagged in its own source comment as needing extra scrutiny
+# before being treated as trustworthy as the older, narrower rules.
+#
+# dotenv-read-call / redis-mongo-unauth-dump / path-env-prepend: the 3
+# rules that failed BOTH independent generalization-test variants during
+# this session's validation (see rule_generalization_results.json) --
+# each still correctly catches its one validated source-syntax case with
+# zero benign FPs, but isn't proven to generalize, so it doesn't yet get
+# the response-time trust of skipping semantic confirmation.
+SHORT_CIRCUIT_INELIGIBLE_RULE_NAMES: frozenset[str] = frozenset({
+    "interpreter-inline-eval-payload",
+    "dotenv-read-call",
+    "redis-mongo-unauth-dump",
+    "path-env-prepend",
+})
+
+
+def is_short_circuit_eligible(matched_id: str | None) -> bool:
+    """matched_id is formatted as f'{MINISTER}-PREFILTER:{name}' (regex
+    hits) or f'{MINISTER}-PREFILTER-AST:{name}' (AST alias-resolution
+    hits) -- see check_vault()/check_executor()/_check_executor_ast()
+    above. Splits on the LAST ':' to recover the bare rule name
+    regardless of which of the two matched_id prefixes was used. CHANNEL
+    hits (channel_taint.py's own matched_id convention, not this
+    module's) are always eligible -- the denylist only names VAULT/
+    EXECUTOR rule identities, since CHANNEL's taint-tracking mechanism
+    itself (not a per-rule regex) is the unit of trust there. A None or
+    unparseable matched_id is treated as eligible (fail-open toward the
+    existing behavior of running the full pipeline is handled by the
+    caller checking verdict/confidence first; this function only answers
+    the narrower "is this specific rule identity denylisted" question)."""
+    if not matched_id or ":" not in matched_id:
+        return True
+    rule_name = matched_id.rsplit(":", 1)[-1]
+    return rule_name not in SHORT_CIRCUIT_INELIGIBLE_RULE_NAMES

@@ -147,9 +147,23 @@ All InjecAgent counts are **unique attacker instructions** — the "synthesized"
 
 ---
 
-## A latency correction
+## A latency correction — and a real fix
 
-Earlier revisions of this document reported ~78ms p50 as Kavach's headline latency. That figure no longer reflects the current system end-to-end: the full DS rescore's actually-measured latency was **p50 3.69s, p95 7.42s** on this laptop (CPU-only, no GPU) — dominated by BGE embedding + ChromaDB routing, which every call still pays regardless of which minister ultimately decides, since COMPASS/routing runs unconditionally before any minister (deterministic or cosine) is consulted. The deterministic ministers' own rule-matching genuinely is microseconds — but that saving doesn't show up in end-to-end latency because it was never the bottleneck. The original 78ms figure was measured on GPU-accelerated hardware (Dell Precision 3660, RTX 4090) with a different backbone; this session's laptop numbers are CPU-only and not directly comparable. Neither number should be read as "the" Kavach latency without stating which hardware/config it was measured on.
+Earlier revisions of this document reported ~78ms p50 as Kavach's headline latency. That figure no longer reflects the current system end-to-end: the full DS rescore's actually-measured latency was **p50 3.69s, p95 7.42s** on this laptop (CPU-only, no GPU) — dominated by BGE embedding + ChromaDB routing, which every call used to pay regardless of which minister ultimately decided, since COMPASS/routing ran unconditionally before any minister (deterministic or cosine) was consulted. The deterministic ministers' own rule-matching genuinely is microseconds, but that saving didn't show up in end-to-end latency because embedding+routing ran first regardless. The original 78ms figure was measured on GPU-accelerated hardware (Dell Precision 3660, RTX 4090) with a different backbone; this session's laptop numbers are CPU-only and not directly comparable. Neither number should be read as "the" Kavach latency without stating which hardware/config it was measured on.
+
+**This is no longer an open limitation — a pipeline short-circuit closes the gap for the calls where it matters most.** VAULT/EXECUTOR/CHANNEL's deterministic checks now run *before* COMPASS/routing/NAVIGATOR, not after. When one of them produces a confident BLOCK on a rule that's earned enough validation history (a denylist excludes 4 newer/less-proven rules — see below), the response returns immediately; COMPASS/routing/NAVIGATOR still run, but asynchronously afterward, purely to complete the ledger's provenance record, never blocking the caller.
+
+Validated against all 411 available test cases (267-case Type B malicious set + 144 benign calls), two live isolated servers, identical corpus/thresholds/hardware:
+
+| | Before (full pipeline every call) | After (with short-circuit) |
+|---|---|---|
+| Blended mean latency | 3720ms | **2914ms (−22%)** |
+| p50 | 3371ms | 3230ms |
+| p95 | 5926ms | 5479ms |
+| Short-circuited calls only | — | **mean 410ms, p50 311ms (~10x faster)** |
+| Non-short-circuited calls | — | mean 3708ms (unchanged, as expected) |
+
+**Verdict-identical: 0/411 mismatches** — confirmed this is a pure latency optimization with zero behavior change, after first finding and fixing an unrelated test-harness bug (a scratch comparison server was silently using different BLOCK thresholds than the real one; root-caused via direct repro, fixed, re-validated clean). **Short-circuit trigger rate: 24.1% blended (99/411), 36.7% on the Type-B-malicious-only subset (98/267)** — the blended rate is lower because benign calls almost never trigger it, as intended. Full mechanism, safeguards, and validation detail in `kavach_eval/reference_corpus_v0/proposed_minister_v0/overnight_v1/PIPELINE_SHORTCIRCUIT.md`.
 
 ---
 
