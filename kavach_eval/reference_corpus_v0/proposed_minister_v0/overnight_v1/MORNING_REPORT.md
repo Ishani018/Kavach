@@ -362,7 +362,16 @@ job).
   own stop conditions (which only cover the 85 new rules, all of which
   are clean).
 - 267-case Type B set: **98/267 caught** (72 VAULT, 28 EXECUTOR
-  attributions — some cases multi-hit).
+  attributions — some cases multi-hit). **Post-hoc correction (see
+  results/type_b_fidelity_report.md, added after a full 267-case
+  label-fidelity recheck superseded the original 10-15 case spot-check):**
+  61/267 (22.8%) of Type B's cases have "loose" label fidelity (the
+  paraphrase describes a materially different technique than the
+  original field claims), concentrated almost entirely in code-shaped
+  paraphrases (52.6% loose) versus prose-shaped ones (0% loose). Of the
+  98 catches reported here, 86/267 (32.2%) are confirmed-fidelity and
+  12/267 (4.5%) are catches on loose-fidelity cases — a generic pattern
+  match, not confirmed detection of the specifically-named technique.
 - DH (30) + DS (32) structured-arg sets: 0 errors, 0 crashes, no
   duplicate-collision issues found (58 unique VAULT names, 55 unique
   EXECUTOR names, no rule-name clashes).
