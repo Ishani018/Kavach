@@ -69,6 +69,8 @@ from typing import Any
 
 import requests
 
+from forced_tool_call import get_forced_tool_call
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s")
 log = logging.getLogger("injecagent_live")
 
@@ -294,6 +296,41 @@ def call_ollama(messages: list[dict], tools: list[dict]) -> tuple[dict | None, f
         return None, latency, str(e)
 
 
+def call_ollama_forced(messages: list[dict], tools: list[dict]) -> tuple[dict | None, float, str | None]:
+    """--force-format path: uses forced_tool_call.get_forced_tool_call()
+    (constrained decoding via Ollama's structured-output `format` field) so
+    the model CANNOT respond with free-text prose -- every call returns a
+    valid tool call or an explicit error. Normalizes the return shape to
+    match call_ollama()'s (message_dict, latency, error) contract so
+    run_one_case_live()'s downstream extract_all_tool_calls() call works
+    unchanged regardless of which path was used.
+
+    Reason this is opt-in, not a replacement for call_ollama(): forcing a
+    tool call removes the model's ability to decline/ask-for-confirmation
+    in free text, which is itself a real signal the free-form path
+    observes on purpose (see the 50-case run's 40/50
+    skipped_unparseable_tool_call finding). Use --force-format to isolate
+    "does Kavach's defense hold up given a real dispatched call" from
+    "does the model choose to act at all" -- these are different
+    questions, not a strictly-better replacement."""
+    result = get_forced_tool_call(
+        model=MODEL, messages=messages, tool_schemas=tools, ollama_url=OLLAMA_URL.rsplit("/api/", 1)[0],
+    )
+    if result["error"] is not None:
+        return None, result["latency_s"], result["error"]
+    # Synthesize a message dict in the SAME shape Ollama's native tools
+    # field returns, so extract_all_tool_calls() needs no force-format-
+    # specific branch -- it sees an ordinary single-entry tool_calls list.
+    message = {
+        "content": result["raw_content"] or "",
+        "tool_calls": [{
+            "id": "forced-0",
+            "function": {"index": 0, "name": result["tool_name"], "arguments": result["args"]},
+        }],
+    }
+    return message, result["latency_s"], None
+
+
 _INLINE_CALL_RE = re.compile(r"function=(\w+)\s*(\{.*\})", re.DOTALL)
 
 
@@ -481,8 +518,9 @@ def call_kavach(kavach_url: str, tool_name: str, args: dict, session_id: str, co
 # One case, live, turn by turn
 # ──────────────────────────────────────────────────────────────────────────
 
-def run_one_case_live(case: dict[str, Any], kavach_url: str) -> dict[str, Any]:
+def run_one_case_live(case: dict[str, Any], kavach_url: str, force_format: bool = False) -> dict[str, Any]:
     case_id = case["case_id"]
+    _call_model = call_ollama_forced if force_format else call_ollama
     session_id = f"live-{case_id}-{uuid.uuid4().hex[:8]}"
     t_case_start = time.perf_counter()
 
@@ -532,7 +570,7 @@ def run_one_case_live(case: dict[str, Any], kavach_url: str) -> dict[str, Any]:
         gen_latency = 0.0
         gen_error = None
         for attempt in range(1, MAX_RETRIES + 2):  # 1 initial + MAX_RETRIES
-            message, gen_latency, gen_error = call_ollama(messages, all_tools)
+            message, gen_latency, gen_error = _call_model(messages, all_tools)
             if gen_error is None and message is not None:
                 break
             malformation_notes.append(f"attempt {attempt}: generation error: {gen_error}")
@@ -573,7 +611,7 @@ def run_one_case_live(case: dict[str, Any], kavach_url: str) -> dict[str, Any]:
             for retry_i in range(1, MAX_RETRIES + 1):
                 log.warning("[%s] turn %d: no usable tool call (%s) -- retry %d/%d",
                             case_id, turn_idx, malform_note, retry_i, MAX_RETRIES)
-                message2, gen_latency2, gen_error2 = call_ollama(messages, all_tools)
+                message2, gen_latency2, gen_error2 = _call_model(messages, all_tools)
                 if message2 is not None:
                     calls2, turn_note2 = extract_all_tool_calls(message2)
                     if calls2:
@@ -774,6 +812,8 @@ def main():
                      help="Run only this single case_id (e.g. ds_u01_a21), ignoring --n-cases/--seed sampling. For targeted re-verification of one case after a fix.")
     ap.add_argument("--stratified", action="store_true",
                      help="Use stratified_sample_cases() (proportional DH/DS split + attacker-tool spread) instead of pure random sample_cases().")
+    ap.add_argument("--force-format", action="store_true",
+                     help="Use forced_tool_call.py's constrained decoding (Ollama structured-output `format`) instead of native `tools` -- the model cannot respond with free-text prose, only a valid tool call. Opt-in, NOT the default: the free-form path's refusals/permission-asking are themselves a real signal (see the 50-case run's 40/50 skipped_unparseable_tool_call finding). Use this to isolate 'does Kavach's defense hold given a real dispatched call' from 'does the model choose to act at all.'")
     args = ap.parse_args()
 
     out_path = Path(args.out)
@@ -841,7 +881,7 @@ def main():
             # a mid-run connection failure aborts the whole run immediately
             # (results already written for completed cases are preserved,
             # since each case is flushed to disk as soon as it finishes).
-            result = run_one_case_live(case, args.kavach_url)
+            result = run_one_case_live(case, args.kavach_url, force_format=args.force_format)
             f.write(json.dumps(result, default=str) + "\n")
             f.flush()
             log.info("=== case %s done: outcome=%s duration=%.1fs ===",
