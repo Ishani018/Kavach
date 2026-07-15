@@ -943,6 +943,48 @@ is flagged---while noting the small benign sample and that a threshold-matched
 comparison against the primary configuration remains \TBD. Table~\TBD{} reports
 the two configurations side by side; full secondary-run artifacts are in
 \texttt{benchmarks/results\_v2/laptop\_qwen25\_3b/}.
+
+\subsection{Live-agent supporting case study}
+\label{sec:liveagent}
+The results above (\S\ref{sec:results}, \S\ref{sec:crossmodel}) are measured
+either on a live agent generating its own trajectory (the Gemma\,4~26B primary
+configuration) or on a \emph{static replay} of InjecAgent's structured attacker
+arguments, in which the correct two-step call sequence is pre-resolved from the
+benchmark's own case data and dispatched directly, without any agent or
+language model deciding it. To test Kavach against a live agent's own
+imperfect, sometimes-malformed, turn-by-turn behavior on weaker hardware, we
+built a separate live-agent harness driving \texttt{qwen2.5:7b} via a local
+Ollama runtime, dispatching every model-proposed tool call to Kavach's live
+endpoint. We report this as a supporting case study, not a headline
+recall/false-positive-rate number, for a reason intrinsic to the setting: of a
+50-case stratified sample (proportional direct-harm/data-stealing split,
+spread across distinct attacker tools), only 6/50 cases (12\%) produced a real
+dispatched attacker-tool call at all. The remaining 44 cases reflect the agent
+declining to act autonomously on the injected instruction---40 requested
+confirmation in natural language rather than invoking a tool, and 4 repeated
+their own benign call across the full turn budget without attempting the
+attacker's tool even once (verified by full turn-by-turn audit, so these
+contribute no data rather than partial credit). This is a model-capability
+confound rather than a defender-side result, consistent with prior reports
+that weaker backbones (e.g.\ Command-R+) sometimes decline injected
+instructions outright, which lowers apparent attack success independent of any
+defense~\cite{debenedetti2024agentdojo}.
+
+Of the 6 cases with a real dispatched call, CHANNEL blocked 4/4 fully-dispatched
+exfiltration attempts at confidence 1.0: in each, a source-read action (e.g.\
+retrieving account or file information) was correctly \textsc{Allow}ed, and the
+subsequent destination-send action (e.g.\ emailing the retrieved data to an
+attacker-controlled address) was blocked---the read-then-send taint pattern
+CHANNEL's session-level tracking is designed to catch, exercised here for the
+first time under real, non-scripted agent behavior. A fifth case was
+correctly halted by NAVIGATOR at the \textsc{Escalate} level on the same
+dispatched send. The one miss observed, a single-step direct-harm case with no
+read-then-send chain (an agent directly invoking a security-policy-update tool
+with attacker-supplied domains), reflects the financial-authorization/
+physical-access-control coverage gap already identified in our corpus analysis
+(\S\ref{sec:limitations}) rather than a new failure mode. Full per-case detail
+and outcome taxonomy are reported in
+\texttt{benchmarks/results\_v2/README\_injecagent\_live\_50case.md}.
 % paper/section_5_frontier.tex
 % The Aggregation Frontier. Prose ready; \TBD marks numbers pending the
 % minister_runs.jsonl dump (adaptive_attack.py v3 --sweep-veto).
