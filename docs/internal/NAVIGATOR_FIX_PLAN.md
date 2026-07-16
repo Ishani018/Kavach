@@ -16,7 +16,7 @@ that branch (the InjecAgent live-agent runner, the three runner bugs
 fixed, `forced_tool_call.py`, the 100-case results). `main` and
 `kavach-rearch` remain untouched stable checkpoints throughout this work.
 
-## Phase 1 — Deterministic tier floor (✅ complete)
+## Phase 1 — Deterministic tier floor (✅ complete, generalization deliberately not patched)
 
 `parliament/navigator_tiers.py`: a static classification table marks
 specific tool names as TIER_3 (high-stakes/irreversible — default
@@ -33,30 +33,36 @@ fires redundantly on those cases (harmless; CHANNEL's BLOCK still wins).
 Commits: `959ba43` (tier floor + initial eval), `20f596d` (CHANNEL
 regression check).
 
-## Generalization test (⚠️ found real gaps, not yet remediated)
+**Independent-generalization test result: 3/12 (25%) fired — all in the
+financial category, and two of those three were coincidental substring
+matches (`pay` matching inside "Payment"/"Payee"), not genuine coverage
+of the actual verb. Physical and account-security categories had zero
+regex coverage (0/4 each).** The original 43-case Phase 1 result was
+100% exact-tool-name-match (0% via regex) — Phase 1's success was
+hardcoded-list lookup against the exact benchmark it was built from, not
+demonstrated generalization to novel tool names.
 
-Same methodology as the earlier VAULT/EXECUTOR corpus-expansion
-independent test: 12 test instances (4 per category) using tool names
-that are NOT InjecAgent names or paraphrases of them (e.g.
-`StripeChargeCustomer`, `DoorLockRelease`, `MFADisable`,
-`AccessPolicyOverride`).
+**Decision: do not patch the regex layer further.** A "light broadening"
+pass was scoped (synonym alternation for the 9 specific misses — e.g.
+`unlock|release|disengage|open`, `disable.*factor|mfa`, `deleterepo|
+repodelete`) but deliberately **not applied**, because it would be
+circular: hand-tuning the regex against the exact 9 examples that failed
+would very likely score ~12/12 on this specific test purely because the
+patch was reverse-engineered from it, telling us nothing about
+generalization to a genuinely independent third set. This is the same
+overfitting shape as Phase 1 itself, one level up.
 
-**Result: 3/12 (25%) fired — all in the financial category. Physical and
-account-security categories had zero regex coverage (0/4 each).** The
-original 43-case Phase 1 result was 100% exact-tool-name-match (0% via
-regex) — meaning Phase 1's success was hardcoded-list lookup against the
-exact benchmark it was built from, not demonstrated generalization to
-novel tool names.
-
-Proposed (not yet applied) regex broadening:
-- Physical: `(?i)(disarm|actuate|trigger|release.*lock|garage|opener)`
-- Account-security: `(?i)(disable.*(factor|mfa|2fa)|mfa.*disable|share.*(password|credential)|credential.*share|delete.*repo|repo.*delete|permanent.*delete|override.*polic|polic.*override)`
-- Financial: add `(?i)charge` to the existing family
-
-These need to be applied and re-verified (both against the independent
-test instances and the 32-case benign set, to check for new false
-positives) before Phase 1 can be considered generalizing rather than
-overfit.
+**This is expected and by design, not a setback.** Phase 1 was always
+scoped as the cheap, zero-LLM safety net — a deterministic floor that
+converts known catastrophic misses into ESCALATE at near-zero cost, not
+a system meant to reason about novel tool names. Pattern-matching on tool
+names structurally cannot generalize the way task-conditioned reasoning
+can, because authorization is a property of the TASK (does the user's
+request license this specific action, on this specific target, right
+now?), not a property the tool's NAME can encode no matter how the regex
+is tuned. Phase 2's policy engine is the actual generalization
+mechanism, specifically because it does not depend on tool-name pattern
+matching at all — it reasons from the user's own task text.
 
 ## Phase 2 — Context-aware policy engine (⏳ not started)
 
