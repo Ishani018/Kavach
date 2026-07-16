@@ -64,6 +64,7 @@ try:
     from . import provenance as prov
     from . import prefilters
     from . import channel_taint
+    from . import navigator_tiers
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -80,6 +81,7 @@ except ImportError:
     from parliament import provenance as prov
     from parliament import prefilters
     from parliament import channel_taint
+    from parliament import navigator_tiers
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration loading
@@ -655,7 +657,24 @@ def _run_deterministic_ministers(req_text: str, session_id: str, account_email: 
             source=None, retrieval_mode="deterministic",
         )
 
-    return [vault_scan, executor_scan, channel_scan]
+    results = [vault_scan, executor_scan, channel_scan]
+
+    # NAVIGATOR Phase 1 tier floor (navigator-fixer): deterministic,
+    # additive ESCALATE for high-stakes/irreversible tool calls, running
+    # ALONGSIDE (never replacing) NAVIGATOR's existing cosine check further
+    # down the pipeline. Appended here as its own MinisterScan tagged
+    # minister="NAVIGATOR" -- speaker.py's combine_verdicts() already picks
+    # the most-restrictive verdict across ALL scans for a given minister,
+    # so this never overrides a confident cosine BLOCK, and a cosine miss
+    # never overrides this ESCALATE. See navigator_tiers.py's module
+    # docstring for the full empirical basis (39/81 misses from the
+    # 100-case forced-format run, kavach-rearch commit 466c9c9).
+    if parsed_call is not None:
+        tier_scan = navigator_tiers.check_navigator_tier(parsed_call.tool)
+        if tier_scan is not None:
+            results.append(tier_scan)
+
+    return results
 
 
 def _short_circuit_candidate(deterministic_results: list[MinisterScan]) -> MinisterScan | None:
