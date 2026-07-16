@@ -121,6 +121,42 @@ import requests
 DEFAULT_TIMEOUT_S = 180.0
 
 
+def _extract_all_defs(schema_or_list: Any, defs: dict[str, Any]) -> None:
+    """Recursively walks the schemas to extract all definitions globally."""
+    if isinstance(schema_or_list, dict):
+        for k, v in schema_or_list.items():
+            if k in ("$defs", "definitions") and isinstance(v, dict):
+                defs.update(v)
+            else:
+                _extract_all_defs(v, defs)
+    elif isinstance(schema_or_list, list):
+        for item in schema_or_list:
+            _extract_all_defs(item, defs)
+
+
+def _inline_refs(schema: Any, defs: dict[str, Any]) -> Any:
+    """Recursively inlines all $ref references in schema using extracted defs."""
+    if isinstance(schema, dict):
+        if "$ref" in schema:
+            ref_path = schema["$ref"]
+            ref_name = ref_path.split("/")[-1]
+            if ref_name in defs:
+                return _inline_refs(defs[ref_name], defs)
+            return schema
+
+        new_schema = {}
+        for k, v in schema.items():
+            if k in ("$defs", "definitions"):
+                continue  # strip definitions at this level
+            new_schema[k] = _inline_refs(v, defs)
+        return new_schema
+
+    elif isinstance(schema, list):
+        return [_inline_refs(item, defs) for item in schema]
+
+    return schema
+
+
 def _tool_call_schema(tool_schemas: list[dict[str, Any]]) -> dict[str, Any]:
     """Builds a JSON Schema that validates ONLY as a single tool call:
     {"tool_name": <one of the allowed names>, "args": {...matching that
@@ -131,6 +167,9 @@ def _tool_call_schema(tool_schemas: list[dict[str, Any]]) -> dict[str, Any]:
     tool's own `parameters` schema -- this is what actually constrains the
     args shape per-tool, not just accepting any object for `args`.
     """
+    defs: dict[str, Any] = {}
+    _extract_all_defs(tool_schemas, defs)
+
     branches = []
     for entry in tool_schemas:
         fn = entry.get("function", entry)  # tolerate bare {"name":...} too
@@ -146,9 +185,8 @@ def _tool_call_schema(tool_schemas: list[dict[str, Any]]) -> dict[str, Any]:
             "additionalProperties": False,
         })
 
-    if len(branches) == 1:
-        return branches[0]
-    return {"oneOf": branches}
+    schema = branches[0] if len(branches) == 1 else {"oneOf": branches}
+    return _inline_refs(schema, defs)
 
 
 def _forced_call_system_note(tool_schemas: list[dict[str, Any]]) -> str:
@@ -221,8 +259,11 @@ def get_forced_tool_call(
         data = r.json()
     except Exception as e:
         latency = time.perf_counter() - t0
+        err_msg = str(e)
+        if 'r' in locals() and hasattr(r, 'text') and r.text:
+            err_msg += f" | Details: {r.text}"
         return {"tool_name": None, "args": None, "raw_content": None,
-                "latency_s": round(latency, 2), "error": f"Ollama request failed: {e}"}
+                "latency_s": round(latency, 2), "error": f"Ollama request failed: {err_msg}"}
 
     raw_content = (data.get("message") or {}).get("content", "")
     try:

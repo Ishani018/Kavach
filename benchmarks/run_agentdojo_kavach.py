@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from agentdojo.types import ChatUserMessage, ChatToolResultMessage
 
 # Monkey patch JSONEncoder to support serialization of the Ellipsis (...) object
 # which Llama's Python-syntax parser can put nested inside lists/dicts.
@@ -233,9 +234,10 @@ def _parse_tolerant(completion: str):
 class GemmaTolerantLLM(LocalLLM):
     """LocalLLM whose tool-call parser tolerates Gemma's bare-'>' closer."""
 
-    def __init__(self, client, model, task_set: int | None = None, **kwargs):
+    def __init__(self, client, model, task_set: int | None = None, force_format: bool = False, **kwargs):
         super().__init__(client, model, **kwargs)
         self.task_set = task_set
+        self.force_format = force_format
 
     def query(self, query, runtime, env=None, messages=(), extra_args=None):
         import openai as _openai
@@ -269,6 +271,37 @@ class GemmaTolerantLLM(LocalLLM):
                     fr = "Success" if fr == "None" else fr
                     content = _json.dumps({"result": fr})
             messages_.append({"role": role, "content": content})
+
+        if self.force_format and len(runtime.functions) > 0:
+            tool_schemas = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters.model_json_schema(),
+                    }
+                }
+                for tool in runtime.functions.values()
+            ]
+            from forced_tool_call import get_forced_tool_call
+            base_url = str(self.client.base_url).rsplit("/v1", 1)[0]
+            result = get_forced_tool_call(
+                model=self.model,
+                messages=messages_,
+                tool_schemas=tool_schemas,
+                ollama_url=base_url,
+            )
+            if result["error"] is None:
+                output = _ChatAssistantMessage(
+                    role="assistant",
+                    content=[_text_block(result["raw_content"] or "")],
+                    tool_calls=[_FunctionCall(function=result["tool_name"], args=result["args"])],
+                )
+                return query, runtime, env, [*messages, output], extra_args
+            else:
+                print(f"[forced-tool-call] Gemma force format failed: {result['error']}. Falling back to normal.")
+
         completion = chat_completion_request(
             self.client, model=self.model, messages=messages_,
             temperature=self.temperature, top_p=self.top_p,
@@ -284,9 +317,10 @@ from agentdojo.agent_pipeline.llms.openai_llm import chat_completion_request as 
 class LlamaPromptingLLM(PromptingLLM):
     """PromptingLLM subclass that cleans up message conversion and avoids Together API developer role/duplication bugs."""
 
-    def __init__(self, client, model, task_set: int | None = None, **kwargs):
+    def __init__(self, client, model, task_set: int | None = None, force_format: bool = False, **kwargs):
         super().__init__(client, model, **kwargs)
         self.task_set = task_set
+        self.force_format = force_format
 
     def _tool_message_to_user_message(self, tool_message: ChatToolResultMessage) -> ChatUserMessage:
         err = tool_message.get("error")
@@ -339,6 +373,36 @@ class LlamaPromptingLLM(PromptingLLM):
                 "role": role,
                 "content": content,
             })
+
+        if self.force_format and len(runtime.functions) > 0:
+            tool_schemas = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters.model_json_schema(),
+                    }
+                }
+                for tool in runtime.functions.values()
+            ]
+            from forced_tool_call import get_forced_tool_call
+            base_url = str(self.client.base_url).rsplit("/v1", 1)[0]
+            result = get_forced_tool_call(
+                model=self.model,
+                messages=openai_messages,
+                tool_schemas=tool_schemas,
+                ollama_url=base_url,
+            )
+            if result["error"] is None:
+                output = _ChatAssistantMessage(
+                    role="assistant",
+                    content=[_text_block(result["raw_content"] or "")],
+                    tool_calls=[_FunctionCall(function=result["tool_name"], args=result["args"])],
+                )
+                return query, runtime, env, [*messages, output], extra_args
+            else:
+                print(f"[forced-tool-call] Llama force format failed: {result['error']}. Falling back to normal.")
 
         # 5. Call chat completion using standard openai_chat_completion_request
         completion = openai_chat_completion_request(self.client, self.model, openai_messages, [], None, self.temperature)
@@ -717,19 +781,19 @@ class LiveProgressMonitor(threading.Thread):
 
 # ── Core benchmark helpers ────────────────────────────────────────────────────
 
-def build_pipeline(model_id: str, with_kavach: bool, ollama_port: str = "8000", task_set: int | None = None):
+def build_pipeline(model_id: str, with_kavach: bool, ollama_port: str = "8000", task_set: int | None = None, force_format: bool = False):
     """Replicate from_config's `local` assembly; optionally insert Kavach."""
     import openai as _openai
     client = _openai.OpenAI(api_key="EMPTY", base_url=f"http://localhost:{ollama_port}/v1")
     if "llama" in model_id.lower():
-        llm = LlamaPromptingLLM(client, model_id, task_set=task_set)
+        llm = LlamaPromptingLLM(client, model_id, task_set=task_set, force_format=force_format)
     else:
         # tool_delimiter="user": Gemma's chat template has no native "tool" turn.
         # Sending role="tool" through Ollama's template renderer produced a
         # degenerate echo (literal "<|tool_response>") instead of a continuation
         # on ~90% of agentdojo_slack_gemma_dell trajectories — folding tool
         # results into a "user" turn avoids the unsupported role entirely.
-        llm = GemmaTolerantLLM(client, model_id, task_set=task_set, tool_delimiter="user")
+        llm = GemmaTolerantLLM(client, model_id, task_set=task_set, tool_delimiter="user", force_format=force_format)
     llm_name = "local"
 
     system_message_component = SystemMessage(DEFAULT_SYS_MSG)
@@ -777,7 +841,7 @@ def summarize(results) -> dict:
 
 
 def benign_utility(suite, model_id, with_kavach, logdir, ollama_port="8000",
-                   user_tasks=None, task_set=None) -> dict:
+                   user_tasks=None, task_set=None, force_format: bool = False) -> dict:
     """Paper §3.4 Benign Utility: fraction of user tasks solved with NO attack.
 
     This is the third metric the with-injection run does not produce. We run the
@@ -786,7 +850,7 @@ def benign_utility(suite, model_id, with_kavach, logdir, ollama_port="8000",
     positives; the paper's benign utility is the no-defense version.)
     """
     from agentdojo.benchmark import benchmark_suite_without_injections
-    pipeline, _defense = build_pipeline(model_id, with_kavach, ollama_port, task_set=task_set)
+    pipeline, _defense = build_pipeline(model_id, with_kavach, ollama_port, task_set=task_set, force_format=force_format)
     blogdir = Path(logdir) / "benign"
     blogdir.mkdir(parents=True, exist_ok=True)
     with OutputLogger(str(blogdir), live=None):
@@ -804,8 +868,8 @@ def benign_utility(suite, model_id, with_kavach, logdir, ollama_port="8000",
 
 def run_one(suite, attack_name, model_id, with_kavach, logdir,
             abort_threshold: int, ollama_port: str = "8000", kavach_url: str | None = None,
-            user_tasks: list[str] | None = None, task_set: int | None = None):
-    pipeline, defense = build_pipeline(model_id, with_kavach, ollama_port, task_set=task_set)
+            user_tasks: list[str] | None = None, task_set: int | None = None, force_format: bool = False):
+    pipeline, defense = build_pipeline(model_id, with_kavach, ollama_port, task_set=task_set, force_format=force_format)
     attacker = load_attack(attack_name, suite, pipeline)
 
     # Start live progress monitor. Pass kavach_url ONLY for the with-Kavach
@@ -868,6 +932,9 @@ def main() -> None:
                     help="Skip the baseline (no-defense) condition — use the already-saved "
                          "baseline from the summary JSON. Useful when baseline completed "
                          "but the WITH-Kavach run needs to be re-run.")
+    ap.add_argument("--force-format",      action="store_true",
+                    help="Use forced_tool_call.py's constrained decoding (Ollama structured-output format) "
+                         "instead of native/XML-based tool calling.")
     args = ap.parse_args()
 
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
@@ -975,6 +1042,7 @@ def main() -> None:
             ollama_port=args.ollama_port,
             user_tasks=user_tasks_to_run,
             task_set=args.task_set,
+            force_format=args.force_format,
         )
         print(f"[agentdojo]   BASELINE:    {baseline}")
         _flush(baseline=baseline)
@@ -988,6 +1056,7 @@ def main() -> None:
         kavach_url=args.kavach_url,
         user_tasks=user_tasks_to_run,
         task_set=args.task_set,
+        force_format=args.force_format,
     )
     print(f"[agentdojo]   WITH Kavach: {with_kavach}")
     _flush(baseline=baseline, with_kavach=with_kavach)
@@ -1033,10 +1102,12 @@ def main() -> None:
         print("\n[agentdojo] ── Benign Utility (NO attack) ──────────────────────")
         benign_no_def = benign_utility(suite, args.model_id, False, logdir,
                                        ollama_port=args.ollama_port,
-                                       user_tasks=user_tasks_to_run, task_set=args.task_set)
+                                       user_tasks=user_tasks_to_run, task_set=args.task_set,
+                                       force_format=args.force_format)
         benign_kavach = benign_utility(suite, args.model_id, True, logdir,
                                        ollama_port=args.ollama_port,
-                                       user_tasks=user_tasks_to_run, task_set=args.task_set)
+                                       user_tasks=user_tasks_to_run, task_set=args.task_set,
+                                       force_format=args.force_format)
         benign = {"no_defense": benign_no_def, "with_kavach": benign_kavach,
                   "benign_overblock": round(benign_no_def["benign_utility"]
                                             - benign_kavach["benign_utility"], 4)}
