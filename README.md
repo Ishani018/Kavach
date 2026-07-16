@@ -1,3 +1,17 @@
+> [!CAUTION]
+> ## <span style="color:red">NAVIGATOR is currently the weak point — actively being fixed</span>
+>
+> **Live-agent testing (forced-tool-call InjecAgent run, 100 stratified cases) found NAVIGATOR missed 39/81 real dispatched attacks** — all well-formed, single-step, high-stakes actions (financial transfers, physical-access unlocks, security/2FA changes) that CHANNEL/VAULT/EXECUTOR had no mechanism to catch, and NAVIGATOR's cosine-similarity matching couldn't distinguish from legitimate calls. Full breakdown: [`benchmarks/results_v2/injecagent_live_results_template.md`](benchmarks/results_v2/injecagent_live_results_template.md).
+>
+> **Status of the fix (on the `navigator-fixer` branch, branched from `kavach-rearch`):**
+> - ✅ Phase 1 (deterministic high-stakes escalation floor) — complete, verified: 43/43 previously-missed cases now correctly ESCALATE, 0 regressions against CHANNEL's existing working detections (29/29 clean), commit `959ba43`.
+> - ⚠️ Independent-generalization test — complete, found real gaps: of 12 test instances using tool names outside InjecAgent's benchmark, only 3/12 (25%) fired, and the original 43-case Phase 1 result was 100% exact-tool-name-match (0% via pattern/regex) — meaning Phase 1 works against the exact benchmark it was built from but does not yet demonstrate generalization to novel tool names. Proposed regex broadening identified, not yet applied.
+> - ⏳ Phase 2 (context-aware policy engine, replacing cosine similarity with task-derived authorization checks) — not started, pending generalization-gap remediation.
+>
+> See [`docs/internal/NAVIGATOR_FIX_PLAN.md`](docs/internal/NAVIGATOR_FIX_PLAN.md) for the full architecture, rationale, and why the earlier STEWARD minister attempt failed differently than this approach.
+>
+> `main` and `kavach-rearch` remain stable checkpoints — this work is isolated to `navigator-fixer` until fully validated.
+
 <div align="center">
 
 <img src="kavach.png" width="300" alt="Kavach"/>
