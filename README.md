@@ -1,5 +1,67 @@
 # NAVIGATOR — Scope, Plan, and Prior Art
 
+## TL;DR
+
+**What NAVIGATOR guards against**: attacks where every individual tool
+call looks structurally fine (valid tool, valid args, no credential
+pattern, no shell injection) but the *action itself* was never actually
+authorized by what the user asked for — the authorization gap the other
+three ministers can't see by design. Concretely: prompt-injected
+instructions that get the agent to perform a consequential action (send
+money, invite a user, delete data, unlock a door) the user never
+requested, or to route legitimate-looking data to an attacker-controlled
+destination the user never named. Not in scope: credential/secret shapes
+(VAULT), shell/code injection (EXECUTOR), or data provenance once an
+action is already known to be authorized (CHANNEL) — see the SCOPE
+section below for the full boundary.
+
+**Proposed architecture, one line each**:
+1. Pin the user's original instruction once at session start, immutable.
+2. Classify every tool as OBSERVATIONAL or CONSEQUENTIAL.
+3. Block/escalate any CONSEQUENTIAL call whose action isn't derivable
+   from the pinned instruction (deterministic verb/noun matching, no
+   model).
+4. For calls that pass, derive an authorized (source → destination)
+   flow from the pinned instruction and check it against CHANNEL's
+   provenance signal.
+5. Escalate only for genuinely underspecified instructions.
+
+**Key literature**: CaMeL (arXiv:2503.18813), PlanGuard (arXiv:2604.10134),
+IntentGuard (arXiv:2512.00966), Denning & Denning 1976/1977. Full context
+in PRIOR ART below.
+
+**Testing discipline — run this after every architecture change, before
+committing**:
+```bash
+# 1. Regression: the two permanent CHANNEL/NAVIGATOR-adjacent test suites
+python -m parliament.test_channel_taint
+python -m parliament.test_speaker
+
+# 2. Census, not just unit tests: re-run the discriminability check against
+#    BOTH populations any time the taxonomy, synonym table, or matching
+#    logic changes — a change that isn't re-censused against both is not
+#    considered validated, per this branch's gate-then-build discipline.
+python benchmarks/_pinning_census.py     # (once it exists — see PLAN)
+#   - 22 real benign sessions (parliament/benign_test_set/real_benign_trajectories.json)
+#     go/no-go: 0 false positives, no exceptions — a single benign block
+#     is worse here than in CHANNEL's provenance work.
+#   - the known AgentDojo multi-step attack cases (8 cases; see CHANNEL's
+#     provenance Gate 1 report for the current case list) +
+#     32 InjecAgent ground-truth attacks (benchmarks/data/attacker_cases_ds.jsonl)
+
+# 3. Confirm zero regression on CHANNEL's own numbers — NAVIGATOR composes
+#    with CHANNEL's provenance (item 4 above) but must never read or
+#    mutate its state, and must never change CHANNEL's own verdicts:
+#    32/32 InjecAgent BLOCK, 22/22 benign zero FP (see kavach-rearch's
+#    parliament/channel_taint.py and parliament/test_channel_taint.py).
+```
+If any step's result changes the go/no-go verdict for a gate that
+already passed, treat it as a regression and report it plainly — do not
+quietly re-tune the taxonomy/synonym table to force the number back,
+per this project's stated honesty standard.
+
+---
+
 ## SCOPE
 
 NAVIGATOR's domain, post-rearchitecture: **action-class integrity** — does
