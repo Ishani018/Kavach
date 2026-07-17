@@ -148,11 +148,90 @@ _SENSITIVE_NOUN = (
 _SOURCE_VERB = r"(Get|View|Search|List|Download|Access)"
 SOURCE_TOOL_PATTERN = re.compile(rf"^\w*{_SOURCE_VERB}\w*{_SENSITIVE_NOUN}\w*$")
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Naming-convention-agnostic fallback (found via ground-truth replay against
+# AgentDojo: SOURCE_TOOL_PATTERN above requires PascalCase adjacency, so it
+# cannot match ANY snake_case tool name regardless of semantic content --
+# confirmed directly, e.g. AmazonViewSavedAddresses matches but a
+# semantically-identical snake_case equivalent structurally cannot).
+#
+# Fix: tokenize the tool name (snake_case, camelCase, PascalCase all split to
+# a common lowercase token list), then check for verb-token + noun-token
+# co-occurrence ANYWHERE in the token list, rather than requiring adjacent
+# PascalCase substring structure. Uses the EXACT SAME vocabulary as
+# SOURCE_TOOL_PATTERN above -- no new nouns/verbs added here. This
+# deliberately does NOT add AgentDojo-specific tool names (e.g.
+# search_emails, read_channel_messages) as new source triggers: confirmed
+# via direct testing against real AgentDojo ground_truth() data that doing
+# so would false-positive on 2 real workspace user_tasks and 9/21 (43%) of
+# slack user_tasks, where the exact same read-then-send shape is the
+# correct, user-requested action, not an attack (same conflict already
+# documented above for banking's get_most_recent_transactions/
+# get_scheduled_transactions). So this fix closes the NAMING-CONVENTION gap
+# only -- it does not and should not expand semantic coverage, which would
+# require a signal CHANNEL's session-taint model doesn't have (was this
+# specific recipient/content requested by the user, not just "was there a
+# prior read").
+_TOKEN_SPLIT_RE = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _tokenize_tool_name(tool: str) -> list[str]:
+    """Splits snake_case, kebab-case, camelCase, and PascalCase tool names
+    into a common lowercase token list. E.g. 'AmazonViewSavedAddresses' and
+    'amazon_view_saved_addresses' both -> ['amazon','view','saved','addresses']."""
+    s = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", tool)          # camelCase/PascalCase boundary
+    s = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "_", s)            # e.g. HTTPServer -> HTTP_Server
+    return [p.lower() for p in _TOKEN_SPLIT_RE.split(s) if p]
+
+
+_SOURCE_VERB_TOKENS = frozenset({"get", "view", "search", "list", "download", "access"})
+# Exact tokens/compounds -- some source nouns are themselves multi-word
+# (e.g. "PhoneNumber" tokenizes to ['phone','number']), so this set includes
+# both the single-token and adjacent-2-token-joined forms actually seen in
+# the vocabulary below. Matched against individual tokens and adjacent-pair
+# joins ONLY (not the full concatenated name) -- an earlier version joined
+# ALL tokens into one string and substring-matched against it, which caused
+# a real false positive: "get_user_information" joins to
+# "getuserinformation", which contains "userinfo" as an accidental
+# cross-boundary substring even though "user"/"information" were never
+# meant to match "userinfo". Bounding the join to adjacent-pairs-only
+# eliminates that class of collision while still catching genuine two-word
+# compounds like "phone"+"number" -> "phonenumber".
+_SENSITIVE_NOUN_TOKENS: frozenset[str] = frozenset({
+    "address", "addresses", "payment", "payments", "holding", "holdings",
+    "genetic", "health", "password", "passwords", "accesshistory", "log",
+    "logs", "location", "prescription", "prescriptions", "patientdetail",
+    "patientdetails", "record", "records", "metadata", "searchhistory",
+    "phonenumber", "linkedaccount", "userprofile", "userdetail", "userinfo",
+    "friend", "friends", "reservation", "reservations", "shipment",
+    "shipments", "orderhistory", "deepfake",
+})
+# Two-token compounds that form a sensitive noun only when ADJACENT, in this
+# order (e.g. "phone","number" adjacent -> phone-number lookup; "phone" or
+# "number" alone, or non-adjacent, do not count).
+_SENSITIVE_NOUN_BIGRAMS: frozenset[tuple[str, str]] = frozenset({
+    ("phone", "number"), ("access", "history"), ("search", "history"),
+    ("linked", "account"), ("user", "profile"), ("user", "detail"),
+    ("patient", "detail"), ("order", "history"),
+})
+
 
 def is_source_tool(tool: str) -> bool:
     if tool in SOURCE_TOOLS_EXACT:
         return True
-    return bool(SOURCE_TOOL_PATTERN.match(tool))
+    if SOURCE_TOOL_PATTERN.match(tool):
+        return True
+    tokens = _tokenize_tool_name(tool)
+    has_verb = any(t in _SOURCE_VERB_TOKENS for t in tokens)
+    if not has_verb:
+        return False
+    has_noun = any(t in _SENSITIVE_NOUN_TOKENS for t in tokens)
+    if not has_noun:
+        has_noun = any(
+            (tokens[i], tokens[i + 1]) in _SENSITIVE_NOUN_BIGRAMS
+            for i in range(len(tokens) - 1)
+        )
+    return has_noun
 
 
 # ──────────────────────────────────────────────────────────────────────────────
