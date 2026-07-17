@@ -1,3 +1,98 @@
+# NAVIGATOR — Scope, Plan, and Prior Art
+
+## SCOPE
+
+NAVIGATOR's domain, post-rearchitecture: **action-class integrity** — does
+the user's own original instruction actually authorize this consequential
+action, or this source→sink data flow, at all? This is distinct from the
+other three ministers, each of which now owns a narrower, deterministic
+question:
+
+- **CHANNEL** — *where did this value come from / where is this data
+  going* (session-level taint tracking, argument provenance).
+- **VAULT** — *does this look like a credential/secret* (regex over
+  argument content).
+- **EXECUTOR** — *does this look like dangerous/injected code* (deny-list
+  + AST alias resolution).
+- **NAVIGATOR** — *was this action itself authorized by what the user
+  asked for* (action-class derivability from the pinned original
+  instruction).
+
+The original cosine-similarity-based NAVIGATOR swap attempt (mirroring
+VAULT/EXECUTOR/CHANNEL's deterministic-swap pattern) was **abandoned at
+its own go/no-go gate** — a rigorous held-out test found zero net
+discrimination gain over the existing cosine baseline, and the swap was
+not carried forward. That finding is documented, not silently dropped;
+this branch is the replacement direction, not a resumption of the
+abandoned approach.
+
+## PLAN
+
+Staged design, as it currently stands (none of this is built/enforced
+yet — gate-then-build discipline applies throughout):
+
+1. **Pinned intent** — captured once at session start, from the user's
+   original instruction only. Never updated from tool output at any
+   point in the session. This immutability *is* the security property:
+   a pinned intent that could be mutated by something the agent reads
+   mid-session would be exactly as injectable as the data it's meant to
+   gate.
+2. **Observational vs. consequential tool taxonomy** — a static,
+   two-class split over the tool surface. OBSERVATIONAL (read/list/
+   search/get — no external effect) vs. CONSEQUENTIAL (send/transfer/
+   invite/delete/unlock/schedule/post — external or irreversible
+   effect). Ambiguous tools are flagged explicitly, not force-classified.
+3. **Hard constraint** — a CONSEQUENTIAL call is permitted only if its
+   action class is derivable from the pinned intent (token-level verb/
+   noun matching against a fixed, reviewable synonym table — no
+   embeddings, no model, no scoring). Not derivable → block or escalate.
+4. **Authorized-flow derivation** — deterministically derive
+   (source → sink.parameter) permissions from the pinned instruction,
+   checked against CHANNEL's provenance signal at each consequential
+   call. This is the piece that resolves the bill-pay-shaped benign case
+   found during CHANNEL's own provenance census (a legitimate
+   read-the-invoice → send-to-that-IBAN flow, which naive
+   output-derived-blocks-everything provenance would false-positive on)
+   — a user-designated source feeding an authorized flow passes cleanly,
+   without weakening detection on attacker-injected flows.
+5. **Escalate** is reserved for genuinely underspecified instructions
+   only, not as a default fallback for every ambiguous case.
+
+Gate-then-build discipline: every piece above gets a feasibility/
+discriminability census (against the 22 real benign sessions +
+the known AgentDojo multi-step attack cases) before any enforcement
+code is written, matching the same standard CHANNEL's provenance work
+used.
+
+## PRIOR ART / RESOURCES
+
+Design influences and positioning anchors found during this research
+pass — **not implemented dependencies**; none of this is a claim that
+NAVIGATOR's design directly reuses these systems' code or architecture.
+
+- **CaMeL** (Debenedetti et al., arXiv:2503.18813) — per-value
+  capabilities, a privileged/quarantined LLM split, and policy-enforced
+  data flows; solved AgentDojo's security evaluation outright. Our
+  design is a lightweight, session-state realization of the same
+  underlying idea, without CaMeL's custom interpreter/DSL.
+- **PlanGuard** (arXiv:2604.10134) — an isolated planner constructed
+  from the user's instructions only, plus a hard-constraint stage and an
+  intent verifier; reported 0.0% ASR on InjecAgent. Our pinned-intent
+  stage is directly analogous to PlanGuard's stage 1; our ESCALATE path
+  replaces their LLM-based verifier specifically to preserve
+  determinism (no model in NAVIGATOR's enforcement path).
+- **IntentGuard** (arXiv:2512.00966) — instruction-following intent
+  analysis with origin tracing; treats alert-mode user confirmation as a
+  first-class mechanism rather than a fallback, which informs how
+  ESCALATE is scoped here.
+- **Denning & Denning 1977 / Denning 1976** — the information-flow-
+  control lineage CHANNEL's own taint tracker already draws on; NAVIGATOR's
+  authorized-flow piece (item 4 above) shares that lineage directly,
+  since it's checking flow legitimacy against a derived policy, not just
+  flow existence.
+
+---
+
 > [!CAUTION]
 > ## <span style="color:red">NAVIGATOR is currently the weak point — actively being fixed</span>
 >
