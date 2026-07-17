@@ -172,12 +172,14 @@ _state: dict[str, Any] = {
 
 def _embed_query(text: str) -> np.ndarray:
     """BGE query-side embedding with the asymmetric instruction prefix."""
+    _t0 = time.perf_counter()
     prefix = CFG["query_prefix"]
     vec = _state["model"].encode(
         prefix + text,
         normalize_embeddings=True,
         show_progress_bar=False,
     )
+    log.warning("[DIAG-TIMING] _embed_query: %.3fs", time.perf_counter() - _t0)
     return np.asarray(vec, dtype=np.float32)
 
 
@@ -199,21 +201,35 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
 # Routing
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _route(text: str) -> list[str]:
+def _route(text: str, _diag: dict | None = None) -> list[str]:
     """Return the list of ministers to activate for this text."""
+    _t_embed_q = time.perf_counter()
     q = _embed_query(text)
+    if _diag is not None:
+        _diag["route.embed_query"] = (time.perf_counter() - _t_embed_q) * 1000.0
+
     activated: list[str] = []
     threshold = CFG["thresholds"]["router_min"]
 
-    for minister, descriptions in _state["router"].items():
+    # Router description embeddings are cached once at startup (see lifespan())
+    # instead of recomputed here on every request — this was the actual
+    # bottleneck (69-90% of total request latency, confirmed via diag
+    # instrumentation), not COMPASS/ministers/ledger as originally suspected.
+    _t_docs = time.perf_counter()
+    _n_docs = 0
+    for minister in _state["router"]:
+        doc_vecs = _state["router_doc_vecs"][minister]
         max_sim = 0.0
-        for desc in descriptions:
-            doc_vec = _embed_doc(desc)
+        for doc_vec in doc_vecs:
+            _n_docs += 1
             sim = _cosine(q, doc_vec)
             if sim > max_sim:
                 max_sim = sim
         if max_sim >= threshold:
             activated.append(minister)
+    if _diag is not None:
+        _diag["route.embed_docs_total"] = (time.perf_counter() - _t_docs) * 1000.0
+        _diag["route.embed_docs_count"] = _n_docs
 
     if not activated:
         log.info("router: no minister crossed %.2f, falling back to all four", threshold)
@@ -252,19 +268,27 @@ def _get_minister_thresholds(minister: str, call_thresholds: dict) -> dict:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _compass_drift(session_id: str, action_text: str,
-                   action_vec: np.ndarray | None = None) -> tuple[bool, float]:
+                   action_vec: np.ndarray | None = None,
+                   _diag: dict | None = None) -> tuple[bool, float]:
     """Return (drift_detected, similarity). If no intent stored, returns (False, 1.0).
 
     `action_vec`: optional precomputed BGE vector for `action_text` (embed-once
     path). When None, embeds internally (legacy behaviour).
     """
+    _t0 = time.perf_counter()
     intent_vec = _state["intents"].get(session_id)
     if intent_vec is None:
+        if _diag is not None:
+            _diag["compass_drift.total"] = (time.perf_counter() - _t0) * 1000.0
+            _diag["compass_drift.embedded"] = False
         return (False, 1.0)
     if action_vec is None:
         action_vec = _embed_query(action_text)
     sim = _cosine(intent_vec, action_vec)
     drift = sim < CFG["thresholds"]["compass_drift"]
+    if _diag is not None:
+        _diag["compass_drift.total"] = (time.perf_counter() - _t0) * 1000.0
+        _diag["compass_drift.embedded"] = action_vec is None
     return (drift, sim)
 
 
@@ -364,6 +388,22 @@ def _last_hash(conn) -> str:
     row = conn.execute(
         "SELECT entry_hash FROM votes ORDER BY id DESC LIMIT 1").fetchone()
     return row[0] if row and row[0] else GENESIS_HASH
+
+
+_DIAG_LOG_PATH = Path(__file__).resolve().parent / "diag_timing.jsonl"
+
+
+def _log_diag(diag: dict[str, Any]) -> None:
+    """Bounded, one-off diagnostic: append one JSON line per /hook/parliament
+    request with a full stage -> duration_ms breakdown, so total elapsed time
+    can be reconciled against the sum of every instrumented stage instead of
+    leaving an unexplained gap. Not a permanent feature — remove once the
+    slow stage is identified and fixed."""
+    try:
+        with open(_DIAG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(diag) + "\n")
+    except Exception:
+        log.exception("failed to write diag timing line")
 
 
 def _log_vote(
@@ -512,6 +552,41 @@ async def lifespan(app: FastAPI):
     _state["router"] = _router_full.get("routing_corpus", _router_full)
     _state["router"].pop("COMPASS", None)
     log.info("router loaded ministers: %s", list(_state["router"].keys()))
+
+    # Cache router description embeddings ONCE at startup, instead of
+    # recomputing all of them (5 descriptions x 4 ministers = 20 embeds)
+    # on every single /hook/parliament request. Found via diag instrumentation:
+    # this single fix accounted for 69-90% of total per-request latency
+    # (6-12s out of a 3.7-13s total) — every other stage (COMPASS, all 4
+    # ministers' scoring, speaker, trajectory, ledger write) together never
+    # exceeded ~0.5s. Same startup-caching pattern already used for BM25
+    # indexes and ChromaDB collections above.
+    log.info("caching router description embeddings...")
+    _state["router_doc_vecs"] = {}
+    _n_router_docs = 0
+    for _minister, _descriptions in _state["router"].items():
+        _state["router_doc_vecs"][_minister] = [_embed_doc(_d) for _d in _descriptions]
+        _n_router_docs += len(_descriptions)
+    log.info("router description embeddings cached: %d docs across %d ministers",
+             _n_router_docs, len(_state["router_doc_vecs"]))
+
+    # Sanity check (startup-only, not a permanent runtime check): confirm a
+    # freshly-computed embedding of the same text is byte-identical to what
+    # was just cached — BGE encode() is deterministic for a fixed string, so
+    # cached-vs-fresh must match exactly, otherwise routing behavior could
+    # silently change.
+    for _minister, _descriptions in _state["router"].items():
+        if not _descriptions:
+            continue
+        _fresh = _embed_doc(_descriptions[0])
+        _cached = _state["router_doc_vecs"][_minister][0]
+        if not np.array_equal(_fresh, _cached):
+            raise RuntimeError(
+                f"router doc embedding cache mismatch for {_minister}: "
+                f"cached embedding does not match a freshly computed one — "
+                f"routing behavior would silently change, refusing to start"
+            )
+    log.info("router description embedding cache verified byte-identical to fresh computation")
 
     _init_db()
     log.info("parliament ready on %s:%d  [retrieval=%s]",
@@ -787,14 +862,29 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     t0 = time.perf_counter()
     correlation_id = req.context.get("correlation_id") or str(uuid.uuid4())
 
+    # DIAG: comprehensive stage-by-stage timing, JSON-lines to diag.log.
+    # Bounded, one-off diagnostic instrumentation — not a permanent feature.
+    _diag: dict[str, Any] = {"correlation_id": correlation_id}
+    _diag_stage_keys: list[str] = []  # top-level sequential stages only (for summing) — excludes route.*/compass_drift.* sub-breakdowns, which are nested detail for the same parent stage's window
+    _t_stage = time.perf_counter()
+
+    def _mark(name: str) -> None:
+        nonlocal _t_stage
+        now = time.perf_counter()
+        _diag[name] = (now - _t_stage) * 1000.0
+        _diag_stage_keys.append(name)
+        _t_stage = now
+
     # Step 0: embed the action ONCE. Shared across COMPASS, ministers, and the
     # trajectory deque — replaces up to 9 redundant embeds of the same text.
     action_vec = _embed_query(req.text)
+    _mark("embed_action")
 
     # Step 0b: trajectory risk from PRIOR calls in this session (current call
     # not yet appended). Pure cosine math over cached vectors — no embed.
     hist = _state["history"][req.session_id]
     traj_res = traj.trajectory_risk(hist, intent_vec=_state["intents"].get(req.session_id), current_vec=action_vec)
+    _mark("trajectory_risk_read")
 
     # Step 0d: VAULT/EXECUTOR/CHANNEL's deterministic verdicts, computed
     # BEFORE COMPASS/routing (moved up from their old Step 3a2-3a4
@@ -804,6 +894,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # happens next, exactly as they did before this optimization existed.
     account_email = req.context.get("account_email")
     deterministic_results = _run_deterministic_ministers(req.text, req.session_id, account_email)
+    _mark("deterministic_ministers_vault_executor_channel")
 
     short_circuit_scan = _short_circuit_candidate(deterministic_results)
     if short_circuit_scan is not None:
@@ -863,6 +954,11 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
             short_circuited=True,
         )
 
+        _mark("short_circuit_speaker_traj_ledger")
+        _diag["path"] = "short_circuit"
+        _diag["total_ms"] = latency_ms
+        _log_diag(_diag)
+
         # Fire-and-forget: completes the ledger's compass_sim/NAVIGATOR
         # picture asynchronously, AFTER the response below has already
         # been returned. Never awaited, never blocks the response —
@@ -905,9 +1001,11 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         compass_sim=None,  # filled after COMPASS below
         traj_risk=traj_res.risk,
     )
+    _mark("threshold_modulation_pre_compass")
 
     # Step 1: COMPASS drift (reuses action_vec, no re-embed).
-    drift, compass_sim = _compass_drift(req.session_id, req.text, action_vec)
+    drift, compass_sim = _compass_drift(req.session_id, req.text, action_vec, _diag=_diag)
+    _mark("compass_drift_call")
 
     # Recompute the modulated threshold now that compass_sim is known.
     call_thresholds["block"] = traj.modulate_threshold(
@@ -915,9 +1013,11 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         compass_sim=compass_sim if _state["intents"].get(req.session_id) is not None else None,
         traj_risk=traj_res.risk,
     )
+    _mark("threshold_modulation_post_compass")
 
     # Step 2: Router
-    activated = _route(req.text)
+    activated = _route(req.text, _diag=_diag)
+    _mark("router_total")
 
     # Step 3: Run activated ministers in parallel — hybrid BM25+dense retrieval
     # when an index exists, sharing action_vec (embed-once) and the
@@ -973,7 +1073,11 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
             )
         minister_tasks.append(task)
 
+    _mark("minister_dispatch_setup")
+
     minister_results: list[MinisterScan] = await asyncio.gather(*minister_tasks)
+    _mark("minister_scoring_gather")
+    _diag["minister_activated"] = list(activated)
 
     # Step 3a: Stage 2 — VAULT/EXECUTOR/CHANNEL's deterministic verdicts.
     # Already computed once at Step 0d (before the short-circuit check
@@ -991,6 +1095,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         thresholds=call_thresholds,
         traj_risk=traj_res.risk,
     )
+    _mark("speaker_combine_verdicts")
 
     # Step 4b: record THIS action into the session trajectory (reuses the
     # vector; appended after scoring so risk reflects only prior calls).
@@ -1002,6 +1107,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         decided_by=speaker_v.decided_by,
         is_denial=(speaker_v.verdict == "BLOCK"),
     )
+    _mark("trajectory_record_action_write")
 
     latency_ms = (time.perf_counter() - t0) * 1000.0
     ts = datetime.now(timezone.utc).isoformat()
@@ -1036,6 +1142,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         provenance = prov.resolve(None, "")
     provenance_dict = provenance.to_dict()
     active_retrieval = _state.get("retrieval_mode", "dense")
+    _mark("pattern_provenance_resolve")
 
     _log_vote(
         session_id=req.session_id,
@@ -1068,8 +1175,9 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         retrieval_mode=active_retrieval,
         short_circuited=False,
     )
+    _mark("ledger_log_vote_sqlite_write")
 
-    return ParliamentResponse(
+    response = ParliamentResponse(
         verdict=speaker_v.verdict,
         speaker={
             "decided_by": speaker_v.decided_by,
@@ -1088,6 +1196,12 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         ts=ts,
         short_circuited=False,
     )
+    _mark("response_model_construction")
+    _diag["path"] = "full_pipeline"
+    _diag["total_ms"] = latency_ms
+    _diag["sum_marked_ms"] = sum(_diag[k] for k in _diag_stage_keys)
+    _log_diag(_diag)
+    return response
 
 
 @app.get("/ledger/verify")
