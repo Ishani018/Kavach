@@ -23,10 +23,23 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent
 
-TIER_A_MODULES = [
-    "parliament.test_channel_taint",   # 13 tests, includes tokenizer tests
-    "parliament.test_speaker",         # 12 tests
-]
+# Auto-detected, not hardcoded -- kavach-rearch and navigator-rearch carry
+# different test suites (kavach-rearch has test_channel_taint.py's 13
+# CHANNEL/provenance tests; navigator-rearch does not, since it never
+# received that work). Hardcoding kavach-rearch's module list broke Tier A
+# the moment this file was cherry-picked onto navigator-rearch -- found
+# and fixed during that exact propagation. Every python module under
+# parliament/ matching test_*.py that exists in THIS checkout is run;
+# smoke_test.py is deliberately excluded (it requires a live server, not
+# a unit test).
+def _discover_tier_a_modules() -> list[str]:
+    modules = []
+    for path in sorted((REPO_ROOT / "parliament").glob("test_*.py")):
+        modules.append(f"parliament.{path.stem}")
+    return modules
+
+
+TIER_A_MODULES = _discover_tier_a_modules()
 
 
 def _run_module(module: str) -> tuple[bool, str]:
