@@ -59,6 +59,28 @@ own equivalent harness there. Do not read a passing badge here as
   current two-branch split. Resolving it requires either merging
   NAVIGATOR-domain code back onto a shared branch, or building a
   parallel replay harness on `navigator-rearch` itself.
+- **Tier B fails on `navigator-rearch` by design, not by bug.**
+  `benchmarks/replay_validate.py`'s AgentDojo replay path imports
+  `benchmarks/_agentdojo_provenance_benchmark.py`, which was introduced
+  on `kavach-rearch` in commit `6982522` (tonight's CHANNEL Gate 2
+  work) and was never part of the CI/CD infra cherry-pick — it does not
+  exist on `navigator-rearch` at all. Confirmed via a real GitHub
+  Actions run on `navigator-rearch`
+  ([29638959686](https://github.com/Ishani018/Kavach/actions/runs/29638959686)):
+  Tier A passes cleanly (correctly auto-discovers and runs only
+  `test_speaker.py`, the module that actually exists there), Tier B
+  fails with `ModuleNotFoundError: No module named
+  'benchmarks._agentdojo_provenance_benchmark'`. **A PR opened against
+  `navigator-rearch` today will show a genuine, permanent Tier B
+  failure until this is resolved** — either by backporting the
+  AgentDojo harness (crosses the same branch-domain boundary the
+  NAVIGATOR-code cherry-pick was rejected for), or by making
+  `replay_validate.py` degrade this specific check to
+  `SKIPPED-NO-DATASET` on branches where the module is absent (the same
+  pattern already used for NAVIGATOR's three entries). Left
+  unresolved and explicitly documented here rather than silently
+  patched, since choosing between those two fixes is a real decision,
+  not a mechanical one.
 
 ## The Windows ProactorEventLoop concurrency lesson
 
