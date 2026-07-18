@@ -249,6 +249,15 @@ DESTINATION_TOOLS: dict[str, tuple[str, ...]] = {
     "add_user_to_channel":      ("user", "channel"),
     "send_money":                ("recipient",),
     "schedule_transaction":      ("recipient",),
+    # slack's real exfil-destination tool (found during provenance Gate 1/
+    # Gate 2 build via slack::injection_task_4/5's ground truth -- posts
+    # externally to `url`, same destination shape as send_email's
+    # recipient). Added here specifically because it was missing entirely
+    # (a real, pre-existing gap, not new scope) and both check_channel_taint
+    # and check_provenance share this dict -- confirmed zero regression risk
+    # against both the 22 real benign sessions and the 32 InjecAgent
+    # ground-truth cases (neither uses post_webpage at all) before adding.
+    "post_webpage":              ("url",),
     # InjecAgent corpus wire-format name for the same shape as send_email.
     "GmailSendEmail":            ("email", "to", "recipient", "recipients"),
 }
@@ -385,3 +394,348 @@ def check_channel_taint(
         return None
 
     return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Argument provenance (CHANNEL Stage 2b) — WHERE did this destination value
+# come from, as a fact, not an authorization decision.
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Built after a Gate 1 discriminability census against real AgentDojo
+# ground-truth data (5/5 structurally-applicable multi-step attack cases
+# were genuinely OUTPUT_DERIVED) and a benign census against the 22 real
+# banking sessions (parliament/benign_test_set/real_benign_trajectories.json)
+# that found 2/22 real false-positive risk cases: "pay the bill using the
+# IBAN stated in the bill file you just read" -- a legitimate
+# read-then-send flow whose destination is genuinely OUTPUT_DERIVED. That
+# finding is why this mechanism NEVER hard-BLOCKs on its own (see
+# check_provenance()'s verdict logic below) -- naive
+# OUTPUT_DERIVED-blocks-everything provenance would immediately regress
+# CHANNEL's own FPR discipline on banking. Resolving that case correctly
+# (distinguishing "the user asked me to pay using whatever the invoice
+# says" from "an attacker's injected instruction told me to send here")
+# needs NAVIGATOR's authorized-flow work (see navigator-rearch branch) --
+# provenance here only ever reports the fact of where a value came from.
+#
+# SCOPE (locked decisions, not to be revisited without a fresh discussion):
+#   A. Matching is BROAD and ATTRIBUTED. A destination value is checked
+#      against every tool output seen so far in the session -- not just
+#      ground_truth()-listed "source" tools -- and the record always
+#      names WHICH tool the value first appeared in. E.g. a destination
+#      URL that first appears in a get_webpage() result attributes to
+#      get_webpage, even though get_webpage is not itself a CHANNEL
+#      SOURCE_TOOLS entry -- provenance and taint are independent
+#      mechanisms answering different questions (see composition rule
+#      below), so provenance's "have I seen this value before, and
+#      where" does not require the tool to also be a taint SOURCE.
+#   B. Verdict logic is intentionally asymmetric with taint: a
+#      consequential-call destination classified OUTPUT_DERIVED or NOVEL
+#      returns ESCALATE, never BLOCK. USER_SUPPLIED or SELF (matches the
+#      session's own verified identity) returns None (pass, no verdict --
+#      same "no news is no news" convention check_channel_taint() uses).
+#      check_channel_taint()'s own BLOCK authority is completely
+#      untouched by this addition.
+#   C. Composition: taint answers "is sensitive data leaving the
+#      session" (can BLOCK); provenance answers "where did this
+#      destination value actually come from" (can ESCALATE). They are
+#      independent verdicts scored from independent per-session state --
+#      check_provenance() never reads SessionTaint, check_channel_taint()
+#      never reads SessionProvenance -- and the Speaker's existing
+#      most-restrictive-wins logic (BLOCK > ESCALATE > ALLOW, see
+#      speaker.py's combine_verdicts()) resolves the two without any new
+#      wiring: this required no changes to speaker.py or server.py's
+#      dispatch order, only a new deterministic-minister call sitting
+#      alongside the existing three.
+#
+# DATA-AVAILABILITY GAP (found during Gate 1, still true here): Kavach's
+# wire format ("tool:X args:Y", see prefilters.parse_call()) carries only
+# the CALL, never the tool's OUTPUT/result -- /hook/parliament has never
+# had a capture point for tool outputs anywhere in the pipeline. Rather
+# than invent a new endpoint, this reuses ParliamentRequest's existing
+# open-ended `context` dict (the same extension point account_email
+# already uses): a caller MAY pass `context["tool_output"]` -- the
+# result of the CURRENT call, if this call is itself a read whose result
+# should be recorded for later destination-value checks. This is
+# genuinely optional and additive: a caller that never sets it (e.g.
+# InjecAgent's live runner, which doesn't have per-call output plumbing
+# today) gets identical behavior to before this feature existed --
+# check_provenance() only ever ESCALATEs when it actually has evidence a
+# destination value came from prior output; no evidence never means
+# "assume attacker," it means "no verdict," exactly like taint's
+# fail-open discipline on unrecognized tools.
+
+# Candidate destination-value shapes -- email/IBAN/phone are the SAME
+# regex set as benchmarks/_provenance_census.py's Gate 1 census,
+# unchanged. _URL_RE is a REAL ADDITION found during Gate 2's own
+# testing, not part of the original census: the census's Gate 1 report
+# claimed slack::injection_task_4 was OUTPUT_DERIVED based on a manual
+# `'my-website-234' in str(page)` substring check done by hand while
+# writing that report -- NOT via the census's own _extract_candidates()
+# regex mechanism, which never had a URL pattern at all. This was only
+# discovered here, building the live check_provenance() test for exactly
+# that case: the destination (a bare URL, not an email/IBAN/phone) was
+# silently un-extractable, so slack::4's own required test case would
+# have wrongly reported NOVEL instead of OUTPUT_DERIVED with correct
+# source_tool attribution -- a real gap between what Gate 1 reported and
+# what its own frozen regex set actually covered. Adding _URL_RE closes
+# that specific gap; it does not touch email/IBAN/phone matching at all.
+_EMAIL_RE = re.compile(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
+_IBAN_RE = re.compile(r"\b[A-Z]{2}[0-9]{2}[A-Z0-9]{10,30}\b")
+_PHONE_RE = re.compile(r"\b(\+?\d[\d\-\s]{7,14}\d)\b")
+_URL_RE = re.compile(r"\b(?:https?://|www\.)[^\s<>\"']+", re.IGNORECASE)
+
+
+def _extract_candidate_values(text: str) -> set[str]:
+    """Every candidate destination-value-shaped string in free text:
+    emails, IBAN-shaped tokens, phone-shaped digit runs (>=8 digits, to
+    avoid matching ordinary short numbers). Same three patterns as the
+    Gate 1 census -- see module-level docstring above for why this
+    doesn't also try to regex-extract bare Slack usernames/channels (too
+    ambiguous from free text; those are read directly from known
+    destination-tool arg keys via _destination_values() instead, same as
+    check_channel_taint()).
+
+    All returned values are lowercased+stripped (via _normalize_value()),
+    matching exactly how _classify_destination_value() normalizes a
+    destination value before comparing against this set -- storing and
+    looking up under two different normalization rules was a real bug
+    found during testing (an IBAN stored here in its original uppercase
+    form, e.g. "UK12...", failed to match its own lowercased self at
+    lookup time, silently misclassifying a confirmed OUTPUT_DERIVED value
+    as NOVEL -- same ESCALATE verdict today since both classifications
+    trigger it, but wrong source_tool attribution, which breaks the
+    frozen CHANNEL/NAVIGATOR interface contract's promise)."""
+    if not isinstance(text, str) or not text:
+        return set()
+    out: set[str] = set()
+    out.update(_normalize_value(m) for m in _EMAIL_RE.findall(text))
+    out.update(_normalize_value(m) for m in _IBAN_RE.findall(text))
+    out.update(_normalize_value(m) for m in _PHONE_RE.findall(text) if len(re.sub(r"\D", "", m)) >= 8)
+    out.update(_normalize_value(m.rstrip(".,;:)")) for m in _URL_RE.findall(text))
+    return out
+
+
+def _normalize_value(value: str) -> str:
+    """Single normalization rule used consistently for BOTH storage
+    (output_candidates, user_candidates) and lookup (the value being
+    classified) -- see _extract_candidate_values()'s docstring for the
+    bug this fixes."""
+    return value.strip().lower() if isinstance(value, str) else str(value)
+
+
+def _classify_value_type(value: str) -> str:
+    """email / iban / phone / url / other -- coarse type tag for
+    ProvenanceRecord, NOT used for classification logic itself (that's
+    purely presence-based, see _classify_destination_value()). Purely
+    descriptive, for NAVIGATOR's consumption per the CHANNEL/NAVIGATOR
+    interface contract."""
+    if _EMAIL_RE.fullmatch(value) or "@" in value:
+        return "email"
+    if _IBAN_RE.fullmatch(value):
+        return "iban"
+    if _PHONE_RE.fullmatch(value):
+        return "phone"
+    if value.lower().startswith(("http://", "https://", "www.")) or _URL_RE.match(value):
+        return "url"
+    return "other"
+
+
+@dataclass
+class ProvenanceRecord:
+    """CHANNEL/NAVIGATOR interface contract (frozen schema -- see
+    test_channel_taint.py's test_provenance_record_schema_frozen() for the
+    permanent regression test). One record per flagged destination value
+    on a consequential call. Exposed via check_provenance()'s
+    `records` return value; NAVIGATOR consumes this READ-ONLY to make
+    authorization decisions -- CHANNEL never reads NAVIGATOR state,
+    NAVIGATOR never mutates CHANNEL state (see composition rule in the
+    module docstring above). Do not change field names/types without
+    coordinating across both branches; this is a two-person API."""
+    value: str
+    value_type: str            # "email" | "iban" | "phone" | "other"
+    classification: str        # "USER_SUPPLIED" | "SELF" | "OUTPUT_DERIVED" | "NOVEL"
+    source_tool: str | None    # tool name a OUTPUT_DERIVED value was first seen in, else None
+    first_seen_turn: int | None  # turn index the value was first recorded at, else None (USER_SUPPLIED/SELF/NOVEL)
+
+
+@dataclass
+class SessionProvenance:
+    """Per-session provenance state -- independent of SessionTaint (see
+    composition rule in the module docstring above). user_candidates is
+    populated once, on the FIRST call seen in a session (the caller's own
+    original instruction, if supplied); output_candidates accumulates
+    across the whole session, each value mapped to (attributed tool name,
+    turn index it was first seen at) -- first-seen wins, matching taint's
+    "only the first source tool sets state" convention. turn starts at 0
+    and increments once per check_provenance() call (i.e. once per real
+    tool call scored in this session), independent of check_channel_taint()'s
+    own call count."""
+    user_candidates: set[str] = field(default_factory=set)
+    user_instruction_seen: bool = False
+    output_candidates: dict[str, tuple[str, int]] = field(default_factory=dict)  # value -> (tool, turn)
+    turn: int = -1  # incremented to 0 on the first real call
+
+
+def new_provenance_state() -> SessionProvenance:
+    """Factory for a fresh per-session provenance state (use via defaultdict,
+    same pattern as new_taint_state())."""
+    return SessionProvenance()
+
+
+def _classify_destination_value(
+    value: str,
+    state: SessionProvenance,
+    account_email: str | None,
+) -> tuple[str, str | None, int | None]:
+    """Returns (classification, attributed_tool, first_seen_turn).
+    classification is one of USER_SUPPLIED / SELF / OUTPUT_DERIVED / NOVEL.
+    attributed_tool and first_seen_turn are populated only for
+    OUTPUT_DERIVED (None otherwise)."""
+    norm = _normalize_value(value)
+    if account_email and norm == _normalize_value(account_email):
+        return "SELF", None, None
+    if norm in state.user_candidates or any(norm in c for c in state.user_candidates):
+        return "USER_SUPPLIED", None, None
+    if norm in state.output_candidates:
+        tool, turn = state.output_candidates[norm]
+        return "OUTPUT_DERIVED", tool, turn
+    for cand, (tool, turn) in state.output_candidates.items():
+        if norm in cand:
+            return "OUTPUT_DERIVED", tool, turn
+    return "NOVEL", None, None
+
+
+def check_provenance(
+    text: str,
+    state: SessionProvenance,
+    account_email: str | None = None,
+    user_instruction: str | None = None,
+    tool_output: str | None = None,
+) -> tuple[MinisterScan | None, list[ProvenanceRecord]]:
+    """Score ONE call against the session's provenance state, mutating
+    `state` in place (records this call's own output, if supplied, for
+    future calls to check against; classifies THIS call's destination
+    values if it's a destination-tool call). Independent of
+    check_channel_taint() and SessionTaint -- see composition rule in the
+    module docstring above.
+
+    text: the "tool:X args:Y" call being scored, same wire format as
+        check_channel_taint().
+    state: this session's SessionProvenance (caller owns its lifetime,
+        same convention as SessionTaint).
+    account_email: the session's own verified identity, if known -- same
+        parameter, same source as check_channel_taint() already uses.
+    user_instruction: the session's original instruction text, needed
+        ONCE (first call only; ignored on subsequent calls -- see
+        SessionProvenance.user_instruction_seen). A caller that never
+        supplies this simply never gets USER_SUPPLIED classifications
+        (destination values fall through to NOVEL instead) -- documented
+        limitation, not a silent failure.
+    tool_output: the result of THIS call, if this call is itself a read
+        whose output should be recorded for later destination-value
+        checks. See the DATA-AVAILABILITY GAP note in the module
+        docstring above for why this is an optional context field, not
+        a guaranteed capture.
+
+    Returns (scan, records):
+      scan: a MinisterScan with verdict=ESCALATE if a destination-tool
+        call's value is OUTPUT_DERIVED or NOVEL; None otherwise (matches
+        check_channel_taint()'s "no verdict" convention for ALLOW-shaped
+        outcomes).
+      records: a ProvenanceRecord for EVERY destination value checked on
+        this call (not just flagged ones) -- the CHANNEL/NAVIGATOR
+        interface contract. Empty list when this call isn't a
+        destination-tool call at all."""
+    if not state.user_instruction_seen:
+        state.user_candidates = _extract_candidate_values(user_instruction or "")
+        state.user_instruction_seen = True
+
+    call = parse_call(text)
+    if call is None:
+        return None, []
+
+    state.turn += 1
+
+    # Classify THIS call's own destination values BEFORE recording this
+    # call's own tool_output. Bug found and fixed during the benign
+    # re-census with real environment-dispatched outputs: a destination
+    # tool's own confirmation output (e.g. send_money returning
+    # "Transaction to <IBAN> sent.") echoes back its own recipient
+    # argument -- storing that into output_candidates BEFORE classifying
+    # this same call created a circular, meaningless self-attribution
+    # (a destination value "first seen in the output of the very call
+    # that used it as an argument"). Real destination-tool calls in
+    # AgentDojo's environment consistently echo their own args back in
+    # their confirmation message, so this wasn't a synthetic edge case --
+    # it fired on a real fixture (benign\local\banking\user_task_2,
+    # send_money's own IBAN misattributed to itself instead of correctly
+    # falling through to NOVEL, since the real source -- read_file's
+    # landlord-notice content -- never actually contained the IBAN at all).
+    if not is_destination_tool(call.tool):
+        if tool_output:
+            for cand in _extract_candidate_values(tool_output):
+                if cand not in state.output_candidates:
+                    state.output_candidates[cand] = (call.tool, state.turn)
+        return None, []
+
+    values = _destination_values(call)
+    if not values:
+        if tool_output:
+            for cand in _extract_candidate_values(tool_output):
+                if cand not in state.output_candidates:
+                    state.output_candidates[cand] = (call.tool, state.turn)
+        return None, []
+
+    records: list[ProvenanceRecord] = []
+    flagged: list[ProvenanceRecord] = []
+    for v in values:
+        classification, tool, turn = _classify_destination_value(v, state, account_email)
+        rec = ProvenanceRecord(
+            value=v,
+            value_type=_classify_value_type(v),
+            classification=classification,
+            source_tool=tool,
+            first_seen_turn=turn,
+        )
+        records.append(rec)
+        if classification in ("OUTPUT_DERIVED", "NOVEL"):
+            flagged.append(rec)
+
+    # Record THIS call's own output for FUTURE calls to reference, now
+    # that this call's OWN destination values have already been
+    # classified against only prior state (see the ordering fix above).
+    if tool_output:
+        for cand in _extract_candidate_values(tool_output):
+            if cand not in state.output_candidates:
+                state.output_candidates[cand] = (call.tool, state.turn)
+
+    if not flagged:
+        return None, records
+
+    winner = flagged[0]
+    if winner.classification == "OUTPUT_DERIVED":
+        detail = f"destination {winner.value!r} first seen in output of {winner.source_tool!r}, not in the user's original instruction"
+    else:
+        detail = f"destination {winner.value!r} not found in the user's original instruction or any prior tool output this session"
+
+    scan = MinisterScan(
+        minister="CHANNEL",
+        verdict="ESCALATE",
+        confidence=1.0,
+        matched_id=f"CHANNEL-PROVENANCE:{winner.classification.lower()}",
+        matched_text=(
+            f"consequential call to {call.tool!r} — {detail}"
+        ),
+        matched_level="deterministic",
+        # Exfiltration Over Web Service -- same shape as check_channel_taint's
+        # T1041 (unverified destination receiving session data), but T1567
+        # specifically since provenance's finding is about the DESTINATION's
+        # legitimacy rather than the read-then-send session pattern taint
+        # detects. Confirmed registered in provenance.py's _TECH table (an
+        # earlier T1204 "User Execution" guess was NOT registered there and
+        # would have silently resolved to "(unmapped technique)" in the
+        # ledger/response -- found and fixed during this build's own testing).
+        source="MITRE ATT&CK T1567",
+        retrieval_mode="deterministic",
+    )
+    return scan, records

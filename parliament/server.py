@@ -167,6 +167,7 @@ _state: dict[str, Any] = {
     "intents":    {},    # session_id → np.ndarray (BGE vector of user intent)
     "history":    defaultdict(traj.new_history),  # session_id → deque[ActionRecord]
     "channel_taint": defaultdict(channel_taint.new_taint_state),  # session_id → SessionTaint
+    "channel_provenance": defaultdict(channel_taint.new_provenance_state),  # session_id → SessionProvenance (independent of channel_taint -- see composition rule in channel_taint.py)
 }
 
 
@@ -619,7 +620,10 @@ async def check_drift(req: ParliamentRequest) -> dict[str, Any]:
     }
 
 
-def _run_deterministic_ministers(req_text: str, session_id: str, account_email: str | None) -> list[MinisterScan]:
+def _run_deterministic_ministers(
+    req_text: str, session_id: str, account_email: str | None,
+    user_instruction: str | None = None, tool_output: str | None = None,
+) -> list[MinisterScan]:
     """VAULT/EXECUTOR/CHANNEL's deterministic verdicts — unconditional,
     synchronous, no embedding, no ChromaDB query (Stage 2). Factored out
     of the main handler so both the short-circuit path and the full
@@ -627,7 +631,19 @@ def _run_deterministic_ministers(req_text: str, session_id: str, account_email: 
     A None result from any checker becomes an explicit ALLOW MinisterScan
     so none of the three ever silently disappears from minister_results/
     minister_dict/the ledger, same fail-open discipline as before this
-    refactor."""
+    refactor.
+
+    CHANNEL contributes up to TWO independent scans here (taint +
+    provenance, both named "CHANNEL" — see channel_taint.py's composition-
+    rule docstring for why this is intentional, not a naming collision to
+    fix). combine_verdicts() correctly considers both; server.py's
+    minister_dict-building step keeps whichever is more restrictive on a
+    same-name collision (see the _VERDICT_RANK comment at that call site).
+
+    user_instruction / tool_output: optional, forwarded to
+    channel_taint.check_provenance() — see that function's docstring for
+    what happens when a caller never supplies them (provenance simply
+    never fires, not a silent failure)."""
     parsed_call = prefilters.parse_call(req_text)
 
     vault_scan = prefilters.check_vault(parsed_call) if parsed_call is not None else None
@@ -655,7 +671,15 @@ def _run_deterministic_ministers(req_text: str, session_id: str, account_email: 
             source=None, retrieval_mode="deterministic",
         )
 
-    return [vault_scan, executor_scan, channel_scan]
+    provenance_state = _state["channel_provenance"][session_id]
+    provenance_scan, _provenance_records = channel_taint.check_provenance(
+        req_text, provenance_state, account_email=account_email,
+        user_instruction=user_instruction, tool_output=tool_output,
+    )
+    results = [vault_scan, executor_scan, channel_scan]
+    if provenance_scan is not None:
+        results.append(provenance_scan)
+    return results
 
 
 def _short_circuit_candidate(deterministic_results: list[MinisterScan]) -> MinisterScan | None:
@@ -803,7 +827,17 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # unchanged: these three run unconditionally regardless of what
     # happens next, exactly as they did before this optimization existed.
     account_email = req.context.get("account_email")
-    deterministic_results = _run_deterministic_ministers(req.text, req.session_id, account_email)
+    # user_instruction/tool_output: optional provenance inputs, same
+    # open-ended `context` extension point account_email already uses —
+    # see channel_taint.check_provenance()'s docstring for the
+    # DATA-AVAILABILITY GAP this works around (Kavach's wire format never
+    # carried tool outputs before this).
+    user_instruction = req.context.get("user_instruction")
+    tool_output = req.context.get("tool_output")
+    deterministic_results = _run_deterministic_ministers(
+        req.text, req.session_id, account_email,
+        user_instruction=user_instruction, tool_output=tool_output,
+    )
 
     short_circuit_scan = _short_circuit_candidate(deterministic_results)
     if short_circuit_scan is not None:
@@ -1006,8 +1040,23 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     latency_ms = (time.perf_counter() - t0) * 1000.0
     ts = datetime.now(timezone.utc).isoformat()
 
+    # Two independent scans can share a minister name (CHANNEL's taint
+    # tracker and CHANNEL's provenance check both report as "CHANNEL" --
+    # see channel_taint.py's composition-rule docstring). A plain
+    # dict-assignment loop would silently let whichever scan is iterated
+    # LAST overwrite the other in this response, even though
+    # combine_verdicts() above already correctly considered both when
+    # deciding the actual verdict -- that's a real loss of audit
+    # information, not just a cosmetic gap, so on a same-name collision
+    # this keeps whichever scan is more restrictive (BLOCK > ESCALATE >
+    # ALLOW), matching the Speaker's own most-restrictive-wins philosophy
+    # rather than an arbitrary "last one wins."
+    _VERDICT_RANK = {"BLOCK": 2, "ESCALATE": 1, "ALLOW": 0}
     minister_dict: dict[str, MinisterResult] = {}
     for r in minister_results:
+        existing = minister_dict.get(r.minister)
+        if existing is not None and _VERDICT_RANK.get(existing.verdict, 0) >= _VERDICT_RANK.get(r.verdict, 0):
+            continue
         minister_dict[r.minister] = MinisterResult(
             verdict=r.verdict,
             confidence=r.confidence,

@@ -13,6 +13,13 @@ benchmarks/results_v1/*.log
 benchmarks/results_v1/*.png
 benchmarks/results_v1/benign/
 
+# Raw replay-run artifacts (generated per-run, not source -- CHANNEL Gate 2
+# InjecAgent 544-case replay dumps; the first is a failed concurrency=8 run
+# kept only as a diagnostic record, the second is the successful
+# concurrency=2 re-run -- neither is reusable tooling)
+benchmarks/results_v2/injecagent_ds_544_gate2_replay/
+benchmarks/results_v2/injecagent_ds_544_gate2_replay_c2/
+
 # Generated corpus + reports
 corpus_v2/kavach_corpus_v2.json
 corpus_v2/merge_report.json
