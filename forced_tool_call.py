@@ -202,6 +202,31 @@ def _forced_call_system_note(tool_schemas: list[dict[str, Any]]) -> str:
     )
 
 
+def _normalize_content(content: Any) -> str:
+    """Ollama's /api/chat expects messages[i].content to be a plain string.
+
+    AgentDojo represents content as a list of text/image content block objects,
+    so we normalize any array/list content into a single plain string.
+    """
+    if isinstance(content, str):
+        return content
+    if content is None:
+        return ""
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                parts.append(item.get("text", ""))
+            elif hasattr(item, "text"):
+                parts.append(getattr(item, "text") or "")
+            else:
+                parts.append(str(item))
+        return "".join(parts)
+    return str(content)
+
+
 def get_forced_tool_call(
     model: str,
     messages: list[dict[str, Any]],
@@ -240,7 +265,13 @@ def get_forced_tool_call(
     endpoint = ollama_url.rstrip("/") + "/api/chat"
     schema = _tool_call_schema(tool_schemas)
 
-    forced_messages = list(messages) + [
+    normalized_messages = []
+    for msg in messages:
+        norm = dict(msg)
+        norm["content"] = _normalize_content(msg.get("content"))
+        normalized_messages.append(norm)
+
+    forced_messages = normalized_messages + [
         {"role": "system", "content": _forced_call_system_note(tool_schemas)}
     ]
 
