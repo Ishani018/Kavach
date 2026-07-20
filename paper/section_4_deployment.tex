@@ -7,15 +7,17 @@
 \label{sec:eval}
 
 We evaluate Kavach on three independent axes: deterministic-primary
-detection on a large reference attack corpus (\S\ref{sec:vault-executor-eval}),
-CHANNEL's session-level provenance mechanism against real multi-step attack
-and benign trajectories (\S\ref{sec:channel-eval}), and a large-scale
-real-trajectory validation against AgentDojo's own recorded model
-transcripts, not a benchmark replay of minimal ground-truth call sequences
-(\S\ref{sec:gpt4o}). Throughout, we report benign false-positive counts
-jointly with attack recall, and we distinguish measurements taken via
-in-process scoring from measurements taken via the live HTTP dispatch path,
-since these two paths previously diverged in ways that mattered
+detection on Kavach-PB, a composite benchmark we built specifically because
+the two standard benchmarks below almost entirely miss VAULT and EXECUTOR
+(\S\ref{sec:kavach-pb}--\ref{sec:vault-executor-eval}), CHANNEL's
+session-level provenance mechanism against real multi-step attack and
+benign trajectories from AgentDojo (\S\ref{sec:channel-eval}), and a
+large-scale real-trajectory validation against AgentDojo's own recorded
+model transcripts, not a benchmark replay of minimal ground-truth call
+sequences (\S\ref{sec:gpt4o}). Throughout, we report benign false-positive
+counts jointly with attack recall, and we distinguish measurements taken
+via in-process scoring from measurements taken via the live HTTP dispatch
+path, since these two paths previously diverged in ways that mattered
 (\S\ref{sec:audit-resolution}).
 
 \subsection{An audit discrepancy, and how it was resolved}
@@ -36,24 +38,81 @@ understate how easily a benchmark harness's own bugs can masquerade as
 detector performance --- a risk equally present in any comparably complex
 evaluation pipeline, ours included.
 
-\subsection{VAULT and EXECUTOR: reference-corpus detection}
+\subsection{Kavach-PB: a composite benchmark for all four ministers}
+\label{sec:kavach-pb}
+InjecAgent and AgentDojo, the two standard agent-security benchmarks we rely
+on elsewhere in this section, almost exclusively stress CHANNEL: InjecAgent's
+attack shape is a read-then-send taint chain, and AgentDojo's is a
+provenance-mismatched destination value on a consequential call. Neither
+meaningfully exercises VAULT (credential and secret handling) or EXECUTOR
+(dangerous or injected code execution) at all. We found this gap live, while
+validating VAULT/EXECUTOR's deterministic-primary rearchitecture
+(\S\ref{sec:deterministic-primary}) and discovering we had no real benchmark
+to validate it against --- not an anticipated design requirement.
+
+Rather than author new synthetic attacks to close this gap, we built
+\textbf{Kavach-PB} (Kavach Parliament Benchmark): a unified, composite
+adversarial evaluation suite that reuses already-real, externally-validated
+attack data under one runner, one wire format, and one scoring convention
+across all four ministers. This choice is deliberate and methodological, not
+incidental: a self-authored attack set risks unconsciously being shaped to be
+catchable by the very system it evaluates, since the same person or process
+who understands the detector's mechanism is the one writing the attacks.
+Reusing attack corpora authored independently, by real security researchers,
+for a purpose unrelated to Kavach, avoids this risk structurally rather than
+by discipline alone.
+
+\paragraph{What is reused, what is new.} The underlying attack and benign
+data is real and reused, not invented: attack cases are drawn from
+AtomicRedTeam (technique-tagged adversary emulation commands) and GTFOBins
+(Unix binary living-off-the-land technique commands), and benign calls are
+drawn from the Berkeley Function-Calling Leaderboard (BFCL, general-purpose)
+plus a 55-case agent-shaped benign set. What is novel is the unification
+itself: a single harness dispatching every case through the same
+\texttt{/hook/parliament} path regardless of source corpus, a per-minister
+scoring methodology (below), and a two-population benign false-positive
+convention --- none of which existed before this evaluation, all of which are
+needed to make VAULT/EXECUTOR measurable at all under real, externally
+sourced attack data.
+
+\paragraph{Scoring convention.} Each attack case carries a
+\texttt{target\_patterns} list (e.g.\ \texttt{["VAULT:VAULT-060"]}) naming
+which minister(s) the case is expected to trigger; we report both an overall
+detected rate (any minister returns \textsc{Block} or \textsc{Escalate}, the
+honest minister-agnostic bottom line) and a per-minister hit rate (did the
+specifically targeted minister itself fire, checked directly in the
+response's per-minister field rather than only via which minister the
+speaker's verdict is attributed to) --- a case can be detected overall while
+its targeted minister misses, and we surface that divergence as a real
+coverage finding rather than absorbing it into the aggregate. On the benign
+side, \textsc{Block} is a hard false positive and \textsc{Escalate} is
+reported separately, never conflated with either \textsc{Block} or a clean
+\textsc{Allow} --- the same convention CHANNEL's own provenance mechanism
+uses (\S\ref{sec:channel}). We report two benign populations separately
+rather than pooled: BFCL (793 cases, real but general-purpose/utility calls,
+not agent-shaped --- a clean result here is real but weaker evidence, a
+domain mismatch we state rather than obscure) and the 55-case agent-shaped
+benign set (the stronger evidence).
+
+\subsection{Kavach-PB results: VAULT and EXECUTOR}
 \label{sec:vault-executor-eval}
-On the 519-case AtomicRedTeam/GTFOBins reference corpus (117 VAULT-targeted,
-203 EXECUTOR-targeted cases; the corpus's \texttt{target\_patterns} field is
-unmodified since its original authoring commit, confirmed via \texttt{git
-diff}, so it is independent ground truth rather than tuned after the fact),
-the deterministic layer alone recovers VAULT 34.2\% (40/117) and EXECUTOR
-34.5\% (70/203); adding the cosine-escalate-only triage layer over the
-deterministic residual (\S\ref{sec:triage}) raises full-pipeline detection to
-VAULT 74.4\% (87/117) and EXECUTOR 90.1\% (181/201), with zero new hard-block
-false positives on either benign population we measure (793 general-purpose
-BFCL calls, 55 agent-shaped benign calls). A held-out even/odd split of the
-same population confirms the full-pipeline rate is stable rather than an
-artifact of the specific partition: VAULT 71.2\% (42/59) on the even half
-versus 74.1\% (43/58) on the odd half; EXECUTOR 89.2\% (91/102) versus 91.1\%
-(92/101). We report both halves explicitly rather than only their average,
-consistent with our standing discipline of never characterizing a split as
-``balanced'' or ``generalizing'' from an aggregate number alone.
+On Kavach-PB's 519-case AtomicRedTeam/GTFOBins reference corpus (117
+VAULT-targeted, 203 EXECUTOR-targeted cases; the corpus's
+\texttt{target\_patterns} field is unmodified since its original authoring
+commit, confirmed via \texttt{git diff}, so it is independent ground truth
+rather than tuned after the fact), the deterministic layer alone recovers
+VAULT 34.2\% (40/117) and EXECUTOR 34.5\% (70/203); adding the
+cosine-escalate-only triage layer over the deterministic residual
+(\S\ref{sec:triage}) raises full-pipeline detection to VAULT 74.4\%
+(87/117) and EXECUTOR 90.1\% (181/201), with zero new hard-block false
+positives on either benign population (793 BFCL, 55 agent-shaped). A
+held-out even/odd split of the same population confirms the full-pipeline
+rate is stable rather than an artifact of the specific partition: VAULT
+71.2\% (42/59) on the even half versus 74.1\% (43/58) on the odd half;
+EXECUTOR 89.2\% (91/102) versus 91.1\% (92/101). We report both halves
+explicitly rather than only their average, consistent with our standing
+discipline of never characterizing a split as ``balanced'' or
+``generalizing'' from an aggregate number alone.
 
 \subsection{CHANNEL: session-level provenance}
 \label{sec:channel-eval}
