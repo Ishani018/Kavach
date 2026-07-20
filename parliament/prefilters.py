@@ -35,6 +35,21 @@ import re
 from dataclasses import dataclass
 
 from .ministers import MinisterScan
+from . import struct_parse
+from . import ast_parse
+
+# Dialects where ast_parse's real grammar parser is both correct AND fast
+# enough for the live hot path (bashlex, pure-Python, ~0.5ms/call --
+# confirmed via direct measurement). PowerShell's real AST (via a
+# powershell.exe subprocess) is architecturally correct but costs ~1.4s/call
+# -- 18x over the 78ms latency budget, disqualifying for live use, same
+# class of rejection as the earlier SPLADE/cross-encoder latency decisions
+# (REARCHITECTURE_PLAN.md). PowerShell and every other dialect (including
+# command_prompt, confirmed via direct test that bashlex raises ParsingError
+# on real cmd.exe batch syntax) stay on struct_parse.py's tokenizer here;
+# ast_parse.py's PowerShell path remains available as an opt-in offline/
+# audit tool, not wired into this live path.
+_AST_FAST_DIALECTS = frozenset({"sh", "bash"})
 
 log = logging.getLogger("kavach.prefilters")
 
@@ -355,6 +370,76 @@ VAULT_PATTERNS: list[tuple[str, re.Pattern, str]] = [
      # corpus provenance: VAULT-090 (memory_swap_credential)
      re.compile(r"hiberfil\.sys\b|/dev/kmem\b|/var/vm/swapfile"),
      "MITRE ATT&CK T1003.001"),
+    # ---- Kavach-PB expansion (atomicred/gtfobins gap map, 2026-07-18) ----
+    # Each rule below closes a CATEGORY of miss found in the 519-case attack
+    # run, matched at the technique level (tool + argument shape), never on a
+    # literal test string. Every one was regression-checked against both
+    # benign populations (bfcl 793 + benign_v0 55) at 0 new FPs before merge.
+    ("credential-file-search",
+     # T1552.001/.004 miss category: find/dir/grep sweeping the filesystem
+     # for key/credential FILES by extension or well-known name. Requires a
+     # search *tool* AND a credential-file target together, so an ordinary
+     # `find . -name '*.py'` never matches. gsecdump/mimikatz-style dumpers
+     # included (a search for the credential IS the access).
+     re.compile(
+         r"\b(find|dir|ls|grep|rg|ag|where|Get-ChildItem|gci)\b"
+         r"[^\n]{0,120}"
+         r"(\.(pem|key|ppk|pfx|p12|keychain|kdbx)\b|"
+         r"[/\\]\.(ssh|gnupg|aws|azure|oci)\b|"
+         r"\bid_(rsa|dsa|ecdsa|ed25519)\b|"
+         r"\.(oci|config)[/\\].{0,20}\btoken\b|"
+         r"['\"]?password['\"]?)",
+         re.IGNORECASE),
+     "MITRE ATT&CK T1552.001"),
+    ("browser-credential-store-path",
+     # T1555.003/T1539 miss category: reading a browser's saved-password or
+     # cookie store by its canonical on-disk name/path. File-name anchored,
+     # so it only fires on the actual credential artifact, not on the word
+     # "cookie" in prose.
+     re.compile(
+         r"Cookies\.binarycookies|"
+         r"[/\\](Login Data|Cookies|Web Data)\b|"
+         r"key[34]\.db\b|logins\.json\b|signons\.sqlite\b|"
+         r"[/\\]Library[/\\](Cookies|Application Support[/\\].{0,30}Cookies)|"
+         r"cookies\.sqlite\b",
+         re.IGNORECASE),
+     "MITRE ATT&CK T1555.003"),
+    ("cloud-credential-cli-read",
+     # T1078.004/T1528/T1552.005 miss category: cloud CLI commands that
+     # mint, list, or export credentials/keys. Verb-anchored to the
+     # credential-bearing subcommands only (not all of az/gcloud/aws), so
+     # a benign `az group list` never matches.
+     re.compile(
+         r"\baz\s+(account\s+get-access-token|storage\s+account\s+keys\s+list|ad\s+sp\s+credential)\b|"
+         r"\bgcloud\s+(auth\s+print-access-token|iam\s+service-accounts\s+keys\s+create)\b|"
+         r"\baws\s+(iam\s+create-access-key|sts\s+get-session-token|secretsmanager\s+get-secret-value)\b",
+         re.IGNORECASE),
+     "MITRE ATT&CK T1552.005"),
+    # ---- Kavach-PB expansion, ROUND 2 (2026-07-18) ----
+    # Scope-gated: only categories that were BOTH genuinely credential-access
+    # AND uncaught by CHANNEL/NAVIGATOR in the server run. Recon (T1018/T1040)
+    # and download-and-run cases mis-tagged VAULT were deliberately left to
+    # their real owners (see Round 2 report). Regression + generalization
+    # checked at 0 new benign FPs before merge.
+    ("keychain-keystore-file-read",
+     # T1555.001 miss category: reading a macOS keychain DB file directly by
+     # path (distinct from the `security` CLI form already covered by
+     # macos-keychain-dump). File-name anchored.
+     re.compile(
+         r"login\.keychain(-db)?\b|/Library/Keychains/|System\.keychain\b",
+         re.IGNORECASE),
+     "MITRE ATT&CK T1555.001"),
+    ("browser-password-dumper-tool",
+     # T1555.003 miss category: launching a known browser-credential
+     # extraction utility, or reading a Firefox/Chrome profile's saved-login
+     # store by path. Tool-name/path anchored -- these binaries and files
+     # exist for no benign purpose in an agent context.
+     re.compile(
+         r"WebBrowserPassView|LaZagne|SharpChrome|"
+         r"\bnss3\.dll\b|key4\.db\b|signons\.sqlite\b|"
+         r"Firefox[/\\]Profiles[/\\][^\n]{0,40}(logins\.json|key[34]\.db)",
+         re.IGNORECASE),
+     "MITRE ATT&CK T1555.003"),
     ("json-token-shape-grep",
      # corpus provenance: VAULT-098 (json_token_pattern_grep). Matches a
      # grep/ripgrep/ag invocation whose OWN regex argument literally
@@ -370,6 +455,97 @@ VAULT_PATTERNS: list[tuple[str, re.Pattern, str]] = [
 ]
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Behavioral-primitive taxonomy (Kavach-PB architectural upgrade).
+# Each rule name maps to the behavioral PRIMITIVE it implements -- what the
+# call DOES, independent of tool name. This is the organizing axis the rule
+# set is designed around; the technique tag (T-number/CWE) remains as
+# secondary provenance. A rule with no explicit mapping falls back to its
+# minister's generic primitive (defensive default, never crashes).
+#
+# VAULT:   V1 credential-path-read, V2 credential-search,
+#          V3 cloud-credential-cli-invocation, V4 browser-credential-store-access,
+#          V5 os-credential-dump, V6 secret-format-match.
+# EXECUTOR: E1 network-fetch-to-disk, E2 interpreter-eval-spawn,
+#          E3 persistence-location-write, E4 privilege-escalation-search-or-write,
+#          E5 library-or-module-load, E6 container-escape,
+#          E7 deserialization-or-injection.
+RULE_PRIMITIVE: dict[str, str] = {
+    # ---- VAULT ----
+    "dotenv-file": "V1", "aws-credentials-file": "V1", "ssh-private-key-path": "V1",
+    "ssh-dir": "V1", "pem-key-file": "V1", "private-key-block": "V6",
+    "aws-access-key-id": "V6", "gcp-service-account-json-shape": "V6",
+    "generic-secret-keyword-path": "V1", "env-secret-harvest": "V1",
+    "dotenv-read-call": "V1", "git-credential-store-path": "V1",
+    "k8s-serviceaccount-token": "V3", "docker-registry-config": "V1",
+    "terraform-state-secrets": "V1", "cloud-metadata-imds": "V3",
+    "gpg-private-key-material": "V1", "password-manager-db": "V1",
+    "npm-token-rc": "V1", "pypirc-token": "V1", "browser-localstorage-leveldb": "V4",
+    "cloud-provider-env-key": "V1", "database-connection-string": "V6",
+    "gcloud-application-credentials": "V1", "jenkins-secrets-path": "V1",
+    "firebase-service-account-json": "V1", "redis-conf-password": "V1",
+    "ansible-vault-password": "V1", "maven-settings-credentials": "V1",
+    "ruby-gem-credentials": "V1", "cargo-registry-token": "V1",
+    "pulumi-access-token": "V1", "pgpass-credentials": "V1",
+    "windows-credential-manager-cmd": "V5", "macos-keychain-dump": "V5",
+    "okta-token-cache": "V1", "chrome-login-data-sqlite": "V4",
+    "terraform-cloud-token": "V1", "artifactory-token": "V1",
+    "dotenv-outside-workspace": "V1", "gh-glab-cli-creds": "V1",
+    "ssh-agent-socket-hijack": "V1", "shell-history-credential-grep": "V2",
+    "lsass-memory-dump": "V5", "git-history-secret-scan": "V2",
+    "azure-token-cache": "V1", "vscode-jetbrains-secrets-file": "V1",
+    "etc-shadow-sam-ntds": "V5", "kubernetes-secrets-dump-cmd": "V3",
+    "secret-manager-bulk-dump-cmd": "V3", "dns-exfil-tool-call": "V1",
+    "kerberos-ticket-cache": "V5", "openvpn-wireguard-creds": "V1",
+    "java-keystore-dump": "V1", "redis-mongo-unauth-dump": "V3",
+    "proc-environ-multi-pid": "V1", "swap-hiberfil-rawmem": "V5",
+    "credential-file-search": "V2", "browser-credential-store-path": "V4",
+    "cloud-credential-cli-read": "V3", "keychain-keystore-file-read": "V5",
+    "browser-password-dumper-tool": "V4", "json-token-shape-grep": "V6",
+    # ---- EXECUTOR ----
+    "curl-pipe-shell": "E1", "wget-pipe-shell": "E1", "certutil-download": "E1",
+    "mshta-remote": "E1", "rundll32-script": "E5", "regsvr32-remote": "E5",
+    "cmstp-inf": "E1", "powershell-encoded": "E2", "powershell-download-invoke": "E1",
+    "dotnet-webclient-download": "E1", "bitsadmin-transfer": "E1",
+    "ruby-inline-shell-exec": "E2", "php-inline-system-exec": "E2",
+    "python-eval-exec": "E2", "os-system-call": "E2", "subprocess-shell-true": "E2",
+    "base64-decode-then-exec": "E7", "gdb-lldb-inject": "E2",
+    "nc-reverse-shell": "E2", "pickle-loads-untrusted": "E7",
+    "yaml-load-unsafe": "E7", "ld-preload-env-assign": "E5",
+    "pythonpath-hijack": "E5", "xargs-shell-exec": "E2",
+    "docker-privileged-run": "E6", "cgroup-release-agent-escape": "E6",
+    "kernel-module-load-cmd": "E5", "interpreter-repl-sandbox-escape": "E2",
+    "cron-drop-in-write": "E3", "systemd-unit-install": "E3",
+    "launchd-plist-persistence": "E3", "wmi-event-subscription": "E3",
+    "browser-extension-load-flag": "E3", "jndi-lookup-string": "E7",
+    "fifo-mkfifo-exec": "E2", "container-runtime-escape-cmd": "E6",
+    "git-hook-file-write": "E3", "git-hookspath-config": "E3",
+    "ci-workflow-run-block": "E3", "lockfile-integrity-tamper": "E3",
+    "dependency-local-path-override": "E3", "direnv-envrc-write": "E3",
+    "ssh-authorized-keys-append": "E3", "sudoers-write": "E4",
+    "polkit-rule-write": "E4", "path-env-prepend": "E5",
+    "windows-run-key-write": "E3", "windows-service-create": "E3",
+    "powershell-profile-write": "E3", "chrome-devtools-protocol-connect": "E2",
+    "docker-socket-abuse": "E6", "kubectl-exec-cmd": "E2",
+    "k8s-privileged-pod-manifest": "E6", "sts-assume-role-cmd": "E3",
+    "interpreter-inline-eval-payload": "E2",
+    "remote-payload-download-tool": "E1", "shell-rc-persistence-write": "E3",
+    "service-binpath-persistence": "E3", "suid-sgid-search": "E4",
+    "shadow-passwd-privesc-cmd": "E4", "awk-perl-inline-shell-spawn": "E2",
+    "reverse-shell-network-exec": "E2", "lolbin-arbitrary-library-load": "E5",
+    "driver-install-lolbin": "E5",
+    # structural-parser-backed rules (Part 2)
+    "struct-credential-path": "V1", "struct-network-fetch-to-disk": "E1",
+}
+
+
+def primitive_of(rule_name: str, minister: str) -> str:
+    """Return the behavioral primitive a rule implements, or a minister-generic
+    fallback if unmapped (so a newly-added-but-untagged rule never crashes
+    attribution). AST rules pass their underlying rule_name."""
+    return RULE_PRIMITIVE.get(rule_name, "V0" if minister == "VAULT" else "E0")
+
+
 def check_vault(call: ParsedCall) -> MinisterScan | None:
     values = _flatten_arg_values(call.args)
     haystacks = [call.tool] + values
@@ -377,16 +553,39 @@ def check_vault(call: ParsedCall) -> MinisterScan | None:
         for name, pattern, source in VAULT_PATTERNS:
             m = pattern.search(text)
             if m:
+                prim = primitive_of(name, "VAULT")
                 return MinisterScan(
                     minister="VAULT",
                     verdict="BLOCK",
                     confidence=1.0,
                     matched_id=f"VAULT-PREFILTER:{name}",
-                    matched_text=f"rule '{name}' matched {m.group(0)!r} in call to {call.tool}",
+                    matched_text=f"[{prim}] rule '{name}' matched {m.group(0)!r} in call to {call.tool}",
                     matched_level="deterministic",
                     source=source,
                     retrieval_mode="deterministic",
                 )
+    # Structural fallback (V1/V2): a credential-shaped path token anywhere in
+    # the call, robust to quoting/reordering the literal regexes above may
+    # miss. Runs AFTER the regex rules (they're more specific); structural is
+    # the reorder-robust net beneath them. Validated independently in
+    # test_struct_parse.py.
+    for text in values:
+        if call.tool in _AST_FAST_DIALECTS:
+            matched, evidence, used_ast = ast_parse.has_credential_path(text, call.tool)
+        else:
+            matched, evidence = struct_parse.has_credential_path(text)
+            used_ast = False
+        if matched:
+            return MinisterScan(
+                minister="VAULT",
+                verdict="BLOCK",
+                confidence=1.0,
+                matched_id="VAULT-PREFILTER:struct-credential-path",
+                matched_text=f"[V1] {'AST' if used_ast else 'structural'}: {evidence} in call to {call.tool}",
+                matched_level="deterministic",
+                source="MITRE ATT&CK T1552.001",
+                retrieval_mode="deterministic",
+            )
     return None
 
 
@@ -580,7 +779,12 @@ EXECUTOR_DENYLIST: list[tuple[str, re.Pattern, str]] = [
      "MITRE ATT&CK T1543.003"),
     ("powershell-profile-write",
      # corpus provenance: EXEC-090 (powershell_profile_persistence)
-     re.compile(r"\$PROFILE\b|Microsoft\.PowerShell_profile\.ps1"),
+     # IGNORECASE added in Round 2: PowerShell is case-insensitive and real
+     # persistence payloads use the lowercase `$profile` automatic variable
+     # (`Add-Content $profile ...`), which the original case-sensitive
+     # `\$PROFILE` silently missed -- caught by the Round 2 uncaught-by-any
+     # census (T1546.013).
+     re.compile(r"\$PROFILE\b|Microsoft\.PowerShell_profile\.ps1", re.IGNORECASE),
      "MITRE ATT&CK T1546.013"),
     ("chrome-devtools-protocol-connect",
      # corpus provenance: EXEC-092 (browser_devtools_protocol)
@@ -602,6 +806,128 @@ EXECUTOR_DENYLIST: list[tuple[str, re.Pattern, str]] = [
      # corpus provenance: EXEC-097 (cloud_iam_role_assume)
      re.compile(r"sts\s+assume-role(-with-web-identity)?\b"),
      "MITRE ATT&CK T1550.001"),
+    # ---- Kavach-PB expansion (atomicred/gtfobins gap map, 2026-07-18) ----
+    # Technique-level rules closing EXECUTOR miss categories from the
+    # 519-case run. Each requires a dangerous tool AND a dangerous argument
+    # shape together; all regression-checked at 0 new benign FPs (bfcl 793 +
+    # benign_v0 55) before merge.
+    ("remote-payload-download-tool",
+     # T1105 miss category: staging a remote payload to local disk via a
+     # transfer tool other than curl/wget (already covered). Requires the
+     # tool AND a URL/remote-host source, so a benign local `scp file.txt
+     # ./` never matches (no scheme, no user@host:remote form).
+     # NOTE: a plain `curl -o file http://...` branch was DROPPED after the
+     # Step 5 generalization check flagged it false-positiving on an
+     # ordinary benign fetch (`curl -o page.html http://example.com`) --
+     # unqualified download-to-disk is not inherently malicious, and the
+     # genuinely dangerous curl form (pipe-to-shell) is already covered by
+     # curl-pipe-shell above. Kept the transfer tools whose ONLY common use
+     # in this corpus is remote staging (tftp/sftp/lwp), scp's user@host:remote
+     # form, and IWR -OutFile.
+     re.compile(
+         r"\b(tftp|sftp|lwp-download|lwp-request)\b[^\n]{0,120}https?://|"
+         r"\bscp\b\s+[^\n]{0,80}\b[\w.-]+@[\w.-]+:|"
+         r"\bInvoke-WebRequest\b[^\n]{0,120}-OutFile",
+         re.IGNORECASE),
+     "MITRE ATT&CK T1105"),
+    ("shell-rc-persistence-write",
+     # T1546.004/T1547.001 miss category: appending an exec payload to a
+     # shell startup file or writing an autostart entry. Anchored to the
+     # canonical rc-file names combined with a write/append redirect or
+     # Add-Content, so merely READING ~/.bashrc doesn't match.
+     # Round 2: added bare `/etc/profile` (system-wide, not just profile.d/)
+     # after the uncaught-by-any census found `echo ... >> /etc/profile`.
+     re.compile(
+         r"(>>?\s*|Add-Content[^\n]{0,40})"
+         r"[^\n]{0,40}(\.bash_profile|\.bashrc|\.zshrc|\.profile|\.bash_login|/etc/profile(\.d/|\b))|"
+         r"(\.bash_profile|\.bashrc|\.zshrc|\.profile)[^\n]{0,10}(>>|<<)",
+         re.IGNORECASE),
+     "MITRE ATT&CK T1546.004"),
+    ("service-binpath-persistence",
+     # T1543.003 miss category: creating/reconfiguring a Windows service
+     # whose binPath points at an interpreter or dropped exe. sc/New-Service
+     # already partly covered; this catches the `sc config ... binPath=` and
+     # `sc create ... binPath=` execution-payload form specifically.
+     re.compile(
+         r"\bsc(\.exe)?\s+(create|config)\b[^\n]{0,120}binPath\s*=",
+         re.IGNORECASE),
+     "MITRE ATT&CK T1543.003"),
+    ("suid-sgid-search",
+     # T1548.001 miss category: enumerating SUID/SGID binaries as a privesc
+     # precursor. `find ... -perm` with a setuid/setgid bit pattern -- a
+     # highly specific attack shape, not an ordinary find.
+     # Matches setuid (4000), setgid (2000), or combined (6000) mask forms
+     # -- the Step 5 check caught an earlier `[64]000` that missed the
+     # setgid-only `-2000` variant. Also the symbolic -u+s/-g+s forms.
+     re.compile(
+         r"\bfind\b[^\n]{0,80}-perm\b[^\n]{0,20}[-/]?[0-7]*[642]000\b|"
+         r"\bfind\b[^\n]{0,80}-perm\b[^\n]{0,20}-[ug]\+s\b",
+         re.IGNORECASE),
+     "MITRE ATT&CK T1548.001"),
+    ("shadow-passwd-privesc-cmd",
+     # T1548 miss category: direct reads/edits of the shadow password
+     # database or forced passwd changes via a privesc primitive. Distinct
+     # from VAULT's /etc/shadow path rule -- this catches the getent/passwd
+     # command forms.
+     re.compile(
+         r"\bgetent\s+shadow\b|"
+         r"\bpasswd\b\s+(-|--stdin|root\b)|"
+         r"echo\b[^\n]{0,30}\|\s*passwd\b",
+         re.IGNORECASE),
+     "MITRE ATT&CK T1003.008"),
+    ("awk-perl-inline-shell-spawn",
+     # T1059.004 miss category: using awk/perl/find's exec primitives to
+     # spawn a shell -- classic GTFOBins shell-escape. Requires the
+     # interpreter AND an explicit shell-spawn construct together.
+     re.compile(
+         r"\bawk\b[^\n]{0,80}\bBEGIN\b[^\n]{0,60}\bsystem\s*\(|"
+         r"\bperl\b[^\n]{0,60}-e\b[^\n]{0,80}(exec|system)\s*\(?['\"]?/bin/(sh|bash)|"
+         r"\bfind\b[^\n]{0,80}-exec\b[^\n]{0,40}/bin/(sh|bash)\b",
+         re.IGNORECASE | re.DOTALL),
+     "MITRE ATT&CK T1059.004"),
+    # ---- Kavach-PB expansion, ROUND 2 (2026-07-18) ----
+    # Scope-gated to code-execution categories uncaught by any minister.
+    # Reverse shells, LOLBin library-loading, and driver install -- each a
+    # general tool+argument shape, never a literal custom binary name (those
+    # T1055 injector-exe cases were left out as non-generalizable, per the
+    # Round 2 report). 0 new benign FPs verified before merge.
+    ("reverse-shell-network-exec",
+     # T1059/T1059.004 miss category: interactive/reverse shell over a
+     # socket. Classic, highly generalizable shapes: a socket construct or
+     # netcat/telnet/socket LOLBin bound to a shell, or an interpreter
+     # opening a TCPSocket and spawning a shell. Requires the network+shell
+     # combination together, so an ordinary `nc -z host 80` port check or a
+     # benign `telnet host 25` never matches.
+     re.compile(
+         r"\bsocket\b\s+-\w*p\w*\s+['\"]?/bin/(sh|bash)|"
+         r"\bnc\b[^\n]{0,40}-e\s+/bin/(sh|bash)|"          # reinforces nc-reverse-shell
+         r"TCPSocket\.new\([^\n]{0,60}(/bin/(sh|bash)|exec|system|IO\.popen)|"
+         r"/inet/tcp/\d+/[^\n]{0,40}(\|&|/bin/(sh|bash))|"
+         r"telnet\b[^\n]{0,40}\d+\s*<[^\n]{0,20}(fifo|pipe|socket)",
+         re.IGNORECASE | re.DOTALL),
+     "MITRE ATT&CK T1059.004"),
+    ("lolbin-arbitrary-library-load",
+     # T1574 miss category: coercing a benign LOLBin into loading an
+     # attacker .so/.dll/.dylib. Requires a known loader tool AND an explicit
+     # shared-object argument together -- an ordinary `openssl req` or
+     # `mysql -u root` never matches (no lib path).
+     # openssl uses single-dash `-engine` (not `--engine`) -- the Step 5
+     # generalization check caught the double-dash-only draft missing it.
+     re.compile(
+         r"\b(tclsh|ssh-keygen|openssl|curl)\b[^\n]{0,60}"
+         r"(load\s+\S+\.(so|dll|dylib)\b|-D\s+\S+\.(so|dll|dylib)\b|--?engine[= ]\S*\.(so|dll|dylib)\b)|"
+         r"\bmysql\b[^\n]{0,40}--default-auth[= ][^\n]{0,40}(\.\./|\.(so|dll))|"
+         r"\bcdll\.LoadLibrary\(|\bctypes\.CDLL\(['\"]?/",
+         re.IGNORECASE),
+     "MITRE ATT&CK T1574"),
+    ("driver-install-lolbin",
+     # T1547 miss category: installing a kernel/device driver via pnputil --
+     # a persistence/privesc primitive with no benign agent use. Verb-
+     # anchored to the install flags, not all of pnputil.
+     re.compile(
+         r"\bpnputil(\.exe)?\b[^\n]{0,40}(/add-driver|-i\s+-a|/install)",
+         re.IGNORECASE),
+     "MITRE ATT&CK T1547.006"),
     ("interpreter-inline-eval-payload",
      # corpus provenance: EXEC-052 (interpreter_arg_injection). Narrowed
      # before merge from a bare `python -c`/`node -e` flag match (which
@@ -752,12 +1078,13 @@ def check_executor(call: ParsedCall) -> MinisterScan | None:
         for name, pattern, source in EXECUTOR_DENYLIST:
             m = pattern.search(text)
             if m:
+                prim = primitive_of(name, "EXECUTOR")
                 return MinisterScan(
                     minister="EXECUTOR",
                     verdict="BLOCK",
                     confidence=1.0,
                     matched_id=f"EXECUTOR-PREFILTER:{name}",
-                    matched_text=f"rule '{name}' matched {m.group(0)!r} in call to {call.tool}",
+                    matched_text=f"[{prim}] rule '{name}' matched {m.group(0)!r} in call to {call.tool}",
                     matched_level="deterministic",
                     source=source,
                     retrieval_mode="deterministic",
@@ -771,6 +1098,29 @@ def check_executor(call: ParsedCall) -> MinisterScan | None:
         ast_hit = _check_executor_ast(text)
         if ast_hit is not None:
             return ast_hit
+
+    # Structural fallback (E1 network-fetch-to-disk): a URL/remote-host source
+    # AND a disk-write destination in the same call, regardless of tool, flag
+    # order, or quoting -- robust to the rewording the literal download rules
+    # above miss. Runs last (regex rules are more specific). Validated
+    # independently in test_struct_parse.py.
+    for text in values:
+        if call.tool in _AST_FAST_DIALECTS:
+            matched, evidence, used_ast = ast_parse.is_network_fetch_to_disk(text, call.tool)
+        else:
+            matched, evidence = struct_parse.is_network_fetch_to_disk(text)
+            used_ast = False
+        if matched:
+            return MinisterScan(
+                minister="EXECUTOR",
+                verdict="BLOCK",
+                confidence=1.0,
+                matched_id="EXECUTOR-PREFILTER:struct-network-fetch-to-disk",
+                matched_text=f"[E1] {'AST' if used_ast else 'structural'}: {evidence} in call to {call.tool}",
+                matched_level="deterministic",
+                source="MITRE ATT&CK T1105",
+                retrieval_mode="deterministic",
+            )
 
     return None
 
