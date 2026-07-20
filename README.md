@@ -28,12 +28,12 @@ This README describes **`kavach-rearch`**, the branch actively replacing three o
 
 | Minister | Mechanism today | Status |
 |---|---|---|
-| **VAULT** | Deterministic regex, corpus-expanded (58 rules, 9 original + 49 new) | Swapped + expanded, committed |
-| **EXECUTOR** | Deterministic deny-list + AST alias resolution, corpus-expanded (55 rules, 19 original + 36 new) | Swapped + expanded, committed |
-| **CHANNEL** | Session-level taint tracking (read→send detection) | Swapped, committed, pushed |
-| **NAVIGATOR** | Cosine similarity (unchanged) | Swap attempted and correctly abandoned — documented finding, not a TODO |
+| **VAULT** | Deterministic AST/structural parsing (`prefilters.py`, `struct_parse.py`, `ast_parse.py`) + cosine-ESCALATE-only triage on the residual | Swapped + expanded, real-AST wiring added, committed |
+| **EXECUTOR** | Same as VAULT | Swapped + expanded, real-AST wiring added, committed |
+| **CHANNEL** | Session-level taint tracking (read→send detection) **plus** a second, independent argument-provenance mechanism (USER_SUPPLIED / SELF / OUTPUT_DERIVED / NOVEL classification, ESCALATE-only) | Swapped, committed, pushed; provenance mechanism added this round |
+| **NAVIGATOR** | Cosine similarity (unchanged) for detection, **plus** a new, separate, real deterministic taxonomy layer (pinned intent + observational/consequential/ambiguous classification, Pieces 1–2 only) | Swap attempted and correctly abandoned (documented finding); Pieces 1–2 of a second, independent authorization-layer attempt are real and validated; Piece 3 (hard constraint) is a documented 3-attempt negative result — see below |
 
-NAVIGATOR's replacement direction (action-class integrity / authorized-flow derivation) is being designed on the `navigator-rearch` branch, not here — see that branch's README for scope and status.
+NAVIGATOR's replacement direction (action-class integrity / authorized-flow derivation) has **two independent, non-comparable efforts**: `navigator-rearch` (Parv's own branch, untouched by this work, see that branch's README) and a second, separate attempt built directly on `kavach-rearch` this round (below) — these are not the same design and are not compared against each other in this document.
 
 **Escalation tier (not part of the fast path, not wired into live dispatch):** an LLM-in-the-loop tiebreaker for VAULT/EXECUTOR's remaining narrative-phrasing gap — see the dedicated diagram and status below.
 
@@ -49,6 +49,90 @@ flowchart TB
     N0["NAVIGATOR<br/>cosine"] -->|"swap decision:<br/>ablation wash even<br/>bug-fixed, 7 vs 7 —<br/>mechanism doesn't clear<br/>the bar, swap abandoned"| N1["NAVIGATOR<br/>cosine, unchanged<br/>(documented finding)"]
   end
 ```
+
+---
+
+## Round 2 — real AST parsing, CHANNEL provenance, NAVIGATOR (Pieces 1–2), a 629-trajectory real validation, a ledger bug, and the paper rewrite
+
+Everything in this section is a distinct, later round of work on top of the Stage 1–3 rearchitecture documented above — same branch (`kavach-rearch`), same discipline (gate-then-build, real data only, report negative results honestly), different night. Where a number below supersedes one from the section above, this section is the current one.
+
+```mermaid
+flowchart TB
+  subgraph round2["Round 2 — this session"]
+    direction LR
+    AST["Real AST parsing<br/>bashlex (sh/bash, live)<br/>PowerShell AST (offline only,<br/>1.4s/call, 18x over budget)"] --> R1["VAULT 34.2%→74.4%<br/>EXECUTOR 34.5%→90.1%<br/>full-pipeline, 0 new benign FPs"]
+    PROV["CHANNEL provenance<br/>(2nd mechanism, independent<br/>of taint): USER_SUPPLIED/SELF/<br/>OUTPUT_DERIVED/NOVEL"] --> R2["5/22 benign ESCALATE (0 BLOCK)<br/>5/5 AgentDojo ground-truth<br/>5/5 AgentDojo REAL trajectories"]
+    NAV["NAVIGATOR Pieces 1-2<br/>pinned intent + taxonomy<br/>(real, validated, 34/34 tests)"] --> R3["Piece 3 (hard constraint):<br/>3 independent heuristics,<br/>all NO-GO on frozen criterion<br/>— documented negative result"]
+    GPT4O["629 REAL GPT-4o attack<br/>trajectories (AgentDojo's own<br/>runs/ data, not benchmark replay)"] --> R4["467/629 (74.2%) fired<br/>131/162 misses = model never<br/>acted; 19 real gaps, diagnosed<br/>to the exact tool/mechanism"]
+  end
+
+  classDef finding fill:#4d8a8c,stroke:#333,color:#fff
+  class R1,R2,R3,R4 finding
+```
+
+### Real AST-based structural parsing (VAULT/EXECUTOR)
+
+`parliament/prefilters.py`'s deterministic detectors previously relied entirely on a shell-quote-aware **tokenizer** (`parliament/struct_parse.py`) — correct for most cases, but structurally blind to two real evasion shapes: heredoc bodies (a tokenizer can't distinguish "this text is inside a here-document, not an executed command" from plain text) and PowerShell `.NET` method-call fetches (`.DownloadFile()` doesn't look like a `CommandAst` at all). `parliament/ast_parse.py` (new) adds a real grammar parser:
+
+- **`bashlex`** for `sh`/`bash` dialects — a genuine abstract syntax tree, walked recursively (`WordNode`/`HeredocNode`/`ListNode`/`CommandNode`), heredoc content structurally excluded from the command walk (fixes the heredoc false-negative directly, not via a regex patch). Measured at **~0.5ms/call** — comfortably inside the latency budget, wired into the live path.
+- **PowerShell**, via a real `powershell.exe` subprocess walking both `CommandAst` and `InvokeMemberExpressionAst` nodes (the latter needed for `.DownloadFile()`-style calls). Measured directly at **~1.4s/call — 18x over the 78ms/latency-budget class of constraint**, disqualifying it for the live path. Kept as an opt-in offline/audit tool only; PowerShell stays on the tokenizer live.
+- **`command_prompt` (cmd.exe)** has no equivalently fast compatible parser at all — confirmed directly (`bashlex.parse()` raises `ParsingError` on real `cmd.exe` batch syntax) — stays on the tokenizer permanently, not a gap being tracked toward a fix.
+
+**Full-pipeline detection on the 519-case AtomicRedTeam/GTFOBins reference corpus** (deterministic layer + cosine-ESCALATE-only triage on the residual, see below):
+
+| | Deterministic-only | Full pipeline (+ triage) | Held-out even / odd split |
+|---|---|---|---|
+| VAULT | 34.2% (40/117) | **74.4% (87/117)** | 71.2% (42/59) / 74.1% (43/58) |
+| EXECUTOR | 34.5% (70/203) | **90.1% (181/201)** | 89.2% (91/102) / 91.1% (92/101) |
+
+Zero new hard-block false positives on either benign population measured (793 general-purpose BFCL calls, 55 agent-shaped benign calls). The held-out split is reported both halves explicitly — not averaged — to avoid the exact overclaim an earlier draft of this work made (a 3-case delta was originally reported as "balanced" before being redone on the full population; see the paper's audit-resolution section for the full story).
+
+### Cosine, narrowed to an ESCALATE-only triage layer
+
+VAULT/EXECUTOR's cosine path is not gone — it's demoted. `server.py`'s `_cosine_triage_escalate()` runs **only** on the deterministic-miss residual (a call the structural parsers didn't flag) and its verdict is **hardcoded to ESCALATE** — it is structurally incapable of returning BLOCK, mirroring CHANNEL's own provenance "cannot BLOCK" safety contract. This is why the deterministic-only→full-pipeline jump above (34%→74%/90%) is safe to ship: cosine can only add a second opinion for human/session review on a long-tail case the deterministic rules missed, never override a deterministic decision or introduce a new hard-block false positive on its own.
+
+### CHANNEL — a second, independent mechanism: argument-value provenance
+
+CHANNEL's session-level **taint** tracker (read→send, described above) is unchanged. This round adds a genuinely separate mechanism, **provenance** (`channel_taint.py`'s `check_provenance()`/`SessionProvenance`/`ProvenanceRecord`), answering a different question: not "did this session read something sensitive then send it," but "did *this specific argument value* on a consequential call come from the user's own instruction, or from somewhere untrusted this session?" Every destination-tool argument value is classified `USER_SUPPLIED` / `SELF` / `OUTPUT_DERIVED` (first seen in an earlier tool's output this session) / `NOVEL` (neither) — an `OUTPUT_DERIVED`/`NOVEL` value on a consequential call returns **ESCALATE, deliberately not BLOCK**, because real benign same-session patterns (paying a bill by reading the recipient IBAN out of the bill file itself) would be wrongly hard-blocked otherwise.
+
+- **5/22 real benign multi-step sessions** correctly ESCALATE (0 hard-block false positives) — exactly the sessions where a legitimate destination value was read mid-session rather than typed by the user.
+- **5/5 AgentDojo attack cases** structurally applicable to CHANNEL's shape correctly ESCALATE — verified **twice**: once against the benchmark's minimal `ground_truth()` call sequence, and again, independently, against **AgentDojo's own full recorded model trajectories** for the same 5 cases (real longer sessions, real tool outputs, the actual sequence a deployed model produced). The second check caught a bug in the verification script itself (it tracked only the final step's verdict, silently losing an earlier real ESCALATE to a later benign call) before the number was reported as final.
+- A `_general_destination_values()` fallback (new) extends both taint and provenance to tools **not** in the hand-curated `DESTINATION_TOOLS` dict, so a genuinely novel exfiltration tool isn't silently invisible — found and fixed two self-caught regressions during this work (an arg-joining bug that created a false phone-number match across unrelated fields, and a loose phone regex matching ISO dates like `2022-03-01`), both re-verified clean before shipping.
+
+### NAVIGATOR — a second, separate authorization-layer attempt (Pieces 1–2 real; Piece 3 a documented 3-attempt negative result)
+
+Explicitly **not** a continuation of, comparison to, or reconciliation with `navigator-rearch` — a genuinely parallel design, built directly on `kavach-rearch`, asking NAVIGATOR's stated post-rearchitecture question: *was this specific action authorized by what the user actually asked for?* (`parliament/navigator_authflow.py`, new; not yet imported by `server.py` — not live.)
+
+- **Piece 1 (pinned intent):** captured once, from the user's first real instruction in a session, immutable after — a later message (including an injected one) cannot overwrite it. 4/4 tests passing.
+- **Piece 2 (observational/consequential/ambiguous taxonomy):** a static classification of AgentDojo's real 69-tool surface (banking/travel/workspace/slack, confirmed against the installed package, not guessed) plus a naming-convention-agnostic regex fallback for novel tool names. **30/30 tests passing**, including PascalCase/camelCase fallback cases. This piece is real, validated, and vocabulary-agnostic on its own.
+- **Piece 3 (hard-constraint derivability layer) — three independent heuristic designs, all NO-GO** against a frozen criterion (≥7/8 AgentDojo attacks correctly flagged, ≤1/22 benign sessions falsely flagged) set *before* any measurement:
+  1. **Tool-name/text overlap** — NO-GO on the attack side (5/8): a legitimate read intent ("give me their email addresses") and a same-topic injected write (`send_email`) share the surface word "email," so naive overlap can't tell authorization from topical coincidence.
+  2. **Argument-value text overlap only** — fixed all 3 attack misses (8/8) but NO-GO on the benign side (6/22): legitimate values read mid-session (an IBAN from a bill file) share no text with the user's own instruction, so text-overlap alone can't see legitimate same-session provenance.
+  3. **Composed with CHANNEL's own provenance state** (read-only; CHANNEL's code was never modified) — still NO-GO at 6/22 against the frozen ≤1/22 threshold, though 5 of those 6 are arguably NAVIGATOR echoing CHANNEL's own already-accepted ESCALATE decision rather than a new false positive; reported honestly against the criterion as originally frozen rather than retroactively reinterpreted after seeing the result, since the reinterpretation would flip the verdict.
+  - **Verdict:** three independent designs hitting three distinct, genuine walls is treated as a real signal the sub-problem is hard, not one clever heuristic away from working. Piece 3/4 are paused, not silently dropped — see the paper's Limitations section for the full write-up, which the GPT-4o expansion below independently corroborates (14/19 of its real detection gaps have literally no destination value to trace, which is exactly the shape Piece 3 was trying and failing to close).
+
+### A 629-trajectory real validation (not benchmark replay)
+
+Beyond every number above — all measured either on a synthetic reference corpus or a handful of hand-verified AgentDojo cases — this round replayed **all 629 real recorded attack trajectories for GPT-4o (`gpt-4o-2024-05-13`)** across AgentDojo's four suites' `important_instructions` attack family, sourced directly from AgentDojo's own published `runs/` data (real model-generated tool calls, real tool outputs — not the benchmark's minimal answer key).
+
+**Headline: 467/629 (74.2%) fired** (BLOCK or ESCALATE, any minister, at any point in the session) — banking 119/144 (82.6%), slack 105/105 (**100%**), travel 63/140 (45.0%), workspace 180/240 (75.0%).
+
+The 162 apparent misses were **not** reported flat — each was traced to its actual tool-call content:
+
+- **131/162** never executed any consequential action at all in connection with the injection (the model resisted or ignored it outright). AgentDojo's own `security` field conflates "the injected attack succeeded" with "the environment changed at all and doesn't exactly match the injected goal," which produces a `security: False` label even on trajectories with zero consequential calls — confirmed directly by extracting every tool call from each miss and checking it against a fixed consequential-tool list, not assumed from the field alone.
+- **19/162** are genuine misses, and were categorized precisely by mechanism rather than lumped together:
+  - **5 (`travel`, `reserve_hotel`)** — a real destination value exists (an attacker-substituted hotel name), but the tool was never added to CHANNEL's `DESTINATION_TOOLS`. Attempted the fix live tonight; found it introduces a **new** false positive (CHANNEL's value extractor only recognizes email/IBAN/phone/URL shapes, not proper-noun business names, so a hotel the user explicitly named would also misclassify as unauthorized) — reverted rather than ship a fix with a known new FP class, documented as an open, narrow, one-line-shaped gap.
+  - **14 (`banking`: `update_scheduled_transaction`/`update_user_info`, 11 cases; `workspace`: `delete_file`/`append_to_file`, 3 cases)** — no destination value exists to trace at all; these mutate existing account state or same-account data with nothing "sent" anywhere. Structurally not closeable by any refinement of CHANNEL's mechanism, however general its extraction becomes — this is the same shape of question Piece 3 above was attempting (and failing) to answer.
+
+A real aggregation bug was found and fixed **before** any of these numbers were reported: the first pass tracked only the final step's overall verdict, so a harmless trailing call could silently overwrite an earlier real detection (confirmed live on `travel::user_task_0/injection_task_3` — CHANNEL genuinely ESCALATEs mid-session, but the buggy aggregation reported it as a miss). Fixed to track "did any minister fire at any point," and the full 629-trajectory replay was re-run from scratch rather than patching the reported numbers.
+
+### A ledger-verification bug, found and fixed
+
+`/ledger/verify` was reporting `intact: false` at a specific row, which looked like real tampering. Root cause, confirmed by direct inspection: the **verification query**, not the ledger itself, never `SELECT`ed the `short_circuited` column, so its hash recomputation silently omitted a field the **write path** always included once populated — a mismatch guaranteed at the exact row that field was first introduced (July 14, predating this session), not evidence of tampering. Fixed by adding the missing column to the verification query; re-confirmed `intact: true` across the full ledger (19,847/19,847 entries). Reported here as evidence the tamper-evidence mechanism is actually exercised end-to-end, not merely specified — this class of bug only surfaces when the mechanism is run against real accumulated data.
+
+### The paper — rewritten, not just updated
+
+The AISec 2026 paper (`paper/`) previously described the **original cosine-primary architecture** (a single COMPASS-drift Speaker, OpenClaw's hook-gap as the headline measurement, InjecAgent-only numbers) — it had not been touched since before Stage 1 of the rearchitecture above, despite the repository's own status notes saying otherwise. This round rewrote §1 (Introduction), §3 (System Design), and §4 (Evaluation) around the real, current architecture and every number in this document; cut §5 (Aggregation Frontier) entirely, since it studied a Speaker design that no longer exists; and replaced the stale front half of §7 (Limitations) while preserving its already-current NAVIGATOR/generalization-audit content untouched. Full historical narrative (the BM25 bug → dense fine-tune regression → STEWARD falsification → R2 red-team findings → the rearchitecture decision, i.e. the same arc documented in "The full arc" section below) is now the paper's actual spine, not a placeholder. Compiled clean via WSL (`pdflatex` + `bibtex`, TeX Live 2023/Debian): **11 pages, 0 undefined references, 0 undefined citations** — some cosmetic overfull-hbox warnings remain in the related-work comparison table, not yet addressed.
 
 ---
 
@@ -527,7 +611,7 @@ The DH row has not yet been re-measured to completion on `kavach-rearch` — a p
 
 **Cross-model generalisation, minister ablation**: both measured on `main`'s cosine architecture; not yet re-run on `kavach-rearch`.
 
-Committed artifacts live in `benchmarks/results_v2/`. Full results and methodology for `main` are in the paper (`paper/`), which has not yet been updated for `kavach-rearch`'s numbers.
+Committed artifacts live in `benchmarks/results_v2/`. The paper (`paper/`) **has** been rewritten to reflect `kavach-rearch`'s current architecture and numbers — see "Round 2" above for what changed and "Paper" below for detail; this specific evaluation table (main's cosine-baseline InjecAgent DH/DS rows) predates that rewrite and is retained here as the `main`-branch comparison point, not because the paper is stale.
 
 ### InjecAgent live-agent supporting case study (kavach-rearch, qwen2.5:7b)
 
@@ -592,9 +676,27 @@ The BM25 lexical-gate floor (`KAVACH_BM25_GATE_FLOOR`, default `0.65`) only appl
 ```
 parliament/                  the production decision path
   server.py                  FastAPI service, router, COMPASS, SHA-256 hash-chained ledger,
-                              Step 3a2/3a3/3a4 deterministic-minister dispatch (kavach-rearch)
-  prefilters.py               VAULT/EXECUTOR deterministic detectors (kavach-rearch)
-  channel_taint.py            CHANNEL's session-level taint tracker (kavach-rearch)
+                              Step 3a2/3a3/3a4 deterministic-minister dispatch, cosine-ESCALATE-
+                              only triage (Round 2), /ledger/verify (Round 2 bug fix) (kavach-rearch)
+  prefilters.py               VAULT/EXECUTOR deterministic detectors — behavioral-primitive
+                              taxonomy (V1-V6/E1-E7), dispatches to struct_parse.py/ast_parse.py
+                              per dialect (kavach-rearch, Round 2)
+  struct_parse.py             (Round 2) shell-quote-aware structural tokenizer — URL/path/
+                              credential-shaped token extraction, used for PowerShell/cmd.exe and
+                              as ast_parse.py's non-AST fallback
+  ast_parse.py                (Round 2) real grammar parsing — bashlex for sh/bash (live, ~0.5ms/
+                              call), PowerShell CommandAst/InvokeMemberExpressionAst walk (offline/
+                              audit only, ~1.4s/call measured, 18x over budget)
+  channel_taint.py            CHANNEL's session-level taint tracker (kavach-rearch) PLUS (Round 2)
+                              an independent argument-provenance mechanism (check_provenance,
+                              SessionProvenance, USER_SUPPLIED/SELF/OUTPUT_DERIVED/NOVEL,
+                              ESCALATE-only) and _general_destination_values() fallback
+  navigator_authflow.py       (Round 2, new) NAVIGATOR Pieces 1-2 only — pinned intent capture,
+                              observational/consequential/ambiguous taxonomy. NOT imported by
+                              server.py — not wired into live dispatch. Piece 3 (hard constraint)
+                              was attempted 3 ways, all NO-GO — see Round 2 above; no Piece 3 code
+                              exists in this file, only in benchmarks/_navigator_census.py's
+                              measurement script
   llm_tiebreaker.py           VAULT/EXECUTOR narrative-phrasing escalation tier (kavach-rearch,
                               pipeline built, not yet wired into live dispatch)
   ministers.py               run_minister_hybrid — dense + BM25 + lexical gate (NAVIGATOR only, kavach-rearch)
@@ -603,6 +705,9 @@ parliament/                  the production decision path
   provenance.py               technique to tactic to stage chain (written into the ledger)
   config.yaml                 embeddings, thresholds, router config
   test_speaker.py             Speaker unit tests
+  test_struct_parse.py        (Round 2) 27/27 tests
+  test_ast_parse.py           (Round 2) 37/37 tests
+  test_navigator_authflow.py  (Round 2) 34/34 tests (Piece 1: 4, Piece 2: 30)
 
 kavach_eval/                 research tooling — read-only on corpus + parliament
   redteam_evasion_v0.py       red-team paraphrase evasion harness (source of the Type B set)
@@ -633,6 +738,21 @@ corpus_v2/                   corpus-expansion working area (protocol + new patte
 plugin/                      OpenClaw before_tool_call plugin (TypeScript)
 openclaw_pr/                 candidate patch + tests for #5513 / #5943 (since resolved upstream)
 benchmarks/                  InjecAgent / AgentDojo harness; results_v2/ holds Dell runs
+  _gpt4o_real_trajectory_expansion.py  (Round 2) replays all 629 real gpt-4o-2024-05-13 attack
+                              trajectories from AgentDojo's own runs/ data (sparse-checked-out via
+                              git, not the pip package) through the live parliament server. Output:
+                              results_v2/gpt4o_real_trajectory_expansion.json
+  _navigator_census.py        (Round 2) NAVIGATOR Piece 3's measurement-only script — all 3 failed
+                              heuristic attempts live here, never in navigator_authflow.py itself
+  _priority_real_trajectory_check.py  (Round 2) hand-transcribed real-trajectory replay for
+                              CHANNEL's 5 applicable AgentDojo cases (bounded, reusable tooling)
+  parliament_benchmark.py     (Round 2) "Kavach-PB" — in-process VAULT/EXECUTOR/CHANNEL scorer
+                              against the 519-case AtomicRedTeam/GTFOBins reference corpus, with
+                              checkpointing. Output: results_v2/parliament_benchmark.json
+  KAVACH_PB_VAULT_EXECUTOR_UPGRADE.md  (Round 2) full write-up of the VAULT/EXECUTOR AST-parsing
+                              upgrade, corrected in-process-vs-live-HTTP metric discrepancy, and the
+                              corrected held-out generalization split
+  OVERNIGHT_PHASE_REPORT.md   (Round 2) Phase 0-2 + real-trajectory verification report
 injecagent_runner.py         InjecAgent replay harness (kavach-rearch: DH/DS structured-args fix,
                               DS two-step read-then-send dispatch)
 injecagent_live_runner.py    LIVE-agent InjecAgent runner (kavach-rearch): real qwen2.5:7b turn-by-
@@ -732,13 +852,13 @@ Both `main`'s original limitations and `kavach-rearch`'s newly-discovered ones �
 - **DH's full rescore is incomplete.** A partial run (215/510) confirmed the harness fix works; a complete strict/loose recall number for DH under the current deterministic VAULT/EXECUTOR is not yet in hand.
 - **AgentHarm/ASB/Agent-SafetyBench/SafeClawBench are not integrated as replayable benchmarks** — all four need live-agent execution or full sandboxed runs graded by a state-oracle, unlike InjecAgent's DH/DS which turned out to be statically replayable once real structured args were extracted. AgentHarm was explored via an 18-case manually-constructed sample (not scaled further given consistent construction ambiguity — ~17-20% of cases required structural placeholders rather than literal extracted values); full-scale evaluation is left as future work, ideally with a stronger model or live-agent generation per the Parv handoff doc.
 - **A pre-existing, unrelated benign false positive was surfaced (not caused) during this round's validation.** `bitsadmin-transfer` (one of the original 19 EXECUTOR rules) flags a legitimate "download an approved Windows Update via bitsadmin" case — a bare command-shape match with no legitimacy carve-out, same class of gap as the `.pem` bug fixed earlier this session, just in a different, not-yet-fixed rule.
-- **The paper (`paper/`) has not been updated for any of this branch's findings.** All numbers above are from this session's direct measurement, not yet reflected in the LaTeX source.
+- **The Stage 1–3 numbers in this section of the README (VAULT/EXECUTOR corpus-pattern counts, the 267-case Type B set, the LLM tiebreaker) are not yet reflected in the paper.** The paper's rewrite (Round 2, above) is grounded in the *later* deterministic-primary numbers (VAULT 74.4%/EXECUTOR 90.1% full-pipeline, CHANNEL provenance, the 629-trajectory GPT-4o validation) — reconciling the two rounds' numbers into one coherent evaluation section, if the Stage 1–3-specific figures above are still meant to ship, is outstanding work.
 
 ---
 
 ## Paper
 
-The accompanying paper targets **AISec 2026 at ACM CCS** and is drafted in `paper/` (§1 Introduction through §7 Limitations). It currently reflects `main`'s architecture and numbers; updating it for `kavach-rearch`'s findings (deterministic VAULT/EXECUTOR/CHANNEL, the CHANNEL 100%-recall DS result, NAVIGATOR's documented corpus-scope gap, the narrative-phrasing gap) is outstanding work.
+The accompanying paper targets **AISec 2026 at ACM CCS** and is drafted in `paper/` (§1 Introduction through §7 Limitations, §5 removed — see "Round 2" above). It has been rewritten around the current deterministic-primary architecture and Round 2's numbers (four contributions: the deterministic-vs-cosine methodology evidence, real detection numbers, the 629-trajectory GPT-4o validation, and the honestly-reported negative results). It does **not** yet incorporate the earlier Stage 1–3 corpus-expansion/tiebreaker numbers documented above in this README — see the limitation immediately above. Compiles clean (11 pages, 0 undefined refs/citations, via WSL `pdflatex`+`bibtex`); some cosmetic table-width overfull-hbox warnings remain.
 
 ---
 

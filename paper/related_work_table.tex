@@ -15,7 +15,9 @@
   extensible without retraining. ``Verdict'' indicates how multiple detection
   signals are combined. AgentDojo ASR and InjecAgent Recall are the best
   numbers reported by the respective papers; {\em n/r} = not reported;
-  {\em ext.} = experimental; $\dagger$ = estimated from paper description.
+  {\em ext.} = experimental; $\dagger$ = estimated from paper description;
+  $\ddagger$ = cited from the source paper as an upper reference point, not
+  independently reproduced here.
   Lower ASR is better; higher Recall is better.
 }
 \label{tab:guardrail-comparison}
@@ -38,6 +40,9 @@ LlamaFirewall (combined) & I/CoT/O & 3-layer spatial & partial & joint & 1.75\% 
 % ─── Plan-time ───────────────────────────────────────────────────────────────
 AgentSpec & plan & rule DSL & yes & all-pass & >10\% blocked & n/r \\
 DRIFT & plan & rule+isolator & partial & sequential & n/r & n/r \\
+PlanGuard & plan & isolated planner + verifier & no & hard-constraint & n/r & 100\%$^\ddagger$ \\
+IntentGuard & plan & intent trace + origin & no & alert-first & n/r & n/r \\
+Progent & tool-call & progressive allowlist & yes (policy) & policy-match & 1.0\%$^\ddagger$ & n/r \\
 \midrule
 
 % ─── Tool-call-time ───────────────────────────────────────────────────────────
@@ -45,7 +50,7 @@ Task Shield & tool-call & LLM alignment & no & threshold & 22\%$\dagger$ & n/r \
 ShieldAgent & tool-call & rule circuits & yes (docs) & probabilistic & n/r & 90.1\% \\
 PSG-Agent & tool-call & 4-component & partial & cross-turn accum. & n/r & n/r \\
 OpenClaw PRISM & tool-call & middleware checkpts & partial & sequential & n/r & n/r \\
-\textbf{Kavach (ours)} & \textbf{tool-call} & \textbf{embed. corpus} & \textbf{yes (corpus)} & \textbf{asymmetric} & \textbf{[TBD]} & \textbf{[TBD]} \\
+\textbf{Kavach (ours)} & \textbf{tool-call} & \textbf{determ.+embed.} & \textbf{yes (rules+corpus)} & \textbf{veto} & \textbf{--}\footnotemark & \textbf{100\% (544/544)} \\
 \midrule
 
 % ─── Information-flow ─────────────────────────────────────────────────────────
@@ -77,11 +82,19 @@ AWS Bedrock & input & content filter & no & threshold & n/r & n/r \\
 
 \medskip
 \noindent\small
-\textbf{Asymmetric verdict} (Kavach): any single minister returning BLOCK vetoes
-the call unconditionally; COMPASS drift escalates unless a minister blocks first.
-No score averaging. See \S\ref{sec:frontier} for empirical evaluation of aggregation strategies.
-\textbf{Corpus extensibility} (Kavach): new attack patterns are added as natural-language
-descriptions, re-embedded into ChromaDB without retraining any model component.
+\footnotetext{We do not report a single AgentDojo ASR figure for Kavach: our
+AgentDojo evaluation (\S\ref{sec:channel-eval}, \S\ref{sec:gpt4o}) reports
+per-mechanism detection rates (5/5 on structurally applicable ground-truth
+cases; 74.2\% block-or-escalate on all 629 real recorded GPT-4o attack
+trajectories, with every apparent miss traced to its actual cause) rather
+than a single aggregate rate comparable to the other rows' self-reported
+numbers, which are each computed under a different protocol.}
+\textbf{Veto verdict} (Kavach): any single minister returning \textsc{Block}
+vetoes the call unconditionally; no score averaging or learned aggregation.
+\textbf{Corpus extensibility} (Kavach): deterministic prefilters are extended by
+adding a new structural rule; the cosine-triage corpus is extended by adding a
+natural-language attack-pattern description, re-embedded without retraining
+any model component.
 \textbf{Red-team / scanning tools} are complementary, not competing: garak
 \cite{garak2024} (NVIDIA) and PyRIT \cite{pyrit2024} (Microsoft) are
 \emph{offensive} test harnesses that probe a model/agent for vulnerabilities
@@ -89,4 +102,29 @@ pre-deployment rather than enforce at runtime, and LLM-Guard \cite{llmguard2024}
 is an input/output scanner suite operating at the prompt boundary rather than the
 tool-call boundary. Kavach is orthogonal: a runtime, tool-call-time enforcement
 layer that these tools can be used to red-team.
+
+\smallskip
+\noindent\textbf{Plan-time authorization (PlanGuard, IntentGuard, Progent).}
+PlanGuard (arXiv:2604.10134) constructs an isolated plan from the user's
+instructions alone, then gates execution with a hard-constraint stage and an
+LLM-based intent verifier, reporting 100\% attack-blocking on InjecAgent.
+Kavach's NAVIGATOR minister pins a session's user intent once, immutably,
+analogously to PlanGuard's stage 1, and reduces authorization to a
+deterministic question specifically to keep the enforcement decision
+model-free --- but, unlike PlanGuard, we report this hard-constraint layer as
+an incomplete, three-attempt negative result (\S\ref{par:navigator-authflow})
+rather than a working mechanism: PlanGuard's LLM-based verifier may be doing
+real work that our deterministic heuristics did not find a way to replace.
+IntentGuard (arXiv:2512.00966) performs instruction-following intent analysis
+with origin tracing and treats user-confirmation-on-alert as a first-class
+mechanism rather than a fallback; this framing is close in spirit to how
+CHANNEL's provenance mechanism deliberately escalates rather than blocks on
+genuine ambiguity (\S\ref{sec:channel}), though IntentGuard applies it at the
+plan level and Kavach at the argument-provenance level.
+Progent (arXiv:2504.11703) enforces a progressive, per-tool allowlist policy
+and is the closest external precedent for a policy-authorization layer,
+reporting an AgentDojo ASR reduction from 39.9\% to 1.0\%; we cite this as an
+upper reference point for what a mature policy layer can achieve, not as a
+number Kavach reproduces, since Progent's policy-synthesis mechanism and
+Kavach's deterministic-primary mechanism are not directly comparable.
 \end{table*}

@@ -89,9 +89,10 @@ diverges from the user's stated intent across turns. TaskTracker
 DeepContext \cite{albrethsen2026deepcontext} uses a turn-level RNN (F1 0.84,
 sub-20 ms). Trajectory Guard \cite{advani2026trajectoryguard} uses a Siamese
 Recurrent Autoencoder (AAAI 2026 Trustworthy Agentic AI Workshop). Kavach's
-COMPASS oracle belongs to this
-family at the session level: a single cosine comparison between the seeded
-user intent and each proposed agent action.
+NAVIGATOR minister belongs to this family at the per-call level, comparing a
+proposed consequential action against the session's pinned user intent; we
+report both a completed vocabulary-agnostic taxonomy layer and an incomplete
+authorization mechanism for this minister in \S\ref{sec:limitations}.
 
 Across these categories, the tool-call boundary is the only enforcement point at
 which the \emph{resolved runtime arguments} of an action are available for
@@ -119,22 +120,23 @@ split into direct-harm (30 tools) and data-stealing (32 tools) settings. Each
 case provides a benign user instruction, a tool the agent would invoke, a
 malicious payload in the tool's output, and the expected attacker action. The
 standard reported metric is Attack Success Rate (ASR) at the harness level.
-Kavach runs InjecAgent cold (\S\ref{sec:eval}).
+Kavach runs the full 544-case corpus cold (\S\ref{sec:injecagent}).
 
 \textbf{AgentDojo} \cite{debenedetti2024agentdojo} — 97 user tasks and 629
 security test cases across four environments: workspace, Slack, banking, and
 travel. The standard metrics are ASR (lower is better) and utility score (higher
-is better for benign tasks). We run AgentDojo cold on the Slack suite (20 user
-tasks $\times$ 5 injection tasks, the ``important instructions'' attack); results
-are reported in \S\ref{sec:frontier}.
+is better for benign tasks). We evaluate against AgentDojo's structurally
+applicable ground-truth attack cases (\S\ref{sec:channel-eval}) and, at
+scale, against all 629 real recorded GPT-4o attack trajectories AgentDojo has
+published (\S\ref{sec:gpt4o}).
 
 A methodological note: reporting attack recall without the accompanying benign
 false-positive rate conflates detector quality with detector aggressiveness. We
-therefore report benign FPR jointly with recall for every detection number
-(\S\ref{sec:eval}) and measure each aggregator against a desirable ${<}5\%$
-false-positive operating point rather than treating that figure as a gate any
-configuration must pass, following the cost-with-detection discipline
-recommended by Kapoor et al.~\cite{kapoor2024aiagents}.
+therefore report benign false-positive counts jointly with recall for every
+detection number in \S\ref{sec:eval}, following the cost-with-detection
+discipline recommended by Kapoor et al.~\cite{kapoor2024aiagents}, rather than
+treating a fixed false-positive ceiling as a gate any configuration must pass
+before its recall is reported.
 
 \subsection{The OWASP and MITRE taxonomic grounding}
 

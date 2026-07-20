@@ -1,194 +1,119 @@
-% paper/section_1_intro.tex
-% AISec 2026 variant. Reconciled June 10 with the restructured skeleton:
-% contributions reframed to measurement / deployment+detection+provenance /
-% aggregation frontier; temporal-spatial proof demoted to a design principle
-% in S3 (no longer contribution 2); provenance added.
+% paper/section_1_intro_aisec.tex
+% REWRITTEN for the deterministic-primary rearchitecture. Supersedes the
+% OpenClaw-hook-gap-as-headline framing this section previously used.
 
 \section{Introduction}
 \label{sec:intro}
 
-LLM agents have moved from research demos to deployed systems that handle
-non-trivial work: code generation, infrastructure operations, sales pipelines,
-and autonomous decision-making. The implementations of these systems have a
-striking structural property — the agent's harness, the deterministic code that
-wraps the language model with tool dispatch, context management, and persistence,
-now constitutes the overwhelming majority of the source lines, while the model
-itself is a small fraction. The model is no longer the system. The harness is.
+LLM agents increasingly act in the world through tool calls: reading files,
+sending money, messaging other people, executing code. The guardrails
+deployed to secure this behavior overwhelmingly evaluate the agent's
+\emph{language} --- its input prompt, its chain-of-thought, its output text
+--- rather than the \emph{resolved arguments} of the action it is about to
+take. This is a real gap: a tool call to \texttt{send\_money} with an
+attacker-substituted recipient IBAN, or to a credential-harvesting shell
+one-liner, is often indistinguishable from a benign call at the language
+level and only becomes distinguishable once its concrete arguments are
+inspected. Kavach is a runtime monitor that closes this gap by intercepting
+every tool call at the moment its arguments are resolved and scoring the
+resulting action --- not the prompt, not the plan, the resolved call itself
+--- before any side effect occurs.
 
-This shift has produced a new class of vulnerabilities, exploited at the harness
-layer rather than at the model. Four incidents from the past six months
-illustrate the pattern unambiguously.
+This paper is substantially a report on a design decision and the evidence
+that produced it: we built Kavach's first version as a semantic,
+embedding-based detector --- a parliament of domain-specialized ministers,
+each retrieving against a curated corpus of attack-pattern descriptions --
+and over the course of developing and stress-testing it, accumulated four
+independent lines of evidence that this design was the wrong primary
+mechanism for three of its four detection domains, while remaining the right
+mechanism for the fourth. We report both the evidence and the resulting
+rearchitecture, including two attempts that did not work, because a paper
+that reports only the final, working configuration understates how the field
+should update on evidence like this: not every detection problem shaped by
+an attacker's resolved arguments is best solved by comparing embeddings.
 
-\textbf{CVE-2025-59536 and CVE-2026-21852} (Anthropic Claude Code, Oct 2025 and
-Jan 2026). CVE-2025-59536 allowed code injection in the startup trust dialog,
-enabling attacker-chosen scripts to run before the user could approve them.
-CVE-2026-21852 allowed exfiltration of the user's API key via a malicious
-\texttt{ANTHROPIC\_BASE\_URL} override in \texttt{.claude/settings.json} —
-redirecting traffic to an attacker-controlled server and exfiltrating credentials
-as a side effect of normal agent operation. CVE-2025-59536 was disclosed on
-October 3, 2025 and CVE-2026-21852 on January 21, 2026; Check Point Research
-published a consolidated analysis in February 2026, and both were subsequently
-patched \cite{checkpoint2026claudecode}.
+\paragraph{Contributions.}
 
-\textbf{CVE-2025-68664} (LangChain Core, disclosed December 2025). A
-serialization-injection vulnerability in the \texttt{dumps()}/\texttt{dumpd()}
-APIs enabled arbitrary class instantiation in trusted namespaces (CVSS 9.3
-Critical). The attack surface: \texttt{secrets\_from\_env=True} was the default,
-meaning environment variables containing credentials could be exfiltrated via a
-prompt-injection-crafted response that was then deserialized. At disclosure time,
-LangChain was one of the most widely deployed agent frameworks. A companion
-vulnerability, CVE-2025-68665, affected the LangChain JavaScript SDK.
+\textbf{First, a methodology finding: deterministic parsing beats cosine
+similarity when the attack signal is structural (\S\ref{sec:design}).} A
+lexical-inflation bug, a dense fine-tune that traded one failure mode for a
+worse one, a corpus-coverage gap that generalized past its original
+motivating case, and a proposed fifth minister that we formally falsified
+before building --- paired legitimate/malicious tool calls that differ only
+in argument content show near-zero cosine similarity deltas (0.003--0.024)
+--- together make the case that credential-path shapes, network-fetch-to-disk
+patterns, and destination-value provenance are answered more reliably by
+deterministic parsing over an action's resolved arguments than by any
+refinement of embedding similarity over its semantic content. We moved
+three of Kavach's four ministers (VAULT, EXECUTOR, CHANNEL) to
+deterministic-primary detection on this evidence, keeping cosine similarity
+only as an escalate-only triage layer over the deterministic residual.
 
-\textbf{CVE-2025-34291} (LangFlow, disclosed October 2025). A CSRF vulnerability
-on the refresh endpoint led to account takeover and remote code execution via
-the platform's built-in code-execution feature. This is not a patched historical
-incident: CrowdSec documented \emph{active exploitation in the wild beginning
-January 23, 2026} \cite{crowdsec2026langflow}. CISA subsequently added
-CVE-2025-34291 to its Known Exploited Vulnerabilities catalog on May 21, 2026,
-with a federal remediation deadline of June 4, 2026.
+\textbf{Second, a deployment with real detection numbers
+(\S\ref{sec:architecture}, \S\ref{sec:eval}).} On a 519-case reference
+corpus, deterministic-primary detection with cosine triage reaches VAULT
+74.4\% and EXECUTOR 90.1\%, stable under a held-out split, with zero new
+benign false positives across two independent benign populations. CHANNEL's
+session-level provenance mechanism --- tracking whether a consequential
+call's argument values trace to the user's own instruction or to an
+earlier, untrusted read this session --- correctly escalates 5/22 real
+benign multi-step sessions with zero false blocks, and 5/5 structurally
+applicable AgentDojo attack cases, verified independently against both the
+benchmark's minimal ground-truth call sequence and AgentDojo's own full
+recorded model trajectories for the same cases. On InjecAgent's full 544-case
+corpus, the deterministic pipeline reaches 544/544 detection.
 
-These four cases share a structure: none of them exploited the language model's
-reasoning. Each was exploited at the harness layer — configuration parsing,
-serialization, CSRF handling, environment-variable access — by attacks shaped
-for that layer. The model was incidental. Multiple security vendors and a U.S.
-government Cybersecurity Information Sheet documented a sustained wave of
-MCP-layer disclosures across late 2025 and early 2026
-\cite{agentauditkit2026,nsacisa2026mcp}, making agent infrastructure one of the
-fastest-growing attack surfaces in production AI systems.
+\textbf{Third, a large-scale real-trajectory validation
+(\S\ref{sec:gpt4o}).} Beyond benchmark replay, we validated Kavach against
+all 629 real recorded GPT-4o attack trajectories published by AgentDojo ---
+actual model-generated tool-call sequences with real tool outputs, not a
+benchmark's minimal answer key. Kavach fires on 467/629 (74.2\%) of these.
+We do not report this number flat: tracing every apparent miss to its actual
+tool-call content shows 131 of the 162 misses reflect the model never
+executing any consequential action in connection with the injected
+instruction at all --- an artifact of AgentDojo's own success-labeling
+convention, not a detection gap --- leaving 19 genuine misses, which we
+categorize precisely by mechanism (five are a scoped CHANNEL destination-tool
+gap; fourteen have no destination value to trace at all, and are a different
+kind of problem entirely).
 
-\paragraph{The gap in existing defenses.}
-Existing guardrails address the model's input and output. LlamaFirewall
-\cite{saxe2025llamafirewall} places PromptGuard 2 at message-input time and
-AlignmentCheck at chain-of-thought time. AgentSpec \cite{wang2025agentspec}
-intercepts at plan-evaluation time. AGrail \cite{luo2025agrail} and
-ShieldAgent \cite{chen2025shieldagent} operate at action-evaluation time.
-CaMeL \cite{debenedetti2025camel} constrains capability propagation
-statically. FIDES \cite{costa2025fides} tracks information-flow labels.
+\textbf{Fourth, honestly reported negative results
+(\S\ref{sec:limitations}).} NAVIGATOR, the one minister we did not move to
+deterministic-primary detection, is reported in full: a first attempt at a
+direct deterministic swap showed zero net discrimination gain and was
+abandoned at its own go/no-go gate; a second attempt reframed the minister's
+question as session-level authorization rather than similarity, and we
+report three independently designed heuristics for the resulting
+hard-constraint layer, all of which failed a frozen discriminability
+criterion set before measurement, for three distinct and informative
+reasons. An independent generalization audit, run against a fictional agent
+vocabulary sharing no surface term with any benchmark Kavach was tuned
+against, further establishes precisely which of the four ministers'
+mechanisms generalize past benchmark-specific vocabulary and which do not
+--- EXECUTOR generalizes cleanly (with one structural false positive found
+and fixed during the audit itself); VAULT generalizes except where its
+mechanism is an inherent literal-name allowlist; CHANNEL's escalation path
+generalizes while its hard-block path does not; NAVIGATOR's cosine detector
+does not transfer to novel vocabulary at all. We report these boundaries
+because knowing precisely where each mechanism does and does not generalize
+is what distinguishes a system whose limits are known from one whose limits
+have simply not yet been found.
 
-All of these systems — spatial defenses, in our terminology — evaluate
-the agent's output or context at a single time-step. None of them fire at the
-\emph{tool-call boundary}: the moment when a resolved tool invocation, with
-actual runtime arguments, is about to execute. This is the gap that Kavach fills.
+\paragraph{Scope and non-claims.} We do not claim Kavach prevents every
+class of agent-side attack. Its deterministic rules are authored against
+published taxonomies and known attack corpora; a genuinely novel technique
+outside both may not be caught, and the generalization audit
+(\S\ref{sec:limitations}) characterizes this precisely rather than leaving
+it as an assumption. NAVIGATOR's authorization question --- was this
+specific action derivable from what the user actually asked for --- remains
+open past a validated taxonomy classifier; we report the attempts and their
+failure modes rather than a completed mechanism. We do not propose Kavach as
+a replacement for input-time or output-time guardrails; it enforces at a
+different boundary along the agent's execution lifecycle, and a
+comprehensive deployment runs more than one.
 
-There is a second, subtler gap. Systems that \emph{intend} to fire at the
-tool-call boundary cannot do so if the host runtime does not expose the hook on
-the path that actually executes the call. On OpenClaw — a widely adopted,
-rapidly growing open-source agent runtime — the production gateway path exposes
-no pre-execution \texttt{before\_tool\_call} interception point, while the
-embedded runner does. Two defects were historically implicated: issue \#5513,
-where the typed-hook runner snapshots the plugin registry at construction time
-so hooks registered during the plugin-load phase are invisible to the runner;
-and issue \#5943, where \texttt{before\_tool\_call}, documented as available
-since v2026.3.28, was not invoked in \texttt{executeToolCalls()}. We diagnosed
-both independently and authored a candidate patch; both were resolved upstream
-in v2026.4.15, consistent with our diagnosis. The systemic gap on the gateway
-path remains the point: until a runtime exposes a pre-execution hook on its
-production execution path, no security plugin — including Kavach — can guard it
-there.
-
-\paragraph{Contributions.} This paper makes four contributions, the first
-three forming a coherent systems-and-measurement story and the fourth a
-focused empirical study.
-
-\textbf{First, a measurement (\S\ref{sec:hookgap}).} OpenClaw's production
-gateway execution path exposes no working pre-execution plugin hook: a tool call
-routed through the gateway reaches execution with no \texttt{before\_tool\_call}
-interception point, so \emph{no} security plugin --- Kavach included --- can
-guard it there. The embedded runner, by contrast, fires the hook correctly, and
-is where we evaluate Kavach. We confirm the split with a sentinel-file probe
-(\S\ref{sec:hookgap}). The two defects originally implicated (issues \#5513 and
-\#5943) we diagnosed independently and authored a candidate patch for; both were
-subsequently resolved upstream in OpenClaw v2026.4.15, consistent with our
-diagnosis. We argue that a working pre-execution hook should be a mandatory,
-tested runtime primitive for agent platforms.
-
-\textbf{Second, a deployment with taxonomy-grounded detection
-(\S\ref{sec:architecture}, \S\ref{sec:eval}).} The detector is a
-parliament of four specialized ministers --- EXECUTOR (code execution; MITRE
-ATT\&CK T1059, OWASP ASI05), VAULT (credential and identity abuse; T1552,
-T1539, ASI03), CHANNEL (exfiltration and inter-agent channels; T1567, MITRE
-ATLAS AML.T0086, ASI07), and NAVIGATOR (trajectory drift; T1083, ASI01) ---
-each querying a disjoint ChromaDB collection of attack-pattern descriptions
-embedded with BGE \cite{xiao2024bge} and fused with BM25 via reciprocal-rank
-fusion. A deterministic speaker combines verdicts asymmetrically: any minister
-BLOCK suffices. Every verdict carries a structured provenance chain --- matched
-pattern $\rightarrow$ technique ID $\rightarrow$ tactic $\rightarrow$ kill-chain
-stage, referencing MITRE ATLAS and ATT\&CK --- folded into a SHA-256
-hash-chained ledger, so that not only the verdict but its taxonomic
-\emph{grounding} is tamper-evident. We implement and evaluate this as a research
-prototype on a Dell Precision~3660 (RTX~4090). An
-instructive failure surfaces there: a corpus authored in tool-call syntax
-misjudges attacks phrased in natural language, inflating the false-positive
-rate, and hybrid retrieval substantially recovers from it.
-
-\textbf{Third, the aggregation frontier (\S\ref{sec:frontier}).} Combining
-minister votes by confidence --- including a Bayesian variant --- is fragile to
-an adaptive attacker who corrupts even a single minister, whereas a pure-veto
-aggregator is robust but sacrifices benign utility. We measure this
-false-positive/robustness trade-off on real minister-vote dumps and characterize
-a tuned hybrid: a Bayesian decision path with a hard veto floor.
-
-\textbf{Fourth, a contamination-controlled evaluation (\S\ref{sec:eval}).} The
-attack-pattern corpus was authored from MITRE ATT\&CK technique IDs and OWASP
-Agentic 2026 categories under a documented eight-rule blind-writing protocol
-that prohibited reference to any specific CVE or benchmark case. InjecAgent
-\cite{zhan2024injecagent} and AgentDojo were run cold. Benign false-positive
-rate is measured from InjecAgent's paired benign prompts and reported jointly
-with attack recall --- not as a pre-run gate, but as an honest characterization
-of the current operating point, which we discuss as a live limitation in
-\S\ref{sec:limitations}. Cost (latency, embeddings per decision) is reported
-jointly with detection, following Kapoor et al.~\cite{kapoor2024aiagents}.
-
-\paragraph{Positioning relative to concurrent work.}
-Concurrent with this work, Microsoft announced MXC (Microsoft Execution
-Containers, Build 2026), an OS-level policy sandbox for OpenClaw agents,
-alongside ClawGuard \cite{clawguard2026}, a deterministic rule-based tool-call
-interceptor achieving 0\% attack success rate on AgentDojo under explicit
-rules. Kavach is complementary to both. MXC reduces blast radius but cannot
-reason about intent: an agent authorized to read credential files and make
-HTTP calls can be semantically manipulated into exfiltrating those credentials
-via indirect injection while remaining within its MXC policy. ClawGuard's 0\%
-AgentDojo result is measured against that benchmark's already-low attack-success
-baseline (0.6--3.1\% on the suites we run), and its automatic rule-derivation
-component is described as unevaluated future work, so the result reflects
-hand-authored rules rather than a generalizing detector. ClawGuard's authors
-acknowledge this gap, noting that content-misleading attacks are difficult to
-intercept without system-level semantic monitoring \cite{clawguard2026}; a
-semantic attack-pattern corpus that requires no per-deployment rule authoring is
-precisely the generalization gap Kavach's design addresses. Kavach occupies
-precisely this semantic layer.
-Three papers published in early 2026 require explicit positioning. DeepContext
-\cite{albrethsen2026deepcontext} uses a recurrent network propagating a hidden
-state over fine-tuned, task-attention-weighted turn embeddings (F1 0.84,
-sub-20 ms), conceptually adjacent to Kavach's COMPASS oracle; our
-differentiation is that COMPASS compares agent actions against a fixed declared
-intent rather than tracking evolving user-turn sequences, and feeds a
-four-minister parliament. PSG-Agent \cite{psgagent2026} introduces a
-four-component guardrail (Plan Monitor, Tool Firewall, Response Guard, Memory
-Guardian) similar in structure to Kavach's ministers; our differentiation is
-that PSG-Agent is personalized and collapses oracle and detector roles, while
-Kavach separates them and applies asymmetric combination. OpenClaw PRISM
-\cite{prism2026} applies defense-in-depth to the same OpenClaw runtime as Kavach;
-our differentiation is that Kavach uses a semantic attack-pattern corpus and
-documents the production-path hook gap that determines whether pre-execution
-interception is possible on OpenClaw at all.
-
-\paragraph{Scope and non-claims.}
-We do not claim Kavach prevents every class of agent-side attack. The corpus is
-curated; novel techniques not yet in published taxonomies will not appear in it.
-Single-vector cosine similarity has known limits relative to sequence-aware
-detection \cite{advani2026trajectoryguard}; this is a stated future-work
-direction. The four ministers' detection-failure modes may be statistically
-correlated; measuring this is a stated future-work item. We do not propose
-Kavach as a replacement for existing prompt-time or output-time guardrails; we
-argue (\S\ref{sec:related}) that they enforce at different boundaries
-along the temporal axis and a comprehensive deployment runs both.
-
-\paragraph{Reproducibility.}
-The corpus (401 attack-pattern descriptions + 100 COMPASS calibration pairs),
-the parliament service, the OpenClaw plugin and our candidate hook patch
-(\texttt{openclaw\_pr/}), the benchmark harness, and the calibration protocol
-are all open-source and shipped with the paper. The reproducibility checklist in our supplementary material specifies the
-exact validation sequence — including the benign false-positive characterization
-(Step 5) that is reported jointly with attack recall rather than as a
-prerequisite gate — that produced the numbers reported in \S\ref{sec:eval}.
+\paragraph{Reproducibility.} The parliament service, the deterministic
+prefilters and their test suites, the reference-corpus evaluation harness,
+and the real-trajectory replay scripts used for every number in
+\S\ref{sec:eval} are shipped with the paper and run entirely offline on
+CPU-only hardware.

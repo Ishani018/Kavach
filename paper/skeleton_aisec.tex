@@ -33,47 +33,58 @@
 
 \begin{document}
 
-\title{Kavach: Semantic Pre-Execution Interception for LLM Agent Runtimes}
-\subtitle{A Measurement, a Deployment, and the Aggregation Frontier}
+\title{Kavach: Deterministic-Primary Detection for LLM Agent Tool Calls}
+\subtitle{A Rearchitecture, a Real-Trajectory Validation, and Honest Negative Results}
 
 \author{\anonymise{Author One}}
 \affiliation{\institution{\anonymise{PES University}}\country{\anonymise{India}}}
 % NOTE: capstone mentor Prof. Rajesh Banginwar acknowledged in camera-ready only.
 
 \begin{abstract}
-LLM agents increasingly act in the world through tool calls, but the runtimes
-that host them provide no point at which a resolved tool invocation can be
-inspected before it executes --- guardrails today watch what an agent says, not
-what it is about to do. We present Kavach, a runtime monitor that closes this
-gap by intercepting every tool call at the moment its arguments are resolved,
-scoring its semantic intent against a curated, taxonomy-grounded corpus of
-attack patterns before any side effect occurs. We make four contributions.
-First, a measurement: we show that a widely used agent runtime's production
-gateway path exposes no working pre-execution hook --- so no security plugin can
-intercept there --- while its embedded execution path does, and characterize the
-gap with a sentinel-file probe. Second, a deployment: a parliament of
-four domain-specialized detectors reaches a verdict within 78\,ms on a Dell
-Precision workstation, with every decision grounded in a structured taxonomy and folded into
-a tamper-evident ledger; we also report an instructive failure --- a corpus
-authored in one linguistic register systematically misjudges attacks phrased in
-another --- and the retrieval fix that recovers from it. Third, the aggregation
-frontier: we show that combining detector votes by confidence, rather than by
-veto, is fragile to an attacker who can corrupt even one detector, and we
-characterize the resulting trade-off between robustness and false alarms. Fourth,
-a contamination-controlled evaluation: the attack corpus was authored blind to
-the benchmarks it is tested against, and benign false-positive rate is reported
-jointly with attack recall as an honest characterization of the current
-operating point rather than as a pre-run gate. Kavach needs no GPU; CPU-only deployment is
-supported end-to-end, with a GPU only accelerating the embedding step. It is
-fully reproducible offline.
+LLM agents increasingly act in the world through tool calls, but the guardrails
+deployed to secure them overwhelmingly evaluate an agent's language --- its
+prompt, its chain-of-thought, its output --- rather than the resolved
+arguments of the action it is about to take. We present Kavach, a runtime
+monitor that intercepts every tool call at the moment its arguments are
+resolved, before any side effect occurs. We make four contributions. First, a
+methodology finding: four independent lines of evidence --- a lexical-inflation
+bug, a dense fine-tune that traded one failure mode for a worse one, a
+corpus-coverage gap, and a proposed fifth minister formally falsified before
+being built (near-zero cosine-similarity deltas between paired
+legitimate/malicious calls) --- together show that deterministic parsing over
+an action's resolved arguments outperforms cosine similarity over its semantic
+embedding when the attack signal is structural. We moved three of Kavach's
+four detectors to deterministic-primary detection on this evidence. Second, a
+deployment with real numbers: deterministic-primary detection with
+escalate-only cosine triage reaches 74.4\%/90.1\% on a 519-case reference
+corpus with zero new benign false positives, 544/544 on InjecAgent, and a
+session-level provenance mechanism that correctly escalates 5/5 structurally
+applicable AgentDojo attacks --- verified against both the benchmark's
+ground-truth sequence and AgentDojo's own full recorded model
+trajectories --- with zero false blocks on 22 real benign sessions. Third, a
+large-scale real-trajectory validation: replaying all 629 real recorded GPT-4o
+attack trajectories AgentDojo has published, Kavach fires on 74.2\%, and we
+trace every apparent miss to its actual tool-call content rather than
+reporting a flat number, distinguishing benchmark-labeling artifacts from
+genuine, precisely categorized gaps. Fourth, honestly reported negative
+results: three independently designed heuristics for a session-level
+authorization layer, an abandoned deterministic swap attempt, and an
+independent generalization audit against a fictional vocabulary that
+establishes precisely which detection mechanisms transfer past benchmark
+vocabulary and which do not. Kavach needs no GPU and is fully reproducible
+offline.
 \end{abstract}
 
 \maketitle
 
-% Real section content lives in separate files, reconciled for the AISec
-% restructure. §1 and §3 use the _aisec variants (four-contribution framing,
-% provenance subsection, corrected Speaker table). §2 is reused as-is. §4/§5
-% bodies carry [TBD] tables pending the Dell runs.
+% Real section content lives in separate files. §1, §3, §4 are the
+% deterministic-primary-rearchitecture rewrite (superseding the earlier
+% cosine-primary/COMPASS/OpenClaw-hookgap versions). §2 is reused with light
+% touch-ups. §5 (Aggregation Frontier) is CUT — it was a valid study of the
+% pre-rearchitecture cosine-primary Speaker and does not describe the deployed
+% system; see git history for the removed section if it is ever needed as a
+% historical reference. §7 (Limitations, incl. the generalization audit) was
+% already current and is reused as-is.
 % generated table-value macros (created by make_section5.py)
 % Graceful table inclusion: generated tables (make_section5.py) may be absent
 % on a fresh checkout. Show a visible placeholder instead of failing to build.
@@ -84,15 +95,37 @@ fully reproducible offline.
 \input{section_2_background}
 \input{section_3_design_aisec}
 
-% §4 Deployment & Detection and §5 Aggregation Frontier: the prose is written;
-% the tables are [TBD] until benchmark + minister-dump data lands. The old
-% temporal--spatial section (section_4_temporal_spatial.tex) is intentionally
-% NOT input — it is demoted to the design principle in §3 per the audit.
+% The old temporal--spatial section (section_4_temporal_spatial.tex) is
+% intentionally NOT input — it is demoted to the design principle in §3 per
+% the earlier audit. section_5_frontier.tex is intentionally NOT input — see
+% the note above \maketitle for why it was cut.
 \input{section_4_deployment}
-\input{section_5_frontier}
 
 \section{Related Work}
 \label{sec:related}
+
+\paragraph{Positioning relative to concurrent runtime work.} Microsoft
+Execution Containers (MXC, announced Build 2026) and ClawGuard
+\cite{clawguard2026} both harden the OpenClaw runtime Kavach was originally
+built against. MXC is an OS-level policy sandbox that reduces blast radius
+but cannot reason about intent: an agent authorized to read credential files
+and make HTTP calls can still be manipulated into exfiltrating those
+credentials via indirect injection while remaining fully within its MXC
+policy --- the argument-content question Kavach answers is orthogonal to a
+capability sandbox. ClawGuard reports a 0\% attack-success rate on AgentDojo
+under explicit, hand-authored rules; its automatic rule-derivation component
+is described as future work, so that number reflects hand-authored coverage
+of the specific benchmark rather than a generalizing detector, a limitation
+its own authors acknowledge for content-misleading attacks specifically.
+DeepContext \cite{albrethsen2026deepcontext} and PSG-Agent \cite{psgagent2026}
+are architecturally adjacent --- a recurrent session-state tracker and a
+four-component guardrail respectively --- and are positioned in
+Table~\ref{tab:guardrail-comparison}; our differentiation from both is the
+same one that runs through this paper: mechanism choice (deterministic vs.\
+cosine) is made per detection domain on direct evidence rather than applied
+uniformly, and we report where each choice does and does not generalize
+(\S\ref{sec:limitations}) rather than only where it succeeds.
+
 \input{related_work_table}
 
 \section{Limitations}
@@ -101,13 +134,22 @@ fully reproducible offline.
 
 \section{Conclusion}
 \label{sec:conclusion}
-Kavach demonstrates that semantic pre-execution interception is achievable on a
-production agent runtime, that grounding each verdict in a structured cyber
-taxonomy makes both the decision and its justification tamper-evident, and that
-the choice of vote aggregator is a measurable robustness/utility trade-off
-rather than an implementation detail. The pre-execution hook gap we document on
-the production gateway path suggests that pre-execution interception should be a
-first-class, tested runtime primitive for agent platforms.
+Kavach demonstrates that deterministic parsing over a tool call's resolved
+arguments outperforms cosine similarity over its semantic embedding for
+detection problems whose signal is structural, and that this is a
+per-mechanism empirical question rather than a property of the detection
+paradigm as a whole: three of Kavach's four ministers moved to
+deterministic-primary detection on four independent lines of evidence, while
+the fourth's genuinely intent-shaped question remains open past a validated
+taxonomy classifier. Validating this pipeline against 629 real recorded
+attack trajectories, rather than benchmark replay alone, surfaced both real
+detection strength and a small number of precisely characterized, honestly
+reported gaps. We take the negative results in this paper --- the falsified
+fifth minister, the abandoned deterministic swap, the three failed
+authorization heuristics, and the generalization audit's per-mechanism
+boundaries --- to be as much a contribution as the detection numbers: knowing
+where a runtime monitor's mechanisms do and do not generalize is what makes
+its positive results trustworthy.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{kavach}
