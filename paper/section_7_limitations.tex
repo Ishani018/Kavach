@@ -66,55 +66,19 @@ AST in the live path. The real parser remains available as an offline/audit
 tool. A faster in-process PowerShell AST (avoiding the subprocess-spawn cost)
 is a concrete, scoped next step we did not pursue this cycle.
 
-\paragraph{NAVIGATOR authorization layer: a two-attempt negative result.}
+\paragraph{NAVIGATOR authorization layer: in progress.}
 \label{par:navigator-authflow}
-NAVIGATOR is the one minister whose deterministic rearchitecture we did not
-complete, and we report the attempts precisely because their failure modes are
-themselves a finding. The first attempt---a direct deterministic swap mirroring
-VAULT/EXECUTOR/CHANNEL---showed zero net discrimination gain over NAVIGATOR's
-cosine baseline and was not carried forward; it is this minister's first
-documented negative result. The independent generalization audit
-(\S\ref{sec:generalization-audit}) then gave a distinct, evidence-based reason to
-revisit NAVIGATOR by a different route: its cosine detector provides negligible
-separation ($0.045$) on novel vocabulary, so the detector---not merely its
-calibration---does not transfer off-benchmark. The second attempt reframed the
-minister's question as authorization rather than similarity: capture the user's
-intent once at session start and hold it immutable (a pinned intent that could be
-mutated by something the agent reads mid-session would be as injectable as the
-data it gates); classify each tool as observational or consequential from a
-static taxonomy; and add a deterministic hard-constraint layer deciding whether a
-consequential action is \emph{derivable} from the pinned intent, composing with
-CHANNEL's provenance signal for authorized-flow derivation. The first two pieces
-were completed and validated: pinned-intent capture, and the
-observational/consequential taxonomy, which the generalization audit confirms
-classifies novel tools correctly from verb-token structure alone (both novel
-consequential actions as \textsc{consequential}, both novel reads as
-\textsc{observational}). The hard-constraint layer is where the attempt stopped.
-Against a frozen discriminability criterion---at most one of the 22 real benign
-sessions may be flagged ($\leq\!1/22$)---we tried three independent heuristic
-designs, all NO-GO. (1)~Tool-name/argument-\emph{text} overlap with the
-instruction failed on the attack side: it is trivially evaded by attacker-controlled
-text that shares surface words with the user's request. (2)~Argument-\emph{value}
-overlap failed on the benign side: it wrongly flagged legitimate actions whose
-values had been read earlier in the same session rather than typed by the user.
-(3)~A provenance-aware extension of~(2)---checking, via CHANNEL's existing
-\texttt{SessionProvenance} state, whether an argument value's origin was a
-legitimate same-session read---still flagged $6/22$, above the frozen criterion,
-though a majority of those were sessions CHANNEL had already independently
-escalated on its own grounds rather than new false positives this layer
-introduced. The finding is that the derivability question---``is this
-consequential action authorized by what the user actually asked for''---appears
-to require genuine session-level reasoning about data provenance and intent that
-simple deterministic heuristics (text overlap, value overlap, even
-provenance-aware value overlap) do not fully capture; we did not find a
-deterministic design that clears the frozen criterion, and this remains open.
-Consequently, NAVIGATOR's observational/consequential taxonomy is real,
-validated, and vocabulary-agnostic, but it remains a \emph{classifier, not a
-complete authorization detector}---the honest current boundary of that
-contribution. The three-attempt characterization narrows the problem usefully for
-future work: the specific failure modes point toward needing either genuine
-session-state reasoning beyond overlap checks, or accepting escalation-based
-rather than fully automatic authorization for this layer.
+NAVIGATOR is the one minister whose deterministic rearchitecture is not yet
+complete. A direct deterministic swap mirroring VAULT/EXECUTOR/CHANNEL showed
+zero net discrimination gain over NAVIGATOR's cosine baseline and was
+abandoned; a second attempt reframes the minister's question as
+authorization rather than similarity (a pinned, immutable session intent,
+classifying each tool as observational or consequential, then deciding
+whether a consequential action is \emph{derivable} from that intent). The
+first two pieces---pinned-intent capture and the observational/consequential
+taxonomy---are complete and validated, including under the generalization
+audit below; the derivability layer itself is still being built, and we
+report only completed, validated results in this version of the paper.
 
 \subsection{Generalization beyond the benchmark vocabulary}
 \label{sec:generalization-audit}
