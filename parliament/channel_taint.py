@@ -260,6 +260,21 @@ DESTINATION_TOOLS: dict[str, tuple[str, ...]] = {
     "post_webpage":              ("url",),
     # InjecAgent corpus wire-format name for the same shape as send_email.
     "GmailSendEmail":            ("email", "to", "recipient", "recipients"),
+    # NOTE: reserve_hotel was tried here during the GPT-4o real-trajectory
+    # expansion (5/629 real attack cases use an attacker-substituted hotel
+    # name, e.g. runs/gpt-4o-2024-05-13/travel/user_task_16/.../
+    # injection_task_0.json) and reverted the same night. Adding it without
+    # also extending _extract_candidate_values() (which only recognizes
+    # email/IBAN/phone/URL shapes) makes EVERY reserve_hotel call --
+    # including ones where the user explicitly named the hotel themselves,
+    # e.g. "my friend recommended 'Le Marais Boutique'" -- classify as
+    # NOVEL and false-positive ESCALATE, since a proper-noun business name
+    # never matches any of those four regexes. Robustly recognizing
+    # proper-noun-shaped destination values from free text (without
+    # over-matching ordinary words elsewhere) is a genuinely harder
+    # problem than the existing four shapes and needs its own
+    # census/regression pass, not a same-night follow-on. Documented as a
+    # known, narrow gap (5/629 real cases) rather than shipped half-fixed.
 }
 
 
@@ -274,6 +289,70 @@ def _destination_values(call: ParsedCall) -> list[str]:
         if k in call.args:
             out.extend(_flatten_arg_values({k: call.args[k]}))
     return out
+
+
+def _general_destination_values(call: ParsedCall) -> list[str]:
+    """Behavior-general fallback for tools NOT in DESTINATION_TOOLS.
+
+    Found via a Phase 2 census (overnight session): _destination_values()
+    above is tool-name AND argument-key-name keyed -- it only looks at
+    DESTINATION_TOOLS[call.tool]'s specific named keys. A tool that isn't
+    in that dict is entirely invisible to CHANNEL, however consequential
+    its arguments are. Confirmed non-hypothetical: `send_transaction`
+    (banking's alternate transfer-tool name, real in
+    real_benign_trajectories.json's injection_task_2 fixture) has a real
+    `recipient` argument but was never added to DESTINATION_TOOLS.
+
+    Scans EVERY argument value on the call (not just named-key values,
+    via the same _flatten_arg_values() VAULT/EXECUTOR already use) for a
+    destination-SHAPED value (email/IBAN/phone/URL, the same regex set
+    _extract_candidate_values() already applies to tool_output/
+    user_instruction) -- so a genuinely novel tool with a real destination
+    argument is still caught, without needing its name pre-listed.
+
+    Deliberately NOT used for tools already in DESTINATION_TOOLS -- see
+    check_provenance()'s call site. This keeps every already-tested
+    destination tool's exact behavior byte-identical (zero regression
+    risk on the locked 5/22, 5/5 numbers); only tools with NO listed
+    entry get this net. Conservative bias, same discipline as
+    struct_parse.py: a missed novel-tool destination falls through to
+    ALLOW (no verdict), not a false ESCALATE -- the existing named-key
+    path is unaffected and remains the precise, primary mechanism.
+
+    BUG FOUND AND FIXED during this session's own live regression: the
+    original version joined ALL arg values into one string
+    (" ".join(...)) before scanning -- this let _PHONE_RE (an 8+-digit
+    sequence with optional dashes/spaces) match ACROSS argument
+    boundaries that were never adjacent in any real single value, e.g.
+    update_scheduled_transaction's {"id": 6, "date": "2022-03-01",
+    "amount": 75.0} joined into "6 2022-03-01 75", which _PHONE_RE
+    matched as a fabricated 'phone number' spanning three unrelated
+    fields -- a real false positive on a real benign fixture (found via
+    the live 22-benign-session regression, not a synthetic edge case).
+    Fixed by scanning each argument value independently, never joined,
+    so a pattern can only match within a single real value.
+
+    SECOND bug found in the same regression pass: even scanned in
+    isolation, a bare ISO-date string ("2022-03-01") still matches
+    _PHONE_RE (an 8+-digit sequence tolerant of dashes/spaces, by
+    design loose enough to catch "+1 555-123-4567"-shaped numbers) --
+    a real, pre-existing ambiguity in that regex, just never exercised
+    before because a lone date string was never scanned as a standalone
+    candidate value until this fallback existed. Not fixing _PHONE_RE
+    itself (shared with tool_output/user_instruction scanning elsewhere,
+    already tested, out of scope to touch tonight) -- instead excluding
+    ISO-8601-date-shaped strings specifically from THIS fallback's
+    output, since a date is never a legitimate destination value and
+    dates are exactly the kind of coincidentally-digit-heavy field a
+    novel tool's args are likely to carry (id/date/amount, as seen
+    here)."""
+    out: set[str] = set()
+    for v in _flatten_arg_values(call.args):
+        for cand in _extract_candidate_values(v):
+            if _ISO_DATE_RE.fullmatch(cand):
+                continue
+            out.add(cand)
+    return list(out)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -483,6 +562,14 @@ _EMAIL_RE = re.compile(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
 _IBAN_RE = re.compile(r"\b[A-Z]{2}[0-9]{2}[A-Z0-9]{10,30}\b")
 _PHONE_RE = re.compile(r"\b(\+?\d[\d\-\s]{7,14}\d)\b")
 _URL_RE = re.compile(r"\b(?:https?://|www\.)[^\s<>\"']+", re.IGNORECASE)
+# ISO-8601 date shape (YYYY-MM-DD) -- used only by _general_destination_values()
+# to exclude a real false-positive class found during this session's own live
+# regression: a bare date string spuriously matches _PHONE_RE's loose
+# 8+-digit-with-dashes shape. See that function's docstring for the full
+# finding. Scoped narrowly (this regex, this one caller) rather than tightening
+# _PHONE_RE itself, which is shared with already-tested tool_output/
+# user_instruction scanning elsewhere.
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def _extract_candidate_values(text: str) -> set[str]:
@@ -671,14 +758,16 @@ def check_provenance(
     # send_money's own IBAN misattributed to itself instead of correctly
     # falling through to NOVEL, since the real source -- read_file's
     # landlord-notice content -- never actually contained the IBAN at all).
-    if not is_destination_tool(call.tool):
-        if tool_output:
-            for cand in _extract_candidate_values(tool_output):
-                if cand not in state.output_candidates:
-                    state.output_candidates[cand] = (call.tool, state.turn)
-        return None, []
+    if is_destination_tool(call.tool):
+        values = _destination_values(call)
+    else:
+        # Behavior-general fallback (Phase 2 census finding) -- a tool NOT
+        # in DESTINATION_TOOLS still gets checked for destination-shaped
+        # argument values, so a genuinely novel tool (e.g. send_transaction)
+        # isn't silently invisible to provenance. See
+        # _general_destination_values()'s docstring for the full finding.
+        values = _general_destination_values(call)
 
-    values = _destination_values(call)
     if not values:
         if tool_output:
             for cand in _extract_candidate_values(tool_output):

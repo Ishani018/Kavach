@@ -620,6 +620,57 @@ async def check_drift(req: ParliamentRequest) -> dict[str, Any]:
     }
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Cosine as ESCALATE-ONLY triage for VAULT/EXECUTOR (Kavach-PB Part 3)
+# ──────────────────────────────────────────────────────────────────────────────
+# SAFETY CONTRACT (mirrors CHANNEL's provenance "cannot BLOCK" guarantee):
+# This is the ONE AND ONLY place a cosine-derived MinisterScan is constructed
+# for VAULT or EXECUTOR. Its verdict is HARDCODED to "ESCALATE" -- it is
+# structurally incapable of returning BLOCK or ALLOW, independent of any
+# similarity score or threshold. It runs ONLY on the deterministic-miss
+# residual (see the caller: skipped entirely when a prefilter already fired
+# for that minister), so it can never override a deterministic BLOCK and can
+# only add an ESCALATE to a call the deterministic rules let through. This
+# makes it impossible to reintroduce the original cosine-BLOCK FPR problem:
+# cosine here cannot block anything, only flag-for-review the long tail.
+_COSINE_TRIAGE_ESCALATE_THRESHOLD = 0.45  # only ESCALATE on a non-trivial similarity; below this, stay silent (ALLOW-by-omission)
+
+
+def _cosine_triage_escalate(minister: str, req_text: str, action_vec) -> MinisterScan | None:
+    """Query minister's cosine collection and return a HARDCODED-ESCALATE scan
+    if similarity clears a floor, else None. Never BLOCK, never ALLOW-scan --
+    the only two outcomes are (ESCALATE, None). See the safety contract above.
+    Only called for minister in {VAULT, EXECUTOR} on the deterministic-miss
+    residual."""
+    assert minister in ("VAULT", "EXECUTOR"), "cosine triage is VAULT/EXECUTOR-only"
+    bm25_idx = _state["bm25_indexes"].get(minister)
+    coll = _state["collections"].get(minister)
+    if coll is None:
+        return None
+    # Reuse the existing hybrid scorer purely to obtain a similarity + nearest
+    # pattern; we DISCARD its verdict entirely and impose our own. Thresholds
+    # passed are irrelevant to the outcome (we ignore raw.verdict), but we pass
+    # the real ones so confidence/matched_id are populated normally.
+    raw = run_minister_hybrid(
+        minister, req_text, coll, bm25_idx, _embed_query,
+        _get_minister_thresholds(minister, dict(CFG["thresholds"])), 10, action_vec,
+    )
+    if raw is None or raw.confidence < _COSINE_TRIAGE_ESCALATE_THRESHOLD:
+        return None
+    # THE hardcoded verdict. Not derived from raw.verdict. Cannot be BLOCK.
+    return MinisterScan(
+        minister=minister,
+        verdict="ESCALATE",
+        confidence=raw.confidence,
+        matched_id=f"{minister}-COSINE-TRIAGE:{raw.matched_id or 'nearest'}",
+        matched_text=f"cosine triage (ESCALATE-only, never blocks): nearest "
+                     f"{raw.matched_id!r} at sim {raw.confidence:.3f} on deterministic-miss residual",
+        matched_level="triage",
+        source=raw.source,
+        retrieval_mode="cosine-triage",
+    )
+
+
 def _run_deterministic_ministers(
     req_text: str, session_id: str, account_email: str | None,
     user_instruction: str | None = None, tool_output: str | None = None,
@@ -1017,6 +1068,27 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # unconditional/fail-open semantics as before this refactor.
     minister_results = minister_results + deterministic_results
 
+    # Step 3b: Cosine ESCALATE-only triage for VAULT/EXECUTOR (Part 3).
+    # Runs ONLY on the deterministic-miss residual: for each of VAULT/EXECUTOR
+    # whose deterministic check did NOT already fire (BLOCK/ESCALATE), query
+    # cosine and possibly add a HARDCODED-ESCALATE scan (see
+    # _cosine_triage_escalate's safety contract -- it cannot BLOCK). This is
+    # additive: it never removes or downgrades a deterministic verdict, only
+    # flags-for-review a long-tail call the rules let through. Skipped on the
+    # short-circuit path above (that path only fires on a confident
+    # deterministic BLOCK, which by definition is not a miss).
+    _fired_ministers = {
+        r.minister for r in minister_results if r.verdict in ("BLOCK", "ESCALATE")
+    }
+    for _m in ("VAULT", "EXECUTOR"):
+        if _m in _fired_ministers:
+            continue  # deterministic rule already caught it -- no triage needed
+        _triage = await loop.run_in_executor(
+            None, _cosine_triage_escalate, _m, req.text, action_vec
+        )
+        if _triage is not None:
+            minister_results.append(_triage)
+
     # Step 4: Speaker combines verdicts (under the modulated thresholds).
     speaker_v: SpeakerVerdict = combine_verdicts(
         minister_results,
@@ -1151,7 +1223,7 @@ async def verify_ledger() -> dict[str, Any]:
         """SELECT id, ts, session_id, correlation_id, stage, input_text,
                   verdict, decided_by, confidence, reason, ministers_json,
                   compass_sim, traj_risk, latency_ms, provenance_json,
-                  prev_hash, entry_hash
+                  prev_hash, entry_hash, short_circuited
            FROM votes ORDER BY id ASC""").fetchall()
     conn.close()
 
@@ -1182,6 +1254,17 @@ async def verify_ledger() -> dict[str, Any]:
             "decided_by": r[7], "confidence": r[8], "reason": r[9],
             "ministers_json": r[10], "compass_sim": r[11],
             "traj_risk": r[12], "latency_ms": r[13], "provenance_json": r[14],
+            # Found during the overnight GPT-4o expansion's ledger check:
+            # this SELECT never fetched short_circuited, so _entry_hash()'s
+            # `row.get("short_circuited") is not None` always saw None here
+            # regardless of what was stored -- silently omitting the field
+            # from every recomputed hash from the row it was introduced on
+            # (id 795) onward, while the WRITE path (log_vote, above) always
+            # included it once set. That mismatch, not real tampering, was
+            # what /ledger/verify was reporting as "entry_hash mismatch" at
+            # id 795. Fixed by including the column here to match the write
+            # path exactly.
+            "short_circuited": r[17],
         }
         stored_prev, stored_entry = r[15], r[16]
         recomputed = _entry_hash(stored_prev, row)
