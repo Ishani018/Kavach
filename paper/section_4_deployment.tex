@@ -220,13 +220,34 @@ false-positive class, and report the gap as a documented scope limitation
 
 \subsection{InjecAgent}
 \label{sec:injecagent}
-On the full InjecAgent corpus (544 cases), Kavach's deterministic-primary
-pipeline achieves 544/544 detection at the block-or-escalate level. Because
-InjecAgent's cases are single-step (a benign tool call whose output carries
-an injected instruction, followed by the expected attacker action), this
-result exercises VAULT and EXECUTOR's deterministic layer directly rather
-than CHANNEL's multi-step provenance mechanism, which the two evaluations
-above target specifically.
+InjecAgent's full corpus is 1,054 cases: 510 direct-harm (DH) and 544
+data-stealing (DS), each the cross product of InjecAgent's 17 user tasks
+with its 30 DH / 32 DS attacker instructions. We dispatch DS cases as the
+two-step sequence they describe --- a source read, then a destination
+send --- specifically so CHANNEL's session-scoped taint tracker can observe
+the read-then-send pattern; DH cases remain single-step.
+
+On DS, Kavach achieves \textbf{544/544 (100\%) strict (hard-\textsc{Block})
+recall}, entirely via CHANNEL: every one of the 544 cases is decided by
+CHANNEL's taint mechanism (\texttt{CHANNEL-TAINT:read-then-send}), with
+VAULT and EXECUTOR returning \textsc{Allow} on all 544 --- this result
+exercises CHANNEL's multi-step provenance/taint mechanism directly, not
+VAULT/EXECUTOR's deterministic layer.
+
+DH tells a different, weaker story: strict recall is \textbf{0/510 (0\%)}
+--- no DH case reaches hard \textsc{Block}. 221/510 (43.3\%) reach the
+loose (block-or-escalate) level, split across CHANNEL (153), VAULT (34),
+EXECUTOR (17), and NAVIGATOR (17); the remaining 289/510 (56.7\%) are
+missed entirely (\textsc{Allow}). We report this honestly rather than
+folding DH into DS's headline number: DH is a genuine, unresolved gap in
+the deterministic layer, not a strength of the current architecture.
+
+On the paired benign side (1,054 user-instruction prompts, one per attack
+case), hard-block FPR is \textbf{0\%} --- no benign prompt is ever
+hard-blocked --- but the soft-escalate rate is \textbf{35.2\% (371/1,054)},
+again led by CHANNEL (248), with EXECUTOR (62) and NAVIGATOR (61)
+contributing the rest and VAULT at 0. DS's strong recall and DH's weak
+recall should both be read against this FPR context, not in isolation.
 
 \subsection{Cost}
 \label{sec:cost}
