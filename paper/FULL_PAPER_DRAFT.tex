@@ -22,6 +22,12 @@
 \settopmatter{printacmref=false}
 \renewcommand\footnotetextcopyrightpermission[1]{}
 \pagestyle{plain}
+% Neutral conference metadata to suppress acmart's "Conference'17, July 2017,
+% Washington, DC, USA" placeholder running header. TODO camera-ready: replace
+% with the exact \acmConference block from the AISec 2026 CFP.
+\acmConference[AISec~'26]{Workshop on Artificial Intelligence and Security}{2026}{}
+\acmYear{2026}
+\copyrightyear{2026}
 
 \usepackage{booktabs}
 \usepackage{amsmath, amssymb}
@@ -38,7 +44,7 @@
 
 \author{\anonymise{Author One}}
 \affiliation{\institution{\anonymise{PES University}}\country{\anonymise{India}}}
-% NOTE: capstone mentor Prof. Rajesh Banginwar acknowledged in camera-ready only.
+% NOTE: mentor acknowledgement added in camera-ready only (kept out for double-blind).
 
 \begin{abstract}
 LLM agents increasingly act in the world through tool calls, but the guardrails
