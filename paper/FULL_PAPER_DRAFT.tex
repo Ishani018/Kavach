@@ -130,6 +130,41 @@ cosine) is made per detection domain on direct evidence rather than applied
 uniformly, and we report where each choice does and does not generalize
 (\S\ref{sec:limitations}) rather than only where it succeeds.
 
+\paragraph{Plan-time authorization systems.} The closest external precedents
+for NAVIGATOR's authorization question operate at the plan level rather than
+the tool-call level. PlanGuard \cite{gong2026planguard} constructs an isolated
+plan from the user's instructions alone, then gates execution with a
+hard-constraint stage followed by an LLM-based intent verifier, reporting
+100\% attack-blocking on InjecAgent. NAVIGATOR's pinned-intent design is
+analogous to PlanGuard's first stage, and reduces authorization to a
+deterministic question specifically to keep the enforcement decision
+model-free --- but where PlanGuard reports a working mechanism, we report our
+hard-constraint layer as an incomplete, three-attempt negative result
+(\S\ref{par:navigator-authflow}). We read the comparison as informative in
+both directions: PlanGuard's LLM-based verifier may be doing real work that
+our deterministic heuristics did not find a way to replace, and our three
+characterized failure modes indicate what any deterministic replacement for
+such a verifier must overcome. IntentGuard \cite{kang2025intentguard}
+performs instruction-following intent analysis with origin tracing and treats
+user-confirmation-on-alert as a first-class mechanism rather than a fallback;
+this is close in spirit to CHANNEL's deliberate escalate-not-block verdict on
+genuine provenance ambiguity (\S\ref{sec:channel}), though IntentGuard
+applies it at the plan level and Kavach at the argument-provenance level.
+Progent \cite{shi2025progent} enforces a progressive per-tool allowlist
+policy and reports an AgentDojo ASR reduction from 39.9\% to 1.0\%; we cite
+this as an upper reference point for what a mature policy layer can achieve
+rather than a number Kavach reproduces, since policy synthesis and
+deterministic argument parsing are not directly comparable mechanisms.
+
+\paragraph{Red-team and scanning tools.} garak \cite{garak2024} (NVIDIA) and
+PyRIT \cite{pyrit2024} (Microsoft) are offensive test harnesses that probe a
+model or agent for vulnerabilities pre-deployment rather than enforce at
+runtime, and LLM-Guard \cite{llmguard2024} is an input/output scanner suite
+operating at the prompt boundary rather than the tool-call boundary. These
+are complementary rather than competing: Kavach is a runtime,
+tool-call-time enforcement layer that such tools can be used to red-team,
+and we would welcome exactly that.
+
 \input{related_work_table}
 
 \section{Limitations}
