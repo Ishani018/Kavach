@@ -91,6 +91,49 @@ hard-constraint layer remains open, and its three failure modes are
 reported precisely because a negative result with a specific mechanism of
 failure is more useful to future work than a vague one.
 
+\paragraph{A proposed alternative for NAVIGATOR: intent-drift, promising but
+not yet validated.} Independently of the hard-constraint layer above, we
+explored a second candidate mechanism for NAVIGATOR: rather than matching a
+tool call against a corpus of attack-pattern descriptions, embed the
+session's original user-stated goal and each subsequent tool call, and flag
+any call whose cosine similarity to the goal falls below a threshold as
+drift. On an initial 100-case dataset built from real InjecAgent case content
+(83 attack, 17 benign), this achieved up to 95.2\% recall at 0\%
+false-positive rate (threshold 0.60), and this held up under a stratified
+held-out split---training the threshold on one half and testing it cold on
+the other---with only a 2--3 percentage-point recall drop in both
+directions. This initial result looked promising enough to warrant further
+scrutiny before any claim of validation.
+
+That scrutiny found the result does not generalize. Growing the benign
+sample from 17 to 39 by adding 22 real, independent, multi-step AgentDojo
+benign sessions raised the false-positive rate at the same threshold from
+0\% to 35.9\%: the mechanism flags ordinary mid-session follow-up
+actions---for example, checking an account balance immediately after
+sending a payment---as drift, because such actions are semantically distant
+from the session's \emph{original} stated goal despite being entirely
+legitimate. Held-out validation on this enlarged, more representative set
+collapsed correspondingly: the threshold required to hold false positives
+near zero drove recall down to the 22--56\% range, and in one split
+direction the false-positive rate itself failed to hold at 0\% on cold
+data. This is consistent with, and corroborates rather than conflicts with,
+an independent evaluation of the same mechanism on a different dataset
+(AgentDojo ground-truth), which measured 7.3\% recall.
+
+We therefore report this as future work, not as a contribution: NAVIGATOR's
+currently deployed detector remains the cosine-corpus mechanism described
+above and in \S\ref{sec:generalization-audit}, unchanged. Intent-drift shows
+a real, non-trivial initial signal on simple, single-purpose sessions, but
+does not yet generalize to realistic multi-step benign behavior, and would
+need a substantially larger and more diverse benign corpus plus an
+adversarial/paraphrase check---the same class of audit performed in
+\S\ref{sec:generalization-audit}---before it could be considered for
+integration. One direction the failure mode itself suggests: scoring drift
+against the most recently active sub-goal rather than the session's
+original stated goal, which would not penalize legitimate follow-up actions
+the way the current formulation does; we have not implemented or tested
+this variant.
+
 \subsection{Generalization beyond the benchmark vocabulary}
 \label{sec:generalization-audit}
 
