@@ -34,7 +34,7 @@
 \begin{document}
 
 \title{Kavach: Deterministic-Primary Detection for LLM Agent Tool Calls}
-\subtitle{A Rearchitecture, a Real-Trajectory Validation, and Honest Negative Results}
+\subtitle{A Rearchitecture, a Real-Trajectory Validation, and Negative Results}
 
 \author{\anonymise{Author One}}
 \affiliation{\institution{\anonymise{PES University}}\country{\anonymise{India}}}
@@ -68,10 +68,10 @@ ground-truth sequence and AgentDojo's own full recorded model
 trajectories --- with zero false blocks on 22 real benign sessions. Third, a
 large-scale real-trajectory validation: replaying all 629 real recorded GPT-4o
 attack trajectories AgentDojo has published, Kavach fires on 74.2\%, and we
-trace every apparent miss to its actual tool-call content rather than
-reporting a flat number, distinguishing benchmark-labeling artifacts from
-genuine, precisely categorized gaps. Fourth, honestly reported negative
-results: three independently designed heuristics for a session-level
+trace every apparent miss to its actual tool-call content, distinguishing
+benchmark-labeling artifacts from
+genuine, precisely categorized gaps. Fourth, negative results reported
+in full: three independently designed heuristics for a session-level
 authorization layer, an abandoned deterministic swap attempt, and an
 independent generalization audit against a fictional vocabulary that
 establishes precisely which detection mechanisms transfer past benchmark
@@ -182,8 +182,7 @@ deterministic-primary detection on four independent lines of evidence, while
 the fourth's genuinely intent-shaped question remains open past a validated
 taxonomy classifier. Validating this pipeline against 629 real recorded
 attack trajectories, rather than benchmark replay alone, surfaced both real
-detection strength and a small number of precisely characterized, honestly
-reported gaps. We take the negative results in this paper --- the falsified
+detection strength and a small number of precisely characterized gaps. We take the negative results in this paper --- the falsified
 fifth minister, the abandoned deterministic swap, the three failed
 authorization heuristics, and the generalization audit's per-mechanism
 boundaries --- to be as much a contribution as the detection numbers: knowing

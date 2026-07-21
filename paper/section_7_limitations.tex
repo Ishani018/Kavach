@@ -203,8 +203,7 @@ named-service environment-key rule is, by construction, a literal allowlist of
 known secret variable names (\texttt{STRIPE\_SECRET\_KEY},
 \texttt{ANTHROPIC\_API\_KEY}, and so on). A genuinely novel secret-variable name
 cannot match a name-allowlist, regardless of technique---this is a property of
-literal-name matching, and no expansion of the list closes the general case. We
-state it plainly rather than hiding it behind the benchmark numbers.
+literal-name matching, and no expansion of the list closes the general case.
 
 \paragraph{CHANNEL is split: escalation generalizes, hard-block does not.} The
 audit separates CHANNEL's two mechanisms cleanly. The provenance/escalation path
@@ -216,8 +215,8 @@ destination is decided by a dictionary lookup against benchmark-specific tool
 names (\texttt{send\_email}, \texttt{send\_money}, \texttt{GmailSendEmail},
 \ldots), with no behavior-general fallback, so a novel exfiltration tool
 (\texttt{send\allowbreak\_report\allowbreak\_email}, \texttt{PostToExternalDashboard}) is invisible to
-the taint mechanism and the read-then-send \textsc{block} never fires. The honest
-statement is therefore mechanism-specific: CHANNEL's hard-block guarantee
+the taint mechanism and the read-then-send \textsc{block} never fires. The
+guarantee is therefore mechanism-specific: CHANNEL's hard-block guarantee
 currently holds only within the benchmark's destination-tool vocabulary, while
 its escalation guarantee is genuinely broader.
 

@@ -263,9 +263,9 @@ found and fixed a case where the \emph{verification} query, not the ledger
 itself, omitted a newer column from its recomputation, producing a false
 tamper report at the exact row where that column was first populated;
 correcting the query (not the stored data) restored a clean
-\texttt{intact: true} verification across all rows. We report this
-episode because it is itself evidence the tamper-evidence mechanism is
-exercised and audited in practice, not merely specified.
+\texttt{intact: true} verification across all rows. The episode is
+itself evidence the tamper-evidence mechanism is exercised and audited
+in practice, not merely specified.
 
 \subsection{Design decisions and trade-offs}
 
