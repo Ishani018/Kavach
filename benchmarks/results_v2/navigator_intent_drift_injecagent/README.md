@@ -1,11 +1,14 @@
 # NAVIGATOR intent-drift vs. real InjecAgent data — exploratory re-run
 
-**Status: PASSED a fast held-out validation (see below) — held up across two
-independent split-half directions, degrading only ~2-3pp on cold data with
-FPR staying exactly 0% both ways. Still NOT fully validated: benign sample
-remains thin (8-9 per half) and no adversarial/off-corpus check has been run.
-Promising enough to justify the remaining validation work, not yet solid
-enough to cite as a locked paper number or wire into `server.py`.**
+**Status: FAILED once tested against a realistic benign population. The
+95.18%/0% headline (and its apparent pass under held-out validation, below)
+was an artifact of a thin, easy 17-case benign sample built entirely from
+single-purpose InjecAgent read-queries. Adding 22 real, independent AgentDojo
+benign sessions (§"Enlarged benign sample") produces a real false positive at
+the DEFAULT threshold (0.40) and pushes FPR to 35.9% at T=0.60. Held-out
+validation on the enlarged set collapses recall to 22–56% and FPR fails to
+hold at 0% cold in one direction. Do not cite the 95.18%/0% number, do not
+wire this into `server.py` or the paper as a working result.**
 
 ## What this is
 
@@ -64,33 +67,76 @@ cases per half, "0% FPR" is coarse (a single false positive would jump it to
 ~11-12%), so this isn't a precise FPR estimate yet, just an absence of any
 observed false positive across both held-out halves.
 
-## What is still NOT yet true, and must not be implied by these numbers
+## Enlarged benign sample — 17 → 39, and the result reverses
 
-1. **Thin benign sample.** Only 17 benign cases total (8-9 per held-out
-   half) — the 0% FPR held up, but isn't precise enough to call a stable,
-   locked-in rate the way e.g. Kavach-PB's 793+55-case benign FPR is.
-   Attempted to grow this past 17 from other already-generated InjecAgent
-   run artifacts in this repo (`injecagent_100case_freeform_*`,
-   `injecagent_live_50case.jsonl`, etc.) — all either overlap the same
-   100-case pool or contain zero benign cases (`injecagent_live_50case.jsonl`
-   is 26 DS + 24 DH, no benign at all). Growing the benign sample needs a
-   fresh generation run, out of scope for this pass.
-2. **No adversarial/off-corpus/novel-vocabulary check** — the exact class of
-   test (`benign_probe.json`, narrative-phrasing gap) that previously
-   exposed blind spots in NAVIGATOR's original cosine mechanism and in
-   VAULT/EXECUTOR's deterministic rules. This mechanism hasn't been put
-   through anything equivalent yet.
-3. This is a **different dataset and different result** from `nav-fixer2`'s
-   own committed intent-drift numbers (`nav3/`: 7.3% recall on
-   AgentDojo-groundtruth) — the two are not comparable and should not be
-   blended into one headline number. `nav-fixer2`'s README documents that
-   branch's Stage 2 NAVIGATOR swap as attempted and abandoned; this result
-   does not overturn that finding, it's a separate, later probe against
-   different data that has now cleared one more validation bar than that
-   one had.
+**Source of the 22 new cases:** `parliament/benign_test_set/real_benign_trajectories.json`
+(the same file used for CHANNEL's provenance benign testing) — real,
+independent, multi-step AgentDojo benign sessions with a genuine
+`user_task_text` (goal) and a `calls` sequence, i.e. already the exact shape
+this harness needs. All 22 were usable (`adapt_agentdojo_benign_for_intent_drift.py`).
+
+**`parliament/benign_test_set/benign_v0.json` (Kavach-PB's 55-case benign
+set) was checked and explicitly NOT added**, because it is not independent
+data: all 55 rows trace back to the exact same 22 `source_file`s as
+`real_benign_trajectories.json` — it's the same 22 sessions flattened to one
+row per tool call, not 55 new sessions. Each row is also a single isolated
+call with no session/goal structure to build `turns` from. Combining it in
+would have double-counted the same 22 real interactions under a different
+shape, inflating N without adding real diversity.
+
+Combined set: `combined_intent_dataset.jsonl` — 83 attack (unchanged) + 39
+benign (17 InjecAgent + 22 AgentDojo).
+
+**Result at the default threshold (0.40):** `navigator_intent_drift_summary_combined_t0.40.json`
+— **fp jumps from 0 to 1** (39 benign now, not 17): `agentdojo_benign_16`
+(goal: "send a transaction... check balance after") false-positives at
+`min_similarity=0.3937` on its `get_balance` step — an ordinary benign
+follow-up action that reads as semantically distant from the session's
+original stated goal. FPR: 0% → **2.56%** at this threshold alone.
+
+**`threshold_sweep_combined.json` — the full picture:** at `T=0.60` (the
+previously "clean" threshold), **FPR is now 35.90% (14/39)**, not 0%. Recall
+is unchanged at 95.18% (attack-side scores don't change when benign cases
+are added), but the false-positive rate the earlier result rested on was
+entirely a property of an unrepresentative 17-case benign sample.
+
+**Held-out validation on the enlarged set (`held_out_validation_v2_enlarged_benign.json`),
+same stratified-split methodology as before:**
+
+| Trained on | Chosen T (best recall @ 0% FPR on train) | Train recall/FPR | Tested on | **Cold test recall/FPR** |
+|---|---|---|---|---|
+| Half A (42 atk/20 ben) | 0.3875 | 33.33% / 0% | Half B | **21.95% / 0%** |
+| Half B (41 atk/19 ben) | 0.4298 | 56.10% / 0% | Half A | **47.62% / 10%** (2 real cold false positives) |
+
+The zero-FPR constraint now forces the threshold down to 0.39–0.43 (not
+0.60) to avoid the AgentDojo false positives, which craters recall into the
+22–56% range, and in one direction FPR itself fails to hold at 0% cold.
+
+## Verdict
+
+**Degrades significantly out-of-sample.** The 95.18%/0% headline, and its
+apparent pass under the first held-out check, do not survive contact with a
+realistic, independent benign population — they were an artifact of testing
+against 17 benign cases that were all simple, single-purpose queries
+trivially aligned with their own stated goal. This result is now much closer
+to `nav-fixer2`'s own committed `nav3/` finding (7.3% recall on
+AgentDojo-groundtruth) than to a working replacement mechanism, and
+corroborates rather than overturns that branch's documented "Stage 2
+NAVIGATOR swap attempted and abandoned" conclusion.
 
 ## Before this goes anywhere near the paper or `server.py`
 
-- Grow the benign sample well past 17 (needs a fresh generation run).
-- Run an adversarial/paraphrase check analogous to `benign_probe.json`.
-- ~~Do a genuine train/held-out split~~ — done above, passed.
+- ~~Do a genuine train/held-out split~~ — done, and done again on the
+  enlarged set; the mechanism does not hold up either time the benign
+  population is realistic.
+- ~~Grow the benign sample past 17~~ — done (39, all independent, real);
+  this is what surfaced the actual problem.
+- Run an adversarial/paraphrase check analogous to `benign_probe.json` — no
+  longer the priority; the mechanism already fails on ordinary benign
+  multi-step sessions before reaching that bar.
+- **Recommendation: do not pursue this as a NAVIGATOR replacement without a
+  fundamentally different approach** (e.g. scoring drift against the most
+  recent sub-goal rather than the session's original stated goal, which
+  would likely resolve the `get_balance`-after-`send_money` failure mode
+  specifically) — this exact benign shape (ordinary intermediate/follow-up
+  actions loosely related to the original ask) is common, not a corner case.
