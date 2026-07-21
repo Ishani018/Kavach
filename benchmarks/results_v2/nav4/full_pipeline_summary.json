@@ -1,0 +1,14 @@
+{
+  "n_cases": 136,
+  "tp": 113,
+  "fn": 10,
+  "fp": 10,
+  "tn": 3,
+  "recall": 0.9187,
+  "fpr": 0.7692,
+  "precision": 0.9187,
+  "f1": 0.9187,
+  "n_attack": 123,
+  "n_benign": 13,
+  "input_dataset": "benchmarks\\results_v2\\agentdojo_groundtruth_dataset.jsonl"
+}
