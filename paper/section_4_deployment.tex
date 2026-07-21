@@ -114,6 +114,24 @@ explicitly rather than only their average, consistent with our standing
 discipline of never characterizing a split as ``balanced'' or
 ``generalizing'' from an aggregate number alone.
 
+\subsection{LLM tiebreaker: validated, deliberately not deployed}
+\label{sec:tiebreaker-eval}
+The tiebreaker (\S\ref{sec:tiebreaker}) scored 16/17 (94.1\%) in pilot.
+Re-validated against all 144 real benign-set calls, it produced one new
+false positive (a \texttt{non\_standard\_source} misread of legitimate
+internally-authored, locally-stored content); a prompt clarification fixed
+this case with zero new false positives on re-test. A genuine
+generalization check --- five phrasings never used to write the fix, plus
+three negative controls --- then scored 4/5, with one confirmed remaining
+miss (an internal file described as run ``from the ops share,'' a
+network-share phrasing the fix does not cover). We stopped at this result
+rather than re-running it against our full narrative-phrasing test set: a
+mechanism with one already-known, characterized generalization gap should
+not be scored as if it had none, and reporting a headline recall number
+here would overstate what the 4/5 result actually shows. The tiebreaker is
+real, working code, held back from live dispatch specifically because its
+own validation found a limit before we judged it decided.
+
 \subsection{CHANNEL: session-level provenance}
 \label{sec:channel-eval}
 CHANNEL's provenance mechanism (\S\ref{sec:channel}) is evaluated on two real

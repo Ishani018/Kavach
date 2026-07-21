@@ -684,6 +684,33 @@ semantic signal that cannot reliably discriminate should not be trusted with
 an irreversible verdict, but is still useful as a flag for human review on
 cases a deterministic rule did not anticipate.
 
+\subsection{An LLM tiebreaker for narrative-phrasing attacks (built, not
+deployed)}
+\label{sec:tiebreaker}
+
+VAULT and EXECUTOR's deterministic rules match literal syntax; an attack
+described in prose rather than code (``append an entry to the SSH
+authorized-keys file for persistence'' rather than the literal path) can
+evade every rule that only recognizes concrete command shapes. We built an
+escalation tier for this residual, structured to keep the verdict-making step
+model-free even though it consults a model: a cheap, deterministic
+entity-plus-action-verb pre-flag first decides whether a call is worth
+escalating at all (triggering on $\sim$4--5\% of real benign traffic); only
+then is a small local model (\texttt{qwen2.5:7b}) invoked, and only to
+\emph{extract three narrow factual flags} from the call
+(\texttt{target\_scope\_mismatch}, \texttt{explicit\_legitimacy\_marker},
+\texttt{non\_standard\_source}) --- never to render a verdict directly. A
+separate deterministic rule converts those three flags into
+\textsc{Block}/\textsc{Escalate}/\textsc{Allow}, and a model timeout or call
+failure fails open to \textsc{Allow} rather than blocking the pipeline. Two
+earlier designs were tried and rejected first: entity-proximity matching
+alone generalized correctly but caused 7 new benign false positives (no way
+to distinguish a legitimate diagnostic use of a dual-use tool from a
+malicious one by proximity alone), and asking the model to judge
+malicious-or-benign directly was accurate on benign cases but missed 30\% of
+known-malicious ones, including a case where the model's own stated
+reasoning was correctly suspicious yet it still output \textsc{Allow}.
+
 \subsection{Provenance ledger}
 \label{sec:provenance}
 
@@ -846,6 +873,24 @@ EXECUTOR 89.2\% (91/102) versus 91.1\% (92/101). We report both halves
 explicitly rather than only their average, consistent with our standing
 discipline of never characterizing a split as ``balanced'' or
 ``generalizing'' from an aggregate number alone.
+
+\subsection{LLM tiebreaker: validated, deliberately not deployed}
+\label{sec:tiebreaker-eval}
+The tiebreaker (\S\ref{sec:tiebreaker}) scored 16/17 (94.1\%) in pilot.
+Re-validated against all 144 real benign-set calls, it produced one new
+false positive (a \texttt{non\_standard\_source} misread of legitimate
+internally-authored, locally-stored content); a prompt clarification fixed
+this case with zero new false positives on re-test. A genuine
+generalization check --- five phrasings never used to write the fix, plus
+three negative controls --- then scored 4/5, with one confirmed remaining
+miss (an internal file described as run ``from the ops share,'' a
+network-share phrasing the fix does not cover). We stopped at this result
+rather than re-running it against our full narrative-phrasing test set: a
+mechanism with one already-known, characterized generalization gap should
+not be scored as if it had none, and reporting a headline recall number
+here would overstate what the 4/5 result actually shows. The tiebreaker is
+real, working code, held back from live dispatch specifically because its
+own validation found a limit before we judged it decided.
 
 \subsection{CHANNEL: session-level provenance}
 \label{sec:channel-eval}
