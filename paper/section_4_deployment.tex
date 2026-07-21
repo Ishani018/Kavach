@@ -216,6 +216,14 @@ escalate. We reverted this change rather than ship a fix with a known new
 false-positive class, and report the gap as a documented scope limitation
 (\S\ref{sec:limitations}) rather than a closed fix.
 
+\paragraph{Scope of this validation.} This validation covers one model
+(\texttt{gpt-4o-2024-05-13}) and one attack family
+(\texttt{important\_instructions}), because these are the complete recorded
+trajectories AgentDojo publishes; whether detection transfers to other
+models' tool-calling styles or to subtler injection framings is untested.
+We note the trajectories are real model behavior rather than synthetic
+replay, a deliberate trade of breadth for realism.
+
 \subsection{InjecAgent}
 \label{sec:injecagent}
 InjecAgent's full corpus is 1,054 cases: 510 direct-harm (DH) and 544
