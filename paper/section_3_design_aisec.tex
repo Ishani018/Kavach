@@ -16,9 +16,11 @@ dispatch and the tool's actual execution. Every resolved tool call is
 evaluated by a parliament of four domain-specialized ministers --- VAULT
 (credential and identity abuse), EXECUTOR (dangerous code execution),
 CHANNEL (data exfiltration and provenance), and NAVIGATOR (unauthorized or
-drifted agent action) --- before a deterministic speaker returns
-\textsc{Block}, \textsc{Escalate}, or \textsc{Allow}. The system exposes a
-single HTTP endpoint, \texttt{POST /hook/parliament}, called synchronously at
+drifted agent action) --- before a deterministic Speaker combines their
+verdicts by pure veto (any minister's \textsc{Block} suffices, with no score
+averaging) into \textsc{Block}, \textsc{Escalate}, or \textsc{Allow}. The
+system exposes a
+single HTTP endpoint, \texttt{POST /hook\allowbreak/parliament}, called synchronously at
 the pre-execution hook of the host runtime; a verdict other than
 \textsc{Allow} prevents the call from executing.
 
@@ -198,7 +200,8 @@ CHANNEL's locked reference numbers: 5/22 real benign multi-step sessions
 correctly escalate (0 false hard-blocks) on this mechanism; 5/5 AgentDojo
 attack cases structurally applicable to CHANNEL's read-then-send shape
 escalate correctly, confirmed against both the benchmark's minimal
-\texttt{ground\_truth()} call sequence and, separately, against AgentDojo's
+\texttt{ground\_truth()} call sequence (AgentDojo's own API for the expected
+attack steps) and, separately, against AgentDojo's
 own full recorded model trajectories for the same cases (\S\ref{sec:eval}).
 
 \subsection{Cosine-ESCALATE-only triage}

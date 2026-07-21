@@ -46,7 +46,11 @@ deployed to secure them overwhelmingly evaluate an agent's language --- its
 prompt, its chain-of-thought, its output --- rather than the resolved
 arguments of the action it is about to take. We present Kavach, a runtime
 monitor that intercepts every tool call at the moment its arguments are
-resolved, before any side effect occurs. We make four contributions. First, a
+resolved, before any side effect occurs. Kavach's detection is organized as a
+parliament of four domain-specialized ministers --- VAULT (credentials),
+EXECUTOR (dangerous code), CHANNEL (exfiltration), and NAVIGATOR (unauthorized
+action) --- whose verdicts a deterministic speaker combines into Block,
+Escalate, or Allow. We make four contributions. First, a
 methodology finding: four independent lines of evidence --- a lexical-inflation
 bug, a dense fine-tune that traded one failure mode for a worse one, a
 corpus-coverage gap, and a proposed fifth minister formally falsified before
@@ -150,6 +154,16 @@ authorization heuristics, and the generalization audit's per-mechanism
 boundaries --- to be as much a contribution as the detection numbers: knowing
 where a runtime monitor's mechanisms do and do not generalize is what makes
 its positive results trustworthy.
+
+\section*{Use of Generative AI}
+Generative AI tools (Anthropic's Claude, via Claude Code) were used
+throughout this project's development: for implementing detection
+mechanisms based on the authors' architectural decisions, running and
+analyzing benchmark evaluations, drafting sections of this paper's text
+based on the authors' findings and direction, and assisting with code
+review and debugging. All experimental design choices, architectural
+decisions, evaluation methodology, and interpretation of results were
+directed and verified by the authors.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{kavach}

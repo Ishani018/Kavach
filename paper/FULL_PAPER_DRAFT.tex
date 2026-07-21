@@ -46,7 +46,11 @@ deployed to secure them overwhelmingly evaluate an agent's language --- its
 prompt, its chain-of-thought, its output --- rather than the resolved
 arguments of the action it is about to take. We present Kavach, a runtime
 monitor that intercepts every tool call at the moment its arguments are
-resolved, before any side effect occurs. We make four contributions. First, a
+resolved, before any side effect occurs. Kavach's detection is organized as a
+parliament of four domain-specialized ministers --- VAULT (credentials),
+EXECUTOR (dangerous code), CHANNEL (exfiltration), and NAVIGATOR (unauthorized
+action) --- whose verdicts a deterministic speaker combines into Block,
+Escalate, or Allow. We make four contributions. First, a
 methodology finding: four independent lines of evidence --- a lexical-inflation
 bug, a dense fine-tune that traded one failure mode for a worse one, a
 corpus-coverage gap, and a proposed fifth minister formally falsified before
@@ -150,6 +154,16 @@ authorization heuristics, and the generalization audit's per-mechanism
 boundaries --- to be as much a contribution as the detection numbers: knowing
 where a runtime monitor's mechanisms do and do not generalize is what makes
 its positive results trustworthy.
+
+\section*{Use of Generative AI}
+Generative AI tools (Anthropic's Claude, via Claude Code) were used
+throughout this project's development: for implementing detection
+mechanisms based on the authors' architectural decisions, running and
+analyzing benchmark evaluations, drafting sections of this paper's text
+based on the authors' findings and direction, and assisting with code
+review and debugging. All experimental design choices, architectural
+decisions, evaluation methodology, and interpretation of results were
+directed and verified by the authors.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{kavach}
@@ -469,9 +483,11 @@ dispatch and the tool's actual execution. Every resolved tool call is
 evaluated by a parliament of four domain-specialized ministers --- VAULT
 (credential and identity abuse), EXECUTOR (dangerous code execution),
 CHANNEL (data exfiltration and provenance), and NAVIGATOR (unauthorized or
-drifted agent action) --- before a deterministic speaker returns
-\textsc{Block}, \textsc{Escalate}, or \textsc{Allow}. The system exposes a
-single HTTP endpoint, \texttt{POST /hook/parliament}, called synchronously at
+drifted agent action) --- before a deterministic Speaker combines their
+verdicts by pure veto (any minister's \textsc{Block} suffices, with no score
+averaging) into \textsc{Block}, \textsc{Escalate}, or \textsc{Allow}. The
+system exposes a
+single HTTP endpoint, \texttt{POST /hook\allowbreak/parliament}, called synchronously at
 the pre-execution hook of the host runtime; a verdict other than
 \textsc{Allow} prevents the call from executing.
 
@@ -651,7 +667,8 @@ CHANNEL's locked reference numbers: 5/22 real benign multi-step sessions
 correctly escalate (0 false hard-blocks) on this mechanism; 5/5 AgentDojo
 attack cases structurally applicable to CHANNEL's read-then-send shape
 escalate correctly, confirmed against both the benchmark's minimal
-\texttt{ground\_truth()} call sequence and, separately, against AgentDojo's
+\texttt{ground\_truth()} call sequence (AgentDojo's own API for the expected
+attack steps) and, separately, against AgentDojo's
 own full recorded model trajectories for the same cases (\S\ref{sec:eval}).
 
 \subsection{Cosine-ESCALATE-only triage}
@@ -897,8 +914,10 @@ external party --- a real destination value, of the same shape as
 \texttt{send\_money}'s recipient IBAN --- but the tool was never added to
 CHANNEL's destination-tool list, a scope gap rather than a mechanism
 failure. Fourteen cases (\texttt{banking}: 11 cases,
-\texttt{update\_scheduled\_transaction}/\texttt{update\_user\_info};
-\texttt{workspace}: 3 cases, \texttt{delete\_file}/\texttt{append\_to\_file})
+\texttt{update\allowbreak\_scheduled\allowbreak\_transaction} and
+\texttt{update\allowbreak\_user\allowbreak\_info};
+\texttt{workspace}: 3 cases, \texttt{delete\_file} and
+\texttt{append\allowbreak\_to\allowbreak\_file})
 mutate existing account state or same-account data with no new destination
 value introduced at all --- there is no value for any provenance mechanism,
 however general, to trace, because the question these attacks pose is
@@ -1200,19 +1219,30 @@ AST in the live path. The real parser remains available as an offline/audit
 tool. A faster in-process PowerShell AST (avoiding the subprocess-spawn cost)
 is a concrete, scoped next step we did not pursue this cycle.
 
-\paragraph{NAVIGATOR authorization layer: in progress.}
+\paragraph{NAVIGATOR authorization layer: a hard-constraint layer still in
+progress, after three failed heuristics.}
 \label{par:navigator-authflow}
 NAVIGATOR is the one minister whose deterministic rearchitecture is not yet
 complete. A direct deterministic swap mirroring VAULT/EXECUTOR/CHANNEL showed
 zero net discrimination gain over NAVIGATOR's cosine baseline and was
 abandoned; a second attempt reframes the minister's question as
 authorization rather than similarity (a pinned, immutable session intent,
-classifying each tool as observational or consequential, then deciding
-whether a consequential action is \emph{derivable} from that intent). The
-first two pieces---pinned-intent capture and the observational/consequential
-taxonomy---are complete and validated, including under the generalization
-audit below; the derivability layer itself is still being built, and we
-report only completed, validated results in this version of the paper.
+classifying each tool as observational or consequential, then a
+hard-constraint layer deciding whether a consequential action is
+\emph{derivable} from that intent). The first two pieces---pinned-intent
+capture and the taxonomy---are complete and validated, including under the
+generalization audit below. The hard-constraint layer itself has failed
+three independently designed heuristics against a frozen discriminability
+criterion set before measurement: (1)~tool-name/instruction-text overlap,
+evaded by attacker text sharing surface words with the legitimate request;
+(2)~argument-value overlap alone, which wrongly flagged legitimate values
+read earlier in the same session; (3)~a provenance-aware version of (2),
+composed read-only with CHANNEL's own session state, which still exceeded
+the frozen false-positive threshold. We report only completed, validated
+results as the contribution in this version of the paper; the
+hard-constraint layer remains open, and its three failure modes are
+reported precisely because a negative result with a specific mechanism of
+failure is more useful to future work than a vague one.
 
 \subsection{Generalization beyond the benchmark vocabulary}
 \label{sec:generalization-audit}
@@ -1251,12 +1281,13 @@ and technique-level shape rather than on tool identity. This is the strongest
 generalization result of the four ministers. The audit did surface one genuine
 defect: the structural network-fetch-to-disk predicate
 (\texttt{is\_network\_fetch\_to\_disk}) fired on \emph{any} URL-plus-write-destination
-shape, including a benign \texttt{curl http://host/api/status -o /tmp/status.json}
+shape, including a benign \texttt{curl http://host/api\allowbreak/status -o
+/tmp/status.json}
 data fetch---re-introducing exactly the false positive the regular-expression
 layer had already excluded when it deliberately dropped its bare \texttt{curl -o}
 branch. We scoped the structural predicate to require a payload-staging signal
 (a pipe into an interpreter, or a write target carrying an
-executable/script/library/archive extension), mirroring the regex layer's own
+executable\slash{}script\slash{}library\slash{}archive extension), mirroring the regex layer's own
 exclusion logic. Post-fix validation on the full 519-case attack corpus and both
 benign populations: the audit's false positive is now silent; genuine
 network-fetch-to-disk attacks still fire; EXECUTOR's attack hit count moved by a
@@ -1277,7 +1308,7 @@ named \texttt{badgereader.env} carries \texttt{.env} as an \emph{extension}
 rather than as the canonical dotenv \emph{filename}, and the \texttt{dotenv-file}
 rule anchors on the latter. The second is \emph{inherent} to the architecture,
 not a bug: reading a novel environment-variable secret
-(\texttt{os.environ['ATRIUM\_ADMIN\_SECRET']}) is not caught because VAULT's
+(\texttt{os.environ['ATRIUM\allowbreak\_ADMIN\allowbreak\_SECRET']}) is not caught because VAULT's
 named-service environment-key rule is, by construction, a literal allowlist of
 known secret variable names (\texttt{STRIPE\_SECRET\_KEY},
 \texttt{ANTHROPIC\_API\_KEY}, and so on). A genuinely novel secret-variable name
@@ -1294,7 +1325,7 @@ in no benchmark. The taint/hard-block path does \emph{not}: whether a call is a
 destination is decided by a dictionary lookup against benchmark-specific tool
 names (\texttt{send\_email}, \texttt{send\_money}, \texttt{GmailSendEmail},
 \ldots), with no behavior-general fallback, so a novel exfiltration tool
-(\texttt{send\_report\_email}, \texttt{PostToExternalDashboard}) is invisible to
+(\texttt{send\allowbreak\_report\allowbreak\_email}, \texttt{PostToExternalDashboard}) is invisible to
 the taint mechanism and the read-then-send \textsc{block} never fires. The honest
 statement is therefore mechanism-specific: CHANNEL's hard-block guarantee
 currently holds only within the benchmark's destination-tool vocabulary, while
