@@ -173,7 +173,23 @@ are complementary rather than competing: Kavach is a runtime,
 tool-call-time enforcement layer that such tools can be used to red-team,
 and we would welcome exactly that.
 
-\input{related_work_table}
+Table~\ref{tab:guardrail-comparison} (Appendix~B) situates Kavach against 26
+systems on five axes: enforcement boundary, mechanism, corpus extensibility,
+verdict combination, and reported benchmark numbers. Restricting to the three
+systems discussed above: PlanGuard reports 100\% attack-blocking on
+InjecAgent with a plan-level LLM verifier NAVIGATOR's authorization layer
+does not yet have a deterministic equivalent for; ClawGuard reports a 0\%
+AgentDojo ASR under hand-authored rules, the same benchmark-coverage caveat
+that motivates our own generalization audit (Appendix~A); and Progent
+reports an AgentDojo ASR reduction from 39.9\% to 1.0\% via a progressive
+allowlist policy, an upper reference point for policy-layer enforcement
+rather than a number Kavach's argument-parsing mechanism reproduces. The
+numbers in Table~\ref{tab:guardrail-comparison} are drawn from each cited
+paper's own evaluation setup --- benchmark subset, environment version, and
+threat model all vary system to system --- so the table should be read as a
+map of enforcement boundaries and mechanisms, not a benchmark leaderboard;
+no number in it is directly comparable across rows. A full 26-system
+comparison appears in Appendix~B.
 
 \section{Limitations}
 \label{sec:limitations}
@@ -202,6 +218,11 @@ its positive results trustworthy.
 \section{Generalization Audit Methodology and Full Results}
 \label{sec:appendix-generalization}
 \input{appendix_a_generalization}
+
+\section{Extended Related Work Comparison}
+\label{sec:appendix-related}
+\input{appendix_b_related_work}
+\clearpage
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{kavach}
