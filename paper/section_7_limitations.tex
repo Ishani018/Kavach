@@ -134,6 +134,19 @@ original stated goal, which would not penalize legitimate follow-up actions
 the way the current formulation does; we have not implemented or tested
 this variant.
 
+\paragraph{No adaptive-attacker evaluation.} Every attack corpus in this
+paper is static: no attacker in our evaluation knows Kavach's rules or
+adapts to them. Deterministic signature matching is historically
+evadable --- encoded payloads, string construction, variable indirection,
+\texttt{sh -c} with assembled commands --- and while bashlex's real AST
+closes a class of these transforms for sh/bash, PowerShell and cmd remain
+on a tokenizer, and no minister has been stress-tested against an
+attacker optimizing to evade it. An obfuscation-transform study over the
+519-case reference corpus --- measuring detection degradation under
+encoding, splitting, and indirection --- is the immediate next step, and
+until it is done, the detection rates in \S\ref{sec:eval} should be read
+as rates against non-adaptive attacks.
+
 \subsection{Generalization beyond the benchmark vocabulary}
 \label{sec:generalization-audit}
 
