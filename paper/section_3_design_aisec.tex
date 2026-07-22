@@ -231,24 +231,21 @@ VAULT and EXECUTOR's deterministic rules match literal syntax; an attack
 described in prose rather than code (``append an entry to the SSH
 authorized-keys file for persistence'' rather than the literal path) can
 evade every rule that only recognizes concrete command shapes. We built an
-escalation tier for this residual, structured to keep the verdict-making step
-model-free even though it consults a model: a cheap, deterministic
-entity-plus-action-verb pre-flag first decides whether a call is worth
-escalating at all (triggering on $\sim$4--5\% of real benign traffic); only
-then is a small local model (\texttt{qwen2.5:7b}) invoked, and only to
-\emph{extract three narrow factual flags} from the call
-(\texttt{target\_scope\_mismatch}, \texttt{explicit\_legitimacy\_marker},
-\texttt{non\_standard\_source}) --- never to render a verdict directly. A
-separate deterministic rule converts those three flags into
-\textsc{Block}/\textsc{Escalate}/\textsc{Allow}, and a model timeout or call
-failure fails open to \textsc{Allow} rather than blocking the pipeline. Two
-earlier designs were tried and rejected first: entity-proximity matching
-alone generalized correctly but caused 7 new benign false positives (no way
-to distinguish a legitimate diagnostic use of a dual-use tool from a
-malicious one by proximity alone), and asking the model to judge
-malicious-or-benign directly was accurate on benign cases but missed 30\% of
-known-malicious ones, including a case where the model's own stated
-reasoning was correctly suspicious yet it still output \textsc{Allow}.
+escalation tier for this residual that keeps the verdict-making step
+model-free even though it consults a model: a cheap deterministic pre-flag
+decides whether a call is worth escalating at all, a small local model
+(\texttt{qwen2.5:7b}) only \emph{extracts three narrow factual flags} from
+flagged calls rather than rendering a verdict directly, and a separate
+deterministic rule converts those flags into
+\textsc{Block}/\textsc{Escalate}/\textsc{Allow} (failing open to
+\textsc{Allow} on model timeout or error). Two simpler designs --- raw
+entity-proximity matching and asking the model to judge malicious-or-benign
+directly --- were tried and rejected first, for benign false positives and
+missed attacks respectively. The tiebreaker scored 16/17 (94.1\%) in pilot,
+and 4/5 on an independent generalization check using phrasings never used
+to write its fix (\S\ref{sec:tiebreaker-eval}); it is real, working code
+held back from live dispatch specifically because its own validation found
+a limit before we judged it decided.
 
 \subsection{Provenance ledger}
 \label{sec:provenance}
