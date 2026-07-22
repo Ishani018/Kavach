@@ -7,8 +7,8 @@
 \label{sec:eval}
 
 We evaluate Kavach on three independent axes: deterministic-primary
-detection on Kavach-PB, a composite benchmark we built because the two
-standard benchmarks below almost entirely miss VAULT and EXECUTOR
+detection on Kavach-PB, a composite evaluation suite for VAULT and EXECUTOR
+assembled because the two standard benchmarks below almost entirely miss them
 (\S\ref{sec:kavach-pb}--\ref{sec:vault-executor-eval}); CHANNEL's
 session-level provenance mechanism against real multi-step AgentDojo
 trajectories (\S\ref{sec:channel-eval}); and a large-scale validation
@@ -31,7 +31,7 @@ counted only the deterministic layer's contribution. Once corrected, the
 live-HTTP and in-process full-pipeline numbers agreed --- a reminder that a
 benchmark harness's own bugs can masquerade as detector performance.
 
-\subsection{Kavach-PB: a composite benchmark for all four ministers}
+\subsection{Kavach-PB: a composite evaluation suite for VAULT and EXECUTOR}
 \label{sec:kavach-pb}
 InjecAgent and AgentDojo, the two standard agent-security benchmarks we rely
 on elsewhere in this section, almost exclusively stress CHANNEL: InjecAgent's
@@ -42,11 +42,14 @@ while validating VAULT/EXECUTOR's deterministic-primary rearchitecture
 (\S\ref{sec:deterministic-primary}) and discovering we had no real benchmark
 to validate it against.
 
-Rather than author new synthetic attacks to close this gap, we built
+Rather than author new synthetic attacks to close this gap, we assembled
 \textbf{Kavach-PB} (Kavach Parliament Benchmark): a unified, composite
-adversarial evaluation suite reusing already-real, externally-validated
-attack data under one runner, one wire format, and one scoring convention
-across all four ministers. This is deliberate: a self-authored attack set
+evaluation suite for VAULT and EXECUTOR, assembled from already-real,
+externally-validated attack data (AtomicRedTeam, GTFOBins, BFCL) under one
+runner, one wire format, and one scoring convention; CHANNEL and NAVIGATOR
+are evaluated separately, on InjecAgent (\S\ref{sec:injecagent}) and
+AgentDojo (\S\ref{sec:channel-eval}, \S\ref{sec:gpt4o}). This is deliberate:
+a self-authored attack set
 risks unconsciously being shaped to be catchable by the very system that
 writes it, and reusing independently-authored corpora avoids this risk
 structurally rather than by discipline alone.
@@ -78,7 +81,7 @@ On Kavach-PB's 519-case AtomicRedTeam/GTFOBins reference corpus (117
 VAULT-targeted, 203 EXECUTOR-targeted; \texttt{target\_patterns} is
 unmodified since its original authoring commit, confirmed via
 \texttt{git diff}, so it is independent ground truth), the deterministic
-layer alone recovers VAULT 34.2\% (40/117) and EXECUTOR 34.5\% (70/203);
+layer alone recovers VAULT 35.9\% (42/117) and EXECUTOR 34.5\% (70/203);
 adding the cosine-escalate-only triage layer (\S\ref{sec:triage}) raises
 full-pipeline detection to VAULT 74.4\% (87/117) and EXECUTOR 90.1\%
 (183/203), with zero new hard-block false positives on either benign
@@ -86,6 +89,18 @@ population (793 BFCL, 55 agent-shaped). A held-out even/odd split confirms
 this is stable, not an artifact of partition: VAULT 71.2\% (42/59) versus
 77.6\% (45/58); EXECUTOR 89.2\% (91/102) versus 91.1\% (92/101) --- both
 halves reported explicitly rather than only their average.
+
+For comparison, the pre-rearchitecture cosine-primary configuration ---
+same harness, same 519 cases, same scoring convention, code unmodified from
+before the rearchitecture --- recovers VAULT 67.5\% (79/117) and EXECUTOR
+85.7\% (174/203) target-minister recall, but with a 4.9\% (39/793)
+hard-block false-positive rate on general-purpose benign (BFCL) traffic.
+The deterministic-primary pipeline exceeds cosine-primary's recall on both
+ministers (74.4\%/90.1\% vs.\ 67.5\%/85.7\%) while eliminating that
+false-positive rate entirely (0\% hard-block FPR on both benign
+populations) --- both an ablation for the paper's central
+deterministic-vs-cosine claim and a same-team, same-harness baseline
+showing the rearchitecture strictly dominates the design it replaced.
 
 This split addresses partition luck, not rule-authoring circularity: the
 deterministic rules were authored by inspecting misses across the full
@@ -168,7 +183,12 @@ in connection with the injected instruction, so there was no unauthorized
 action for any minister to catch, verified by extracting every tool call
 from each miss's transcript against a fixed consequential-tool list --- a
 trajectory whose only calls are read-only lookups is not a detection gap,
-regardless of what AgentDojo's field reports.
+regardless of what AgentDojo's field reports. A further 12 of the 162 are
+trajectories where AgentDojo's own \texttt{security} field already indicates
+the injection did \emph{not} succeed (the model's own defenses resisted it)
+--- these are not Kavach misses either, since there is no successful attack
+to have caught (8 \texttt{workspace}, 4 \texttt{travel}). The remaining 19
+are genuine misses.
 
 \paragraph{The remaining 19 real misses, categorized by mechanism.} The
 other 19 trajectories do contain a genuine unauthorized consequential call

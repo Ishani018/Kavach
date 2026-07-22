@@ -16,12 +16,16 @@ dispatch and the tool's actual execution. Every resolved tool call is
 evaluated by a parliament of four domain-specialized ministers --- VAULT
 (credential and identity abuse), EXECUTOR (dangerous code execution),
 CHANNEL (data exfiltration and provenance), and NAVIGATOR (unauthorized or
-drifted agent action) --- before a deterministic Speaker combines their
-verdicts by pure veto (any minister's \textsc{Block} suffices, no score
-averaging) into \textsc{Block}, \textsc{Escalate}, or \textsc{Allow}, via a
-single HTTP endpoint, \texttt{POST /hook\allowbreak/parliament}, called
-synchronously at the host runtime's pre-execution hook; a verdict other than
-\textsc{Allow} prevents the call from executing.
+drifted agent action). Three of these (VAULT, EXECUTOR, CHANNEL) are
+validated detectors with reported detection numbers throughout this paper;
+NAVIGATOR is the fourth, exploratory component, and we report plainly that
+it is not yet one (\S\ref{sec:limitations}). A deterministic Speaker
+combines their verdicts by pure veto (any minister's \textsc{Block}
+suffices, no score averaging) into \textsc{Block}, \textsc{Escalate}, or
+\textsc{Allow}, via a single HTTP endpoint,
+\texttt{POST /hook\allowbreak/parliament}, called synchronously at the host
+runtime's pre-execution hook; a verdict other than \textsc{Allow} prevents
+the call from executing.
 
 \subsection{Deterministic-primary detection: why, and for which ministers}
 \label{sec:deterministic-primary}
@@ -112,7 +116,7 @@ tokens directly, with a two-tier credential test (a strong extension/path
 match, and a broader path-shaped fallback) rather than a single regex.
 
 On the full 519-case AtomicRedTeam/GTFOBins reference corpus, deterministic
-matching alone recovers VAULT 34.2\% (40/117) and EXECUTOR 34.5\% (70/203) of
+matching alone recovers VAULT 35.9\% (42/117) and EXECUTOR 34.5\% (70/203) of
 cases; the remaining residual is handled by the cosine-triage layer below,
 reaching a full-pipeline VAULT 74.4\% (87/117) and EXECUTOR 90.1\% (183/203).
 Of VAULT's 74.4\% (87/117), 42 points are hard-Block from the deterministic

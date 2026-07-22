@@ -54,14 +54,16 @@ only as an escalate-only triage layer over the deterministic residual.
 standard benchmarks we also evaluate against below, almost entirely miss
 VAULT and EXECUTOR --- both stress CHANNEL's mechanisms specifically, a gap
 we found live while validating this rearchitecture, not one we anticipated.
-We built Kavach-PB (\S\ref{sec:kavach-pb}), a composite benchmark that closes
-this gap by reusing real, externally-validated attack data (AtomicRedTeam,
-GTFOBins) under one runner and one per-minister scoring convention, rather
-than authoring new synthetic attacks that risk being unconsciously shaped to
-be catchable by the system being evaluated. On Kavach-PB's 519-case
-reference corpus, deterministic-primary detection with cosine triage reaches
-VAULT 74.4\% and EXECUTOR 90.1\%, stable under a held-out split, with zero
-new benign false positives across two independent benign populations.
+We assembled Kavach-PB (\S\ref{sec:kavach-pb}), a composite evaluation suite
+for VAULT and EXECUTOR that closes this gap by reusing real,
+externally-validated attack data (AtomicRedTeam, GTFOBins) under one runner
+and one per-minister scoring convention, rather than authoring new synthetic
+attacks that risk being unconsciously shaped to be catchable by the system
+being evaluated; CHANNEL and NAVIGATOR are evaluated separately on
+InjecAgent and AgentDojo below. On this 519-case corpus, deterministic-primary
+detection with cosine triage reaches VAULT 74.4\% and EXECUTOR 90.1\%, stable
+under a held-out split, with zero new benign false positives across two
+independent benign populations.
 CHANNEL's
 session-level provenance mechanism --- tracking whether a consequential
 call's argument values trace to the user's own instruction or to an

@@ -52,8 +52,9 @@ monitor that intercepts every tool call at the moment its arguments are
 resolved, before any side effect occurs. Kavach's detection is organized as a
 parliament of four domain-specialized ministers --- VAULT (credentials),
 EXECUTOR (dangerous code), CHANNEL (exfiltration), and NAVIGATOR (unauthorized
-action) --- whose verdicts a deterministic speaker combines into Block,
-Escalate, or Allow. We make four contributions. First, a
+action, the least mature of the four and, as we report, not yet an
+independently validated detector) --- whose verdicts a deterministic
+speaker combines into Block, Escalate, or Allow. We make four contributions. First, a
 methodology finding: four independent lines of evidence --- a lexical-inflation
 bug, a dense fine-tune that traded one failure mode for a worse one, a
 corpus-coverage gap, and a proposed fifth minister formally falsified before
@@ -62,15 +63,20 @@ legitimate/malicious calls) --- together show that deterministic parsing over
 an action's resolved arguments outperforms cosine similarity over its semantic
 embedding when the attack signal is structural. We moved three of Kavach's
 four detectors to deterministic-primary detection on this evidence. Second, a
-deployment with real numbers: deterministic-primary detection with
-escalate-only cosine triage reaches 74.4\%/90.1\% on a 519-case reference
-corpus with zero new benign false positives, 544/544 on InjecAgent's
-data-stealing corpus (direct-harm remains an open gap: 0\% strict recall,
-\S\ref{sec:injecagent}), and a
-session-level provenance mechanism that correctly escalates 5/5 structurally
-applicable AgentDojo attacks --- verified against both the benchmark's
-ground-truth sequence and AgentDojo's own full recorded model
-trajectories --- with zero false blocks on 22 real benign sessions. Third, a
+deployment with real numbers: 544/544 on InjecAgent's data-stealing corpus
+(direct-harm remains an open gap: 0\% strict recall, \S\ref{sec:injecagent}),
+and a session-level provenance mechanism that correctly escalates 5/5
+structurally applicable AgentDojo attacks --- verified against both the
+benchmark's ground-truth sequence and AgentDojo's own full recorded model
+trajectories --- with zero false blocks on 22 real benign sessions; on a
+519-case supporting evaluation suite assembled to cover VAULT and EXECUTOR
+specifically, since InjecAgent and AgentDojo barely exercise either
+(\S\ref{sec:kavach-pb}), deterministic-primary detection with escalate-only
+cosine triage reaches 74.4\%/90.1\% with zero new benign false positives ---
+of which 45/87 (52\%) and 113/183 (62\%) are escalate-only review-flags
+rather than hard-blocks, a split we report throughout rather than only in
+\S\ref{sec:design-tradeoffs}.
+Third, a
 large-scale real-trajectory validation: replaying all 629 real recorded GPT-4o
 attack trajectories AgentDojo has published, Kavach fires on 74.2\%, and we
 trace every apparent miss to its actual tool-call content, distinguishing
