@@ -69,8 +69,9 @@ earlier, untrusted read this session --- correctly escalates 5/22 real
 benign multi-step sessions with zero false blocks, and 5/5 structurally
 applicable AgentDojo attack cases, verified independently against both the
 benchmark's minimal ground-truth call sequence and AgentDojo's own full
-recorded model trajectories for the same cases. On InjecAgent's full 544-case
-corpus, the deterministic pipeline reaches 544/544 detection.
+recorded model trajectories for the same cases. On InjecAgent's data-stealing
+corpus, the deterministic pipeline reaches 544/544 detection; the direct-harm
+corpus remains an open gap (0\% strict recall, \S\ref{sec:injecagent}).
 
 \textbf{Third, a large-scale real-trajectory validation
 (\S\ref{sec:gpt4o}).} Beyond benchmark replay, we validated Kavach against

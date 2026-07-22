@@ -50,7 +50,7 @@ Task Shield & tool-call & LLM alignment & no & threshold & 22\%$\dagger$ & n/r \
 ShieldAgent & tool-call & rule circuits & yes (docs) & probabilistic & n/r & 90.1\% \\
 PSG-Agent & tool-call & 4-component & partial & cross-turn accum. & n/r & n/r \\
 OpenClaw PRISM & tool-call & middleware checkpts & partial & sequential & n/r & n/r \\
-\textbf{Kavach (ours)} & \textbf{tool-call} & \textbf{determ.+embed.} & \textbf{yes (rules+corpus)} & \textbf{veto} & \textbf{n/a}$^{\S}$ & \textbf{100\% (544/544)} \\
+\textbf{Kavach (ours)} & \textbf{tool-call} & \textbf{determ.+embed.} & \textbf{yes (rules+corpus)} & \textbf{veto} & \textbf{n/a}$^{\S}$ & \textbf{100\% (544/544 DS)}$^{\P}$ \\
 \midrule
 
 % ─── Information-flow ─────────────────────────────────────────────────────────
@@ -87,6 +87,8 @@ vetoes the call unconditionally; no score averaging or learned aggregation.
 \textbf{Corpus extensibility} (Kavach): deterministic prefilters are extended by
 adding a structural rule; the cosine-triage corpus by adding a natural-language
 attack-pattern description, re-embedded without retraining.
+$^{\P}$DS = data-stealing subset; direct-harm subset is an open gap
+(\S\ref{sec:injecagent}).
 $^{\S}$Kavach deliberately reports per-mechanism trajectory analysis
 (\S\ref{sec:gpt4o}) rather than a single AgentDojo ASR.
 \end{table*}

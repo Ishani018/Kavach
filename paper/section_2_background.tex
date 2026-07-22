@@ -120,7 +120,8 @@ split into direct-harm (30 tools) and data-stealing (32 tools) settings. Each
 case provides a benign user instruction, a tool the agent would invoke, a
 malicious payload in the tool's output, and the expected attacker action. The
 standard reported metric is Attack Success Rate (ASR) at the harness level.
-Kavach runs the full 544-case corpus cold (\S\ref{sec:injecagent}).
+Kavach runs the 544-case data-stealing (DS) subset cold, and the direct-harm
+subset separately (\S\ref{sec:injecagent}).
 
 \textbf{AgentDojo} \cite{debenedetti2024agentdojo} — 97 user tasks and 629
 security test cases across four environments: workspace, Slack, banking, and
