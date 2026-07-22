@@ -171,7 +171,7 @@ The measurements above use either a synthetic reference corpus or a small,
 hand-verified set of AgentDojo cases. To validate detection at scale on real
 model behavior, we replayed all 629 real recorded attack trajectories for
 GPT-4o (\texttt{gpt-4o-2024-05-13}) across AgentDojo's four suites'
-\texttt{important\_instructions} attack family, sourced directly from
+\texttt{important\allowbreak\_instructions} attack family, sourced directly from
 AgentDojo's own published \texttt{runs/} data --- real conversation
 transcripts with real tool calls and real tool outputs, not a benchmark
 replay of minimal ground-truth sequences.
@@ -230,7 +230,7 @@ false-positive class, and report the gap as a documented scope limitation
 
 \paragraph{Scope of this validation.} This validation covers one model
 (\texttt{gpt-4o-2024-05-13}) and one attack family
-(\texttt{important\_instructions}), because these are the complete recorded
+(\texttt{important\allowbreak\_instructions}), because these are the complete recorded
 trajectories AgentDojo publishes; whether detection transfers to other
 models' tool-calling styles or to subtler injection framings is untested.
 We note the trajectories are real model behavior rather than synthetic
@@ -247,7 +247,8 @@ the read-then-send pattern; DH cases remain single-step.
 
 On DS, Kavach achieves \textbf{544/544 (100\%) strict (hard-\textsc{Block})
 recall}, entirely via CHANNEL: every one of the 544 cases is decided by
-CHANNEL's taint mechanism (\texttt{CHANNEL-TAINT:read-then-send}), with
+CHANNEL's taint mechanism
+(\texttt{CHANNEL-TAINT\allowbreak:read\allowbreak-then\allowbreak-send}), with
 VAULT and EXECUTOR returning \textsc{Allow} on all 544 --- this result
 exercises CHANNEL's multi-step provenance/taint mechanism directly, not
 VAULT/EXECUTOR's deterministic layer.
