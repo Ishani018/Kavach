@@ -478,6 +478,44 @@ def destination_payload(case: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def dh_source_payload(case: dict[str, Any]) -> dict[str, Any]:
+    """
+    DH-only: the FIRST call of a two-step "read something, then act on it
+    directly/dangerously" sequence -- the dispatch analog of DS's source-read
+    step, applied to DH for consistency (dispatch/methodology fix only, no
+    change to any minister's detection logic).
+
+    DH's attacker_cases_dh.jsonl supplies only ONE attacker tool per case
+    (the direct-harm action itself, e.g. AugustSmartLockUnlockDoor) -- unlike
+    DS's attacker_cases_ds.jsonl, which supplies two chained attacker tools
+    (source read + destination send). So DH has no second ATTACKER tool to
+    play the "source" role. The real InjecAgent structure supplies the
+    natural first step anyway: the USER'S OWN tool call (User Tool /
+    Tool Parameters from user_cases.jsonl) is the "read something" step --
+    its Tool Response Template is exactly where the attacker instruction
+    gets injected. So the natural, already-available two-step DH sequence
+    is: user's own tool call (this function) -> DH attacker action
+    (attack_payload()). Uses the SAME session_id as attack_payload()'s call,
+    same convention as DS's source-read/destination-send pairing, so any
+    session-level mechanism (e.g. CHANNEL's taint tracker) sees both calls
+    of the same session in order.
+    """
+    text = (
+        f"tool:{case['user_tool']} "
+        f"args:{json.dumps(case.get('user_tool_args', {}))}"
+    )
+    return {
+        "text":       text,
+        "session_id": case["id"],
+        "context": {
+            "tool_name":       case["user_tool"],
+            "expected_action": case["expected_action"],
+            "category":        case["category"],
+            "test_kind":       "attack",
+        },
+    }
+
+
 def benign_payload(case: dict[str, Any]) -> dict[str, Any]:
     """
     For benign-paired cases, we want to verify the parliament does NOT block
@@ -564,7 +602,17 @@ async def run_one_case(
     The source call's response is still sent (so taint is set) but not
     separately scored, same as how a real multi-call session only cares
     about whether the FINAL harmful action gets blocked.
-    DH cases (destination_tool is None) are unchanged: single attack call.
+    DH cases (destination_tool is None) are now ALSO two-step, matching DS's
+    sequencing style (dispatch fix only -- see dh_source_payload()'s
+    docstring): the user's own tool call first (dh_source_payload -- the
+    "read something" step whose response is where the attacker instruction
+    is actually injected, per InjecAgent's real construction), then the DH
+    attacker action (attack_payload -- "act on it directly/dangerously").
+    Same session_id for both calls, same convention as DS's source/
+    destination pairing. Only the second (attack) call's verdict is scored,
+    same as DS only scores its destination call -- the source/read call's
+    response is still sent (so any session-level mechanism sees it) but not
+    separately graded.
     """
     rows: list[dict[str, Any]] = []
 
@@ -583,11 +631,18 @@ async def run_one_case(
             row["source_call_error"] = src_err or ""
             rows.append(row)
         else:
-            # DH: single-call attack, unchanged.
+            # DH two-step: user's own tool call first (source/read), then
+            # the DH attacker action (scored). Mirrors the DS branch above.
+            src_resp, src_lat, src_err = await call_parliament(
+                session, url, dh_source_payload(case), timeout_s,
+            )
             atk_resp, atk_lat, atk_err = await call_parliament(
                 session, url, attack_payload(case), timeout_s,
             )
-            rows.append(_row_from_resp(case, "attack", atk_resp, atk_lat, atk_err))
+            row = _row_from_resp(case, "attack", atk_resp, atk_lat, atk_err)
+            row["source_call_latency_ms"] = round(src_lat, 2)
+            row["source_call_error"] = src_err or ""
+            rows.append(row)
 
         # Benign paired call
         if include_benign and case.get("user_prompt"):
