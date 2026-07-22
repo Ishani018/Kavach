@@ -151,10 +151,16 @@ match, and a broader path-shaped fallback) rather than a single regex.
 On the full 519-case AtomicRedTeam/GTFOBins reference corpus, deterministic
 matching alone recovers VAULT 34.2\% (40/117) and EXECUTOR 34.5\% (70/203) of
 cases; the remaining residual is handled by the cosine-triage layer below,
-reaching a full-pipeline VAULT 74.4\% (87/117) and EXECUTOR 90.1\% (183/203)
-with zero new hard-block false positives across both benign populations we
-measure (793 general-purpose BFCL calls, 55 agent-shaped benign calls). A
-held-out split of the same population (even/odd case IDs) shows the
+reaching a full-pipeline VAULT 74.4\% (87/117) and EXECUTOR 90.1\% (183/203).
+Of VAULT's 74.4\% (87/117), 42 points are hard-Block from the deterministic
+layer and 45 points are Escalate-only from cosine triage; of EXECUTOR's
+90.1\% (183/203), 70 points are hard-Block and 113 points are Escalate-only.
+This produces zero new hard-block false positives across both benign
+populations we measure (793 general-purpose BFCL calls, 55 agent-shaped
+benign calls). Escalate rates on the two benign populations are,
+respectively: VAULT 5.5\%/13.4\%, EXECUTOR 0\%/14.9\%, CHANNEL 40.0\%/4.5\%,
+NAVIGATOR 21.8\%/10.8\% (agent-shaped/BFCL). A held-out split of the same
+population (even/odd case IDs) shows the
 full-pipeline rate is stable across the split --- VAULT 71.2\%/77.6\%,
 EXECUTOR 89.2\%/91.1\% --- rather than an artifact of a lucky partition.
 
