@@ -136,11 +136,15 @@ CHANNEL's provenance mechanism (\S\ref{sec:channel}) is evaluated on two real
 populations: 22 real multi-step benign sessions and the AgentDojo attack
 cases whose two-call read-then-send shape is structurally applicable to
 CHANNEL's mechanism. On the benign population, 5/22 sessions correctly
-escalate (0 hard-block false positives); these are exactly the sessions in
-which a legitimate destination value (an IBAN, most commonly) was read from
-a file or transaction history earlier in the same session rather than typed
-by the user, which is precisely the ambiguity that motivated an escalate,
-not block, verdict for this mechanism (\S\ref{sec:channel}). On the attack
+escalate via CHANNEL, with 0 hard-block false positives from CHANNEL itself;
+these are exactly the sessions in which a legitimate destination value (an
+IBAN, most commonly) was read from a file or transaction history earlier in
+the same session rather than typed by the user, which is precisely the
+ambiguity that motivated an escalate, not block, verdict for this mechanism
+(\S\ref{sec:channel}). Separately, 3/22 sessions in this same population are
+hard-blocked by an unrelated interaction between TRAJECTORY and NAVIGATOR,
+never blended into CHANNEL's 5/22 figure and reported in full in
+\S\ref{sec:design-tradeoffs}. On the attack
 side, 5/5 structurally applicable AgentDojo cases correctly escalate, and we
 verified this twice: once against the benchmark's minimal
 \texttt{ground\_truth()} call sequence, and again, independently, against
@@ -257,10 +261,24 @@ recall should both be read against this FPR context, not in isolation.
 
 \subsection{Cost}
 \label{sec:cost}
-Deterministic parsing adds negligible cost on the hot path: the
-\texttt{bashlex}-based AST parse used for \texttt{sh}/\texttt{bash}
-(\S\ref{sec:vault-executor}) measures $\sim$0.5\,ms per call, and the
-structural tokenizer used for other dialects is comparably cheap. Kavach
-needs no GPU: the BGE embedding step used by the cosine-triage layer and by
-NAVIGATOR runs CPU-only end-to-end, and every number in this section is
-measured that way.
+Kavach's latency is bimodal, and we report the split rather than a blended
+figure. 17 of 159 timed calls complete under 90\,ms (p50 46\,ms, p95 86\,ms);
+the remaining 142 complete in over 680\,ms (p50 733\,ms, p95 1437\,ms), with
+no call falling in between. The split does not cleanly correspond to whether
+a deterministic rule short-circuited the call: 26 of 159 calls were
+short-circuit-eligible and matched, of which 17 returned in the fast mode
+and 9 did not, despite an identical decision path. We traced this to the
+pipeline's ledger-completeness design: every response --- short-circuited or
+not --- spawns a background task that runs the skipped COMPASS, router, and
+NAVIGATOR scoring for audit purposes, competing for the same CPU-bound
+embedding inference as the next request's own foreground call under
+sequential dispatch. This is a scheduling artifact of our single-process CPU
+measurement, not a property of the detection logic itself; a production
+deployment would either bound or defer this background completion work. On
+GPU-equipped hardware, we have separately observed the embedding path at
+approximately 78\,ms p50 (RTX 4090, steady state). Verdicts are
+hardware-independent: replaying 107 reference cases with the encoder pinned
+to CPU produced zero verdict or fired-minister differences against the
+GPU-measured baseline. The bashlex AST parse used for \texttt{sh}/\texttt{bash}
+(\S\ref{sec:vault-executor}) measures $\sim$0.5\,ms per call and is
+negligible on either path.
