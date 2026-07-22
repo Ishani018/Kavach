@@ -102,6 +102,21 @@ populations) --- both an ablation for the paper's central
 deterministic-vs-cosine claim and a same-team, same-harness baseline
 showing the rearchitecture strictly dominates the design it replaced.
 
+We additionally compare against two independent, non-Kavach baselines on
+the identical 519-case corpus and both benign populations. A naive
+keyword/regex blocklist ($\sim$30 hand-written patterns, no corpus, no
+tuning) recovers 12.1\% (63/519) with 0\% FPR --- barely detects anything,
+the expected floor for an un-corpus-driven list. A zero-shot LLM judge
+(local \texttt{qwen2.5:7b}, no corpus, single fixed prompt, given only the
+resolved call) recovers 78.8\% (409/519), recall in Kavach's own ballpark,
+but at a real false-positive cost --- 1.4\% on general-purpose (BFCL)
+traffic and 14.5\% on agent-shaped, consequential-looking calls specifically
+--- that Kavach's deterministic layer avoids entirely. Read together with
+the cosine-primary ablation above: a naive filter under-detects, a generic
+LLM judge approaches Kavach's recall but cannot match its precision, and
+the pre-rearchitecture cosine-primary configuration approaches neither
+Kavach's recall nor its zero-FPR guarantee.
+
 This split addresses partition luck, not rule-authoring circularity: the
 deterministic rules were authored by inspecting misses across the full
 corpus, so both halves were visible during rule development. The
