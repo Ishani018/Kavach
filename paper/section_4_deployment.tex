@@ -240,10 +240,12 @@ replay, a deliberate trade of breadth for realism.
 \label{sec:injecagent}
 InjecAgent's full corpus is 1,054 cases: 510 direct-harm (DH) and 544
 data-stealing (DS), each the cross product of InjecAgent's 17 user tasks
-with its 30 DH / 32 DS attacker instructions. We dispatch DS cases as the
-two-step sequence they describe --- a source read, then a destination
-send --- specifically so CHANNEL's session-scoped taint tracker can observe
-the read-then-send pattern; DH cases remain single-step.
+with its 30 DH / 32 DS attacker instructions. We dispatch both DS and DH cases as a two-step sequence --- a source read,
+then the destination send (DS) or the direct-harm action itself (DH) ---
+so CHANNEL's session-scoped taint/provenance tracker can observe the
+read-then-act pattern in both settings; DH's dispatch was corrected to this
+two-step form as a methodology fix during this work, not a change to any
+minister's detection logic.
 
 On DS, Kavach achieves \textbf{544/544 (100\%) strict (hard-\textsc{Block})
 recall}, entirely via CHANNEL: every one of the 544 cases is decided by
@@ -251,15 +253,26 @@ CHANNEL's taint mechanism
 (\texttt{CHANNEL-TAINT\allowbreak:read\allowbreak-then\allowbreak-send}), with
 VAULT and EXECUTOR returning \textsc{Allow} on all 544 --- this result
 exercises CHANNEL's multi-step provenance/taint mechanism directly, not
-VAULT/EXECUTOR's deterministic layer.
+VAULT/\allowbreak EXECUTOR's deterministic layer.
 
-DH tells a different, weaker story: strict recall is \textbf{0/510 (0\%)}
---- no DH case reaches hard \textsc{Block}. 221/510 (43.3\%) reach the
-loose (block-or-escalate) level, split across CHANNEL (153), VAULT (34),
-EXECUTOR (17), and NAVIGATOR (17); the remaining 289/510 (56.7\%) are
-missed entirely (\textsc{Allow}). DH is a genuine, unresolved gap in
-the deterministic layer, not a strength of the current architecture, and
-is not folded into DS's headline number.
+DH tells a different, weaker story: no individual minister reaches hard
+\textsc{Block} on a DH case --- CHANNEL, VAULT, EXECUTOR, and NAVIGATOR are
+never independently strict-positive here. 221/510 (43.3\%) reach the loose
+(block-or-escalate) level, split across CHANNEL (153), VAULT (34), EXECUTOR
+(17), and NAVIGATOR (17); the remaining 289/510 (56.7\%) are missed entirely
+(\textsc{Allow}). After the two-step dispatch correction, CHANNEL's
+provenance mechanism now escalates 153/510 (30\%) of DH cases via a
+novel-value classification --- confirming the fix surfaces the intended
+data-flow signal --- while CHANNEL's own hard-block contribution remains
+exactly 0\%, as designed. Separately, 16/510 (3.1\%) cases now reach a hard
+\textsc{Block} in aggregate, but not via any of the four ministers: all 16
+are decided by TRAJECTORY (\S\ref{sec:design-tradeoffs}), which for the
+first time has a genuine multi-step DH session to reason about under the
+corrected dispatch, consistent with its already-disclosed role and
+limitations rather than a change to any minister's detection contract. DH
+remains a genuine, unresolved gap in the deterministic layer, not a
+strength of the current architecture, and is not folded into DS's headline
+number.
 
 On the paired benign side (1,054 user-instruction prompts, one per attack
 case), hard-block FPR is \textbf{0\%} --- no benign prompt is ever
