@@ -157,8 +157,18 @@ dispatched 18 attack and 18 matched-benign scenarios---covering each minister's
 intended detection \emph{shape} (credential exfiltration, dangerous execution,
 data-flow-to-untrusted-destination, unauthorized consequential action) in this
 novel surface form---through the real detection pipeline, and measured
-per-minister hit/miss per case. We report the findings without softening: the
-per-mechanism boundaries below are a deliberate product of this pass, and are
+per-minister hit/miss per case. This sits in real tension with our own
+argument against self-authored attack data (\S\ref{sec:kavach-pb}): the
+audit's scenarios are author-written, not independently sourced. We consider
+this acceptable specifically because the audit tests \emph{transfer} of
+already-validated mechanisms to novel vocabulary, not a headline detection
+claim---the mechanisms being stressed were built and locked against
+Kavach-PB, InjecAgent, and AgentDojo before AtriumOS existed, so the risk
+Kavach-PB's own design guards against (a detector unconsciously shaped to
+catch what it will be tested on) does not apply to a novel-vocabulary
+check run against mechanisms already frozen. We report the findings without
+softening: the per-mechanism boundaries below are a deliberate product of
+this pass, and are
 more useful stated precisely than defended.
 
 \paragraph{EXECUTOR generalizes; one structural false positive was found and

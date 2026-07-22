@@ -112,6 +112,14 @@ explicitly rather than only their average, consistent with our standing
 discipline of never characterizing a split as ``balanced'' or
 ``generalizing'' from an aggregate number alone.
 
+This split addresses partition luck, not rule-authoring circularity: the
+deterministic rules were authored by inspecting misses across the full
+corpus, so both halves were visible during rule development. The
+generalization audit (\S\ref{sec:generalization-audit}) is our attempt to
+measure past this limit, and we note its own limit in turn: its scenarios
+are author-written, testing vocabulary novelty rather than an
+independently sourced attack distribution.
+
 \subsection{LLM tiebreaker: validated, deliberately not deployed}
 \label{sec:tiebreaker-eval}
 The tiebreaker (\S\ref{sec:tiebreaker}) scored 16/17 (94.1\%) in pilot.
