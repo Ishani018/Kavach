@@ -472,6 +472,34 @@ def check_channel_taint(
             )
         return None
 
+    # Behavior-general fallback: `call.tool` is not in the named
+    # DESTINATION_TOOLS dict, so the named-key path above is structurally
+    # blind to it regardless of how consequential its arguments are (the
+    # exact generalization gap the audit in Appendix A documents). Reuse
+    # _general_destination_values() -- already built, and already hardened
+    # against two real false-positive bugs (see its docstring) -- to check
+    # for a destination-SHAPED value (email/IBAN/phone/URL) on ANY tool.
+    # This is deliberately conservative and narrower than the named path:
+    # it only fires on a shape match, so a proper-noun destination (e.g.
+    # a hotel name) is NOT caught here either -- that remains the
+    # documented reserve_hotel gap, unchanged by this fallback.
+    general_values = _general_destination_values(call)
+    if general_values and state.tainted and not _destination_allowed(call.tool, general_values, account_email):
+        return MinisterScan(
+            minister="CHANNEL",
+            verdict="BLOCK",
+            confidence=1.0,
+            matched_id="CHANNEL-TAINT-GENERAL:read-then-send",
+            matched_text=(
+                f"session tainted by prior read of {state.source_tool!r} "
+                f"({state.source_matched_id}); untrusted destination-shaped "
+                f"value on novel tool {call.tool!r}: {general_values!r}"
+            ),
+            matched_level="deterministic",
+            source="MITRE ATT&CK T1041",  # Exfiltration Over C2 Channel
+            retrieval_mode="deterministic",
+        )
+
     return None
 
 
