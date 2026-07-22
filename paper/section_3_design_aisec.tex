@@ -17,11 +17,10 @@ evaluated by a parliament of four domain-specialized ministers --- VAULT
 (credential and identity abuse), EXECUTOR (dangerous code execution),
 CHANNEL (data exfiltration and provenance), and NAVIGATOR (unauthorized or
 drifted agent action) --- before a deterministic Speaker combines their
-verdicts by pure veto (any minister's \textsc{Block} suffices, with no score
-averaging) into \textsc{Block}, \textsc{Escalate}, or \textsc{Allow}. The
-system exposes a
-single HTTP endpoint, \texttt{POST /hook\allowbreak/parliament}, called synchronously at
-the pre-execution hook of the host runtime; a verdict other than
+verdicts by pure veto (any minister's \textsc{Block} suffices, no score
+averaging) into \textsc{Block}, \textsc{Escalate}, or \textsc{Allow}, via a
+single HTTP endpoint, \texttt{POST /hook\allowbreak/parliament}, called
+synchronously at the host runtime's pre-execution hook; a verdict other than
 \textsc{Allow} prevents the call from executing.
 
 \subsection{Deterministic-primary detection: why, and for which ministers}
@@ -30,85 +29,56 @@ the pre-execution hook of the host runtime; a verdict other than
 Kavach's ministers were originally cosine-primary: each proposed action was
 embedded and scored against a curated corpus of attack-pattern descriptions,
 with a per-minister confidence threshold deciding the verdict. Four
-independent lines of evidence, developed over the course of this project and
-detailed as a negative-results narrative below, converged on replacing this
-design for three of the four ministers.
+independent lines of evidence, developed over the course of this project,
+converged on replacing this design for three of the four ministers.
 
-\paragraph{Evidence 1: a lexical-inflation bug pointed at the fix, not just the
-bug.} An early false-positive investigation found that BM25/IDF term
-weighting, mixed into the retrieval score to sharpen recall, over-weighted
-rare generic tokens (\texttt{url}, \texttt{user}) in the small corpus because
-L3 code-syntax text had leaked into the lexical index, false-blocking benign
-calls (\texttt{get\_webpage}, \texttt{read\_inbox}). Three fixes were
-evaluated: a SPLADE sparse-retrieval reranker (rejected --- it improves
-recall, not precision, and adds $\sim$20\,ms to a 78\,ms budget); a
-cross-encoder reranker (rejected --- replaces the entire calibrated scoring
-formula and adds 50--100\,ms); and a regex/exact-match layer on L3 syntax
-tokens specifically, which shipped. This shipped fix is the direct conceptual
-precursor to full deterministic-primary detection: it worked because the
-false positives were \emph{structural} (a syntax token, not a semantic
-concept), and a deterministic match on structure resolved them without
-touching the semantic layer at all.
+\begin{itemize}
+\item \textbf{Evidence 1 --- a lexical-inflation bug pointed at the fix, not
+just the bug.} BM25/IDF term weighting over-weighted rare generic tokens
+(\texttt{url}, \texttt{user}) because L3 code-syntax text had leaked into
+the lexical index, false-blocking benign calls
+(\texttt{get\_webpage}, \texttt{read\_inbox}). A regex/exact-match layer on
+L3 syntax tokens shipped instead of two rejected rerankers (SPLADE,
+cross-encoder), and is the direct conceptual precursor to deterministic-primary
+detection: the false positives were \emph{structural}, and a deterministic
+match on structure resolved them without touching the semantic layer.
+\item \textbf{Evidence 2 --- a targeted dense fine-tune traded one failure
+mode for a worse one.} A low-rank adapter fine-tuned on the frozen BGE
+encoder fixed the \texttt{get\_webpage}/\texttt{read\_inbox} false positives
+outright (71\%$\to$0\%) but regressed real attack recall on 30 genuine
+InjecAgent attacks from 63.3\% to 26.7\%: its LOLBIN-shaped training
+positives sharply separated \emph{that} shape and pulled genuinely different
+attack shapes (bank transfers, access-grant abuse) away from the decision
+boundary. The adapter was correctly not merged.
+\item \textbf{Evidence 3 --- the corpus gap this exposed was general, not a
+training artifact.} Adding 62 real business-logic attacks (transfers, access
+grants) as positive examples revealed they do not match \emph{anything}
+already in the corpus (mean cosine similarity 0.565, far below any operating
+threshold) --- a structural blind spot for an ordinary-looking business
+action carrying a malicious argument.
+\item \textbf{Evidence 4 --- a proposed fifth minister was formally
+falsified before being built.} We tested whether cosine similarity could
+discriminate STEWARD's target attack class (business-logic abuse) at all,
+using paired legitimate/malicious AgentDojo calls sharing a tool name and
+differing only in argument content: similarity deltas between paired calls
+were near zero (0.003--0.024). STEWARD was not built --- argument-\emph{value}
+provenance is a different kind of question than action-level semantic
+similarity, and no amount of corpus expansion closes that gap for a
+mechanism that only looks at the action as a whole.
+\end{itemize}
 
-\paragraph{Evidence 2: a targeted dense fine-tune traded one failure mode for
-a worse one.} We fine-tuned a low-rank adapter on the frozen BGE encoder
-(0.537\% of parameters, 3 epochs, $\sim$91 minutes on CPU) to separate attack
-from benign embeddings directly. It worked precisely as intended on its
-training distribution: a 7$\times$ separation gain, and it fixed the
-\texttt{get\_webpage}/\texttt{read\_inbox} false positives outright
-(71\%$\to$0\% on real traffic). But real attack recall on 30 genuine
-InjecAgent attacks regressed from 63.3\% to 26.7\%. The root cause was corpus
-composition, not the fine-tuning method: the training positives were almost
-entirely LOLBIN-shaped (shell one-liners, living-off-the-land binaries), so
-the adapter learned to separate \emph{that} shape sharply and, in doing so,
-pulled genuinely different attack shapes --- unauthorized bank transfers,
-access-grant abuse, both look nothing like \texttt{curl\,|\,bash} in
-embedding space --- away from the decision boundary it had sharpened. The
-adapter was correctly not merged.
-
-\paragraph{Evidence 3: the corpus gap this exposed was general, not a training
-artifact.} Adding 62 real business-logic attacks (transfers, access grants)
-as positive examples revealed they do not match \emph{anything} already in
-the corpus, technical-surface-only as authored: mean cosine similarity 0.565,
-far below any operating threshold. This was not a fine-tuning failure; it was
-evidence that a purely technical attack-pattern corpus has a structural blind
-spot for attacks whose surface form is an ordinary-looking business action
-with a malicious argument, and it directly motivated the next test.
-
-\paragraph{Evidence 4: a proposed fifth minister was formally falsified before
-being built.} We considered STEWARD, a proposed business-logic-specific
-minister to close the Evidence-3 gap by the same cosine-retrieval mechanism
-the other ministers used. Before implementing it, we tested whether cosine
-similarity could discriminate this attack class at the tool-call level at
-all, using paired legitimate/malicious AgentDojo calls that share a tool name
-and differ only in argument content (e.g.\ a legitimate transfer to a known
-payee versus an attacker-substituted recipient). The similarity deltas
-between paired calls were near zero (0.003--0.024). Cosine similarity over an
-action's text representation cannot separate these cases, because the
-attack signal lives entirely in \emph{which} argument value is present, not
-in the action's overall semantic shape. STEWARD was not built. This result
-generalizes beyond the one minister it was proposed for: it is direct
-evidence that argument-\emph{value} provenance --- where did this specific
-value come from --- is a different kind of question than action-level
-semantic similarity, and no amount of corpus expansion or fine-tuning closes
-that gap for a mechanism that only ever looks at the action as a whole.
-
-\paragraph{The decision.} Taken together, Evidence 1--4 point at the same
-underlying distinction: attacks whose defining signal is \emph{structural}
-(a credential-path shape, a network-fetch-to-disk pattern, a specific
-argument value's provenance) are caught more reliably, more cheaply, and more
-robustly by deterministic parsing than by any refinement of cosine
-similarity over an action's semantic embedding --- while attacks whose
-defining signal is genuinely about intent or session-level authorization may
-still need a semantic or session-state mechanism. We therefore moved VAULT,
-EXECUTOR, and CHANNEL to deterministic-primary detection, keeping cosine
-similarity only as an escalate-only triage layer on the deterministic
-residual (\S\ref{sec:triage}). NAVIGATOR, whose job is closer to the
-genuinely intent-shaped question, remains cosine-primary; a direct
-deterministic swap for NAVIGATOR was attempted and abandoned at its own
-go/no-go gate (zero net discrimination gain over its cosine baseline), and a
-second attempt at a deterministic authorization layer is reported as a
-negative result in \S\ref{sec:limitations}.
+\paragraph{The decision.} Evidence 1--4 point at one distinction: structural
+attack signals (a credential-path shape, a network-fetch-to-disk pattern, an
+argument value's provenance) are caught more reliably by deterministic
+parsing than by any refinement of cosine similarity, while genuinely
+intent-shaped signals may still need a semantic or session-state mechanism.
+We therefore moved VAULT, EXECUTOR, and CHANNEL to deterministic-primary
+detection, keeping cosine only as an escalate-only triage layer on the
+deterministic residual (\S\ref{sec:triage}). NAVIGATOR remains cosine-primary;
+a direct deterministic swap was attempted and abandoned at its own go/no-go
+gate (zero net discrimination gain), and a second attempt at a deterministic
+authorization layer is reported as a negative result in
+\S\ref{sec:limitations}.
 
 \subsection{VAULT and EXECUTOR: structural parsing}
 \label{sec:vault-executor}
@@ -124,23 +94,16 @@ dialect by a latency/correctness trade-off measured directly rather than
 assumed:
 
 \paragraph{Real AST parsing where it is both correct and fast.} For
-\texttt{sh}/\texttt{bash} dialects, arguments are parsed with \texttt{bashlex}
-into a real abstract syntax tree, and primitive matching walks the tree
-rather than the raw text --- this closes shape-based false negatives a
-tokenizer cannot (e.g.\ heredoc body content, which a naive tokenizer sees as
-plain text but which bashlex correctly scopes outside the command being
-executed) at $\sim$0.5\,ms per call, comfortably inside the latency budget.
-PowerShell has an equivalently real AST available (walking both
-\texttt{CommandAst} and \texttt{InvokeMemberExpressionAst} nodes, the latter
-needed for \texttt{.NET} method-call fetches such as \texttt{.DownloadFile()}),
-but invoking it requires a \texttt{powershell.exe} subprocess, measured
-directly at $\sim$1.4\,s per call --- 18$\times$ over the latency budget. We
-therefore wire the real AST into the live path only for \texttt{sh}/\texttt{bash};
-PowerShell and \texttt{command\_prompt} (confirmed via direct test that
-\texttt{bashlex} raises a parse error on real \texttt{cmd.exe} batch syntax,
-which has no equivalently fast compatible parser) remain on the
-shell-quote-aware structural tokenizer below, with the real PowerShell AST
-kept available as an opt-in offline/audit tool rather than a live dependency.
+\texttt{sh}/\texttt{bash}, arguments are parsed with \texttt{bashlex} into a
+real abstract syntax tree, and primitive matching walks the tree rather than
+raw text --- closing shape-based false negatives a tokenizer cannot (e.g.\
+heredoc body content) at $\sim$0.5\,ms per call. PowerShell has an
+equivalently real AST available, but invoking it requires a
+\texttt{powershell.exe} subprocess, measured at $\sim$1.4\,s per call ---
+18$\times$ over budget. We therefore wire the real AST into the live path
+only for \texttt{sh}/\texttt{bash}; PowerShell and \texttt{command\_prompt}
+remain on the structural tokenizer below, with the real PowerShell AST kept
+available as an opt-in offline/audit tool rather than a live dependency.
 
 \paragraph{A structural tokenizer for the remaining dialects.} For dialects
 where a real grammar parser is unavailable or too slow, a lightweight
@@ -161,8 +124,9 @@ benign calls). Escalate rates on the two benign populations are,
 respectively: VAULT 5.5\%/13.4\%, EXECUTOR 0\%/14.9\%, CHANNEL 40.0\%/4.5\%,
 NAVIGATOR 21.8\%/10.8\% (agent-shaped/BFCL). A held-out split of the same
 population (even/odd case IDs) shows the
-full-pipeline rate is stable across the split --- VAULT 71.2\%/77.6\%,
-EXECUTOR 89.2\%/91.1\% --- rather than an artifact of a lucky partition.
+full-pipeline rate is stable across the split --- VAULT
+71.2\%/\allowbreak77.6\%, EXECUTOR 89.2\%/\allowbreak91.1\% --- rather than
+an artifact of a lucky partition.
 
 \subsection{CHANNEL: session-level taint and value provenance}
 \label{sec:channel}
@@ -173,19 +137,15 @@ it targets is a sensitive-data \emph{read} followed by an external
 maintains two independent pieces of per-session state.
 
 \paragraph{Taint.} A call to a known source tool (a domain-specific
-sensitive-data read --- account details, health records, credentials, access
-history) marks the session tainted. A subsequent call to a known destination
-tool (external communication: email, Slack messaging, a bank transfer) is
-\textsc{Block}ed if the session is tainted and the destination is not
-allow-listed; the allow-list is empty by default, since no corpus evidence
-supports a "trusted" external recipient distinct from an attacker-controlled
-one. Source and destination are matched by tool name against curated lists,
-extended during this work with a naming-convention-agnostic tokenizer (so
-\texttt{sendMoney}, \texttt{send\_money}, and \texttt{SendMoney} all match
-the same primitive) and a behavior-general fallback that checks
-destination-shaped argument values (an email, IBAN, or URL pattern) for any
-tool \emph{not} already in the named destination-tool list, so a genuinely
-novel exfiltration tool is not silently invisible to taint.
+sensitive-data read) marks the session tainted. A subsequent call to a known
+destination tool (external communication) is \textsc{Block}ed if the session
+is tainted and the destination is not allow-listed; the allow-list is empty
+by default, since no corpus evidence supports a "trusted" external recipient
+distinct from an attacker-controlled one. Source and destination are matched
+by tool name against curated lists, extended with a naming-convention-agnostic
+tokenizer and a behavior-general fallback that checks destination-shaped
+argument values (email, IBAN, URL) for any tool not already in the named
+list, so a genuinely novel exfiltration tool is not silently invisible.
 
 \paragraph{Provenance.} Independent of taint, every destination-tool call's
 argument values are classified by where they came from this session:
@@ -194,13 +154,11 @@ argument values are classified by where they came from this session:
 (first seen in the output of an earlier tool call this session), or
 \textsc{novel} (neither). A destination value classified
 \textsc{output\_derived} or \textsc{novel} on a consequential call returns
-\textsc{Escalate}, deliberately not \textsc{Block}: an escalation-only
-verdict here is a considered choice, not an oversight, made specifically
-because of genuine deployment ambiguity a hard block would get wrong in
-practice --- paying a bill by reading its own file for the recipient IBAN,
-or replying to the sender of an email that was just read, are both real,
-common, and legitimate same-session read-then-send chains that must not be
-treated the same as an attacker-substituted destination.
+\textsc{Escalate}, deliberately not \textsc{Block}: paying a bill by reading
+its own file for the recipient IBAN, or replying to the sender of an email
+just read, are real, legitimate same-session read-then-send chains that must
+not be treated the same as an attacker-substituted destination
+(\S\ref{sec:design-tradeoffs} discusses this choice's cost).
 
 CHANNEL's locked reference numbers: 5/22 real benign multi-step sessions
 correctly escalate (0 false hard-blocks) on this mechanism; 5/5 AgentDojo
@@ -216,12 +174,10 @@ own full recorded model trajectories for the same cases (\S\ref{sec:eval}).
 For VAULT and EXECUTOR, cosine similarity against the original attack-pattern
 corpus is retained, but only as a triage layer over the deterministic
 \emph{residual} --- cases the structural parsers did not match --- and its
-verdict is hardcoded to \textsc{Escalate}: it can never \textsc{Block}. This
-is a deliberate narrowing of cosine's role from primary decision-maker to a
-lower-confidence second opinion, motivated directly by Evidence 4 above: a
-semantic signal that cannot reliably discriminate should not be trusted with
-an irreversible verdict, but is still useful as a flag for human review on
-cases a deterministic rule did not anticipate.
+verdict is hardcoded to \textsc{Escalate}: it can never \textsc{Block}. A
+semantic signal that cannot reliably discriminate (Evidence 4) should not be
+trusted with an irreversible verdict, but remains useful as a flag for human
+review on cases a deterministic rule did not anticipate.
 
 \subsection{An LLM tiebreaker for narrative-phrasing attacks (built, not
 deployed)}
@@ -250,38 +206,20 @@ a limit before we judged it decided.
 \subsection{Provenance ledger}
 \label{sec:provenance}
 
-Every verdict is logged to an append-only SQLite ledger with a SHA-256 hash
-chain: each row's \texttt{entry\_hash} is computed over the previous row's
-hash plus a canonical serialization of that row's content-bearing fields, so
-editing, deleting, or reordering any historical row breaks every subsequent
-hash, detectable in $O(n)$ by \texttt{/ledger/verify}. The chain is
-tamper-\emph{evident}, not tamper-\emph{proof}: an attacker with database
-write access can recompute the whole chain, and defeating that requires an
-external append-only anchor, left as future work. The hashing scheme is
-deliberately schema-evolution-tolerant --- a field added after the ledger was
-already in production only enters the hash for rows written after the field
-existed, so old rows continue to verify under the same code that verifies
-new ones. We rely on this property directly in practice: during this work we
-found and fixed a case where the \emph{verification} query, not the ledger
-itself, omitted a newer column from its recomputation, producing a false
-tamper report at the exact row where that column was first populated;
-correcting the query (not the stored data) restored a clean
-\texttt{intact: true} verification across all rows. The episode is
-itself evidence the tamper-evidence mechanism is exercised and audited
-in practice, not merely specified.
+Every verdict is logged to an append-only, SHA-256 hash-chained SQLite
+ledger that is tamper-\emph{evident}, not tamper-\emph{proof}; full
+mechanism and a real verification-bug episode found and fixed during this
+work are described in Appendix~C.
 
 \subsection{Design decisions and trade-offs}
 \label{sec:design-tradeoffs}
 
 \paragraph{Deterministic-primary is a per-minister decision, not a blanket
-policy.} We did not move all four ministers to deterministic-primary
-detection uniformly; NAVIGATOR's question --- was this specific action
-authorized by what the user actually asked for --- does not reduce to a
-structural shape the way a credential path or a network-fetch-to-disk
-pattern does. Treating this as a per-minister empirical question, rather
-than assuming one mechanism generalizes to all four, is itself a finding we
-carry into \S\ref{sec:limitations}'s report of the NAVIGATOR authorization
-attempts.
+policy.} NAVIGATOR's question --- was this action authorized by what the
+user actually asked for --- does not reduce to a structural shape the way a
+credential path or network-fetch-to-disk pattern does, so it was not moved
+uniformly with the other three; this per-minister treatment carries into
+\S\ref{sec:limitations}'s report of the NAVIGATOR authorization attempts.
 
 \paragraph{Escalate, not block, where the deployment ambiguity is genuine.}
 CHANNEL's provenance mechanism escalates rather than blocks specifically

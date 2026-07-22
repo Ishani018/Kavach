@@ -2,31 +2,40 @@
 % Limitations. Drawn from PAPER_NOTES_JUNE3 + the June 10 audit caveats.
 % Input under a \section{Limitations} declared in the skeleton.
 
-\paragraph{No head-to-head with ClawGuard specifically.} An earlier version of
-this work lacked any AgentDojo evaluation at scale; that general gap is now
-closed by the 629-real-trajectory validation in \S\ref{sec:gpt4o}. A
-narrower gap remains: ClawGuard \cite{clawguard2026}, a specific
-hand-authored-rule tool-call interceptor, reports a 0\% attack-success rate
-on AgentDojo under its own rule set, and we do not run a controlled
-head-to-head against ClawGuard's own implementation on a shared harness.
-ClawGuard's public implementation intercepts live sessions with no
-dataset-replay harness compatible with our evaluation pipeline, so a direct
-comparison remains future work; we note that ClawGuard's authors report its
-automatic rule-derivation component as unevaluated, so its published number
-reflects hand-authored coverage of that specific benchmark, which any
-head-to-head would need to account for rather than treat as a like-for-like
-baseline.
+\paragraph{No head-to-head with ClawGuard specifically.} An earlier version
+of this work lacked any AgentDojo evaluation at scale; that general gap is
+now closed by the 629-real-trajectory validation in \S\ref{sec:gpt4o}. A
+narrower gap remains: ClawGuard \cite{clawguard2026} reports a 0\%
+attack-success rate on AgentDojo under its own hand-authored rule set, and
+we do not run a controlled head-to-head against its implementation, which
+intercepts live sessions with no dataset-replay harness compatible with our
+pipeline. ClawGuard's authors report its automatic rule-derivation component
+as unevaluated, so its published number reflects hand-authored coverage of
+that specific benchmark rather than a like-for-like baseline.
+
+\paragraph{External tool-call-content baselines are structurally
+inapplicable, not weaker.}
+\label{par:external-baselines}
+We additionally attempted comparison against the two closest available
+external tools at the tool-call content level. Both proved structurally
+inapplicable rather than merely weaker: CodeShield's supported-language set
+(C/C++/C\#/Java/JavaScript/PHP/Python/Rust) excludes the shell, PowerShell,
+and cmd dialects comprising $\sim$87\% of Kavach-PB's adversary-emulation
+commands, and gitleaks --- a secret-value scanner --- produces zero findings
+on all 519 cases because they encode credential-access techniques rather
+than embedded literal secrets (its one finding across 848 benign calls was
+the empty-string SHA-256 hash misread as an API key). We report this as
+corroborating the enforcement-boundary gap this paper targets rather than
+as a performance comparison.
 
 \paragraph{Tamper-evident, not tamper-proof.} The hash-chained ledger detects
 post-hoc edits to any recorded decision or its provenance, but an attacker
-with write access to the database can recompute the entire chain. Defeating
+with write access to the database can recompute the entire chain; defeating
 that requires anchoring the chain head to an external append-only medium,
-which we do not implement. We note, as a point in favor of the mechanism
-being exercised rather than only specified, that we found and fixed a real
-bug in the ledger's own \emph{verification} query during this work
-(\S\ref{sec:provenance}) --- the kind of bug that only surfaces when the
-tamper-evidence mechanism is actually run end to end against real data, not
-when it is merely reviewed as a design.
+which we do not implement. We found and fixed a real bug in the ledger's
+own \emph{verification} query during this work (\S\ref{sec:provenance}) ---
+the kind of bug that only surfaces when the mechanism is run end to end
+against real data, not when merely reviewed as a design.
 
 \paragraph{Curated corpus and deterministic rule set.} Both the cosine-triage
 corpus and the deterministic prefilters' rule sets are authored against
@@ -41,16 +50,14 @@ consequential attack succeeded and Kavach did not fire, split between a
 narrow CHANNEL scope gap (five \texttt{reserve\_hotel} cases, where a
 destination value exists but the tool was never added to CHANNEL's
 destination list) and fourteen cases with no destination value to trace at
-all. We attempted to close the CHANNEL gap and found the natural fix ---
-adding the tool to the destination list --- introduces a new false positive,
-because CHANNEL's value extractor only recognizes email/IBAN/phone/URL
-shapes and not proper-noun business names; a legitimate reservation the user
-explicitly named would then misclassify as unauthorized. We reverted this
-change rather than ship a fix with a known new false-positive class. The
-fourteen cases with no destination value at all are, structurally, not
-closeable by any refinement of CHANNEL's mechanism, however general its
-value extraction becomes --- they are exactly the shape of question
-\S\ref{par:navigator-authflow} below reports as unresolved.
+all. The natural fix for the first --- adding the tool to the destination
+list --- introduces a new false positive, since CHANNEL's value extractor
+only recognizes email/IBAN/phone/URL shapes, not proper-noun business names;
+we reverted this change rather than ship a fix with a known new
+false-positive class. The fourteen cases with no destination value at all
+are structurally not closeable by any refinement of CHANNEL's mechanism ---
+they are exactly the shape of question \S\ref{par:navigator-authflow} below
+reports as unresolved.
 
 \paragraph{Single embedding model.} The cosine-triage layer and NAVIGATOR use
 a single encoder (\texttt{bge-base-en-v1.5}), selected for open-source
@@ -59,12 +66,12 @@ alternative open-source retrieval encoder would shift the residual
 detection rate is an open question we leave to future work.
 
 \paragraph{PowerShell's real AST is correct but too slow for the live path.}
-\S\ref{sec:vault-executor} reports a measured $\sim$1.4\,s per call for a real
-PowerShell grammar parse via subprocess, 18$\times$ over the latency budget,
-so PowerShell calls are scored by the structural tokenizer rather than a real
-AST in the live path. The real parser remains available as an offline/audit
-tool. A faster in-process PowerShell AST (avoiding the subprocess-spawn cost)
-is a concrete, scoped next step we did not pursue this cycle.
+\S\ref{sec:vault-executor} reports a measured $\sim$1.4\,s per call for a
+real PowerShell grammar parse via subprocess, 18$\times$ over budget, so
+PowerShell calls are scored by the structural tokenizer rather than a real
+AST live; the real parser remains available as an offline/audit tool. A
+faster in-process PowerShell AST is a scoped next step we did not pursue
+this cycle.
 
 \paragraph{NAVIGATOR authorization layer: a hard-constraint layer still in
 progress, after three failed heuristics.}
@@ -72,24 +79,22 @@ progress, after three failed heuristics.}
 NAVIGATOR is the one minister whose deterministic rearchitecture is not yet
 complete. A direct deterministic swap mirroring VAULT/EXECUTOR/CHANNEL showed
 zero net discrimination gain over NAVIGATOR's cosine baseline and was
-abandoned; a second attempt reframes the minister's question as
-authorization rather than similarity (a pinned, immutable session intent,
-classifying each tool as observational or consequential, then a
-hard-constraint layer deciding whether a consequential action is
-\emph{derivable} from that intent). The first two pieces---pinned-intent
-capture and the taxonomy---are complete and validated, including under the
-generalization audit below. The hard-constraint layer itself has failed
-three independently designed heuristics against a frozen discriminability
-criterion set before measurement: (1)~tool-name/instruction-text overlap,
-evaded by attacker text sharing surface words with the legitimate request;
-(2)~argument-value overlap alone, which wrongly flagged legitimate values
-read earlier in the same session; (3)~a provenance-aware version of (2),
-composed read-only with CHANNEL's own session state, which still exceeded
-the frozen false-positive threshold. We report only completed, validated
-results as the contribution in this version of the paper; the
-hard-constraint layer remains open, and its three failure modes are
-reported precisely because a negative result with a specific mechanism of
-failure is more useful to future work than a vague one.
+abandoned; a second attempt reframes the question as authorization rather
+than similarity (a pinned, immutable session intent, classifying each tool
+as observational or consequential, then a hard-constraint layer deciding
+whether a consequential action is \emph{derivable} from that intent). The
+first two pieces --- pinned-intent capture and the taxonomy --- are complete
+and validated, including under the generalization audit below. The
+hard-constraint layer itself has failed three independently designed
+heuristics against a frozen discriminability criterion set: (1)~tool-name/
+instruction-text overlap, evaded by attacker text sharing surface words with
+the legitimate request; (2)~argument-value overlap alone, which wrongly
+flagged legitimate values read earlier in the same session; (3)~a
+provenance-aware version of (2), composed with CHANNEL's own session state,
+which still exceeded the frozen false-positive threshold. The hard-constraint
+layer remains open; its three failure modes are reported precisely because a
+negative result with a specific mechanism of failure is more useful to
+future work than a vague one.
 
 \paragraph{A proposed alternative for NAVIGATOR: intent-drift, explored and
 not validated.} Independently of the hard-constraint layer above, we
@@ -110,16 +115,14 @@ cosine-corpus mechanism in \S\ref{sec:generalization-audit}, unchanged.
 
 \paragraph{No adaptive-attacker evaluation.} Every attack corpus in this
 paper is static: no attacker in our evaluation knows Kavach's rules or
-adapts to them. Deterministic signature matching is historically
-evadable --- encoded payloads, string construction, variable indirection,
+adapts to them. Deterministic signature matching is historically evadable
+--- encoded payloads, string construction, variable indirection,
 \texttt{sh -c} with assembled commands --- and while bashlex's real AST
 closes a class of these transforms for sh/bash, PowerShell and cmd remain
-on a tokenizer, and no minister has been stress-tested against an
-attacker optimizing to evade it. An obfuscation-transform study over the
-519-case reference corpus --- measuring detection degradation under
-encoding, splitting, and indirection --- is the immediate next step, and
-until it is done, the detection rates in \S\ref{sec:eval} should be read
-as rates against non-adaptive attacks.
+on a tokenizer with no minister stress-tested against an attacker optimizing
+to evade it. An obfuscation-transform study over the 519-case reference
+corpus is the immediate next step; until it is done, the detection rates in
+\S\ref{sec:eval} should be read as rates against non-adaptive attacks.
 
 \subsection{Generalization beyond the benchmark vocabulary}
 \label{sec:generalization-audit}

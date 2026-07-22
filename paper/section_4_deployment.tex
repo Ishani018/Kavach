@@ -7,34 +7,29 @@
 \label{sec:eval}
 
 We evaluate Kavach on three independent axes: deterministic-primary
-detection on Kavach-PB, a composite benchmark we built specifically because
-the two standard benchmarks below almost entirely miss VAULT and EXECUTOR
-(\S\ref{sec:kavach-pb}--\ref{sec:vault-executor-eval}), CHANNEL's
-session-level provenance mechanism against real multi-step attack and
-benign trajectories from AgentDojo (\S\ref{sec:channel-eval}), and a
-large-scale real-trajectory validation against AgentDojo's own recorded
-model transcripts, not a benchmark replay of minimal ground-truth call
-sequences (\S\ref{sec:gpt4o}). Throughout, we report benign false-positive
-counts jointly with attack recall, and we distinguish measurements taken
-via in-process scoring from measurements taken via the live HTTP dispatch
-path, since these two paths previously diverged in ways that mattered
-(\S\ref{sec:audit-resolution}).
+detection on Kavach-PB, a composite benchmark we built because the two
+standard benchmarks below almost entirely miss VAULT and EXECUTOR
+(\S\ref{sec:kavach-pb}--\ref{sec:vault-executor-eval}); CHANNEL's
+session-level provenance mechanism against real multi-step AgentDojo
+trajectories (\S\ref{sec:channel-eval}); and a large-scale validation
+against AgentDojo's own recorded model transcripts, not a benchmark replay
+of minimal ground-truth sequences (\S\ref{sec:gpt4o}). We report benign
+false positives jointly with recall throughout, and distinguish in-process
+from live-HTTP-dispatch measurements, since these diverged in ways that
+mattered (\S\ref{sec:audit-resolution}).
 
 \subsection{An audit discrepancy, and how it was resolved}
 \label{sec:audit-resolution}
-Early in this work, three different measurements of VAULT/EXECUTOR detection
-rate on the same reference corpus disagreed sharply: 34.2\%/34.5\%
-(deterministic layer alone, in-process), 72.6\%/89.9\% (full pipeline,
-in-process), and 14.9\%/19.2\% (an earlier live-HTTP measurement). We traced
-this to two independent causes rather than accepting any one number at face
-value: the live-HTTP figure was corrupted by a duplicate server process
-answering a fraction of requests, and, separately, the metric itself
-differed --- one measurement counted \textsc{Block}-or-\textsc{Escalate} as
-a hit while another counted only the deterministic layer's contribution.
-Once both were corrected, the live-HTTP and in-process full-pipeline numbers
-agreed. The episode shows how easily a benchmark harness's own bugs can
-masquerade as detector performance --- a risk equally present in any
-comparably complex evaluation pipeline, ours included.
+Early in this work, three measurements of VAULT/EXECUTOR detection rate on
+the same reference corpus disagreed sharply: 34.2\%/34.5\% (deterministic
+layer alone, in-process), 72.6\%/89.9\% (full pipeline, in-process), and
+14.9\%/19.2\% (an earlier live-HTTP measurement). Two independent causes
+were responsible: the live-HTTP figure was corrupted by a duplicate server
+process answering a fraction of requests, and the metric itself differed ---
+one measurement counted \textsc{Block}-or-\textsc{Escalate} as a hit, another
+counted only the deterministic layer's contribution. Once corrected, the
+live-HTTP and in-process full-pipeline numbers agreed --- a reminder that a
+benchmark harness's own bugs can masquerade as detector performance.
 
 \subsection{Kavach-PB: a composite benchmark for all four ministers}
 \label{sec:kavach-pb}
@@ -42,83 +37,63 @@ InjecAgent and AgentDojo, the two standard agent-security benchmarks we rely
 on elsewhere in this section, almost exclusively stress CHANNEL: InjecAgent's
 attack shape is a read-then-send taint chain, and AgentDojo's is a
 provenance-mismatched destination value on a consequential call. Neither
-meaningfully exercises VAULT (credential and secret handling) or EXECUTOR
-(dangerous or injected code execution) at all. We found this gap live, while
-validating VAULT/EXECUTOR's deterministic-primary rearchitecture
+meaningfully exercises VAULT or EXECUTOR at all --- a gap we found live,
+while validating VAULT/EXECUTOR's deterministic-primary rearchitecture
 (\S\ref{sec:deterministic-primary}) and discovering we had no real benchmark
-to validate it against --- not an anticipated design requirement.
+to validate it against.
 
 Rather than author new synthetic attacks to close this gap, we built
 \textbf{Kavach-PB} (Kavach Parliament Benchmark): a unified, composite
-adversarial evaluation suite that reuses already-real, externally-validated
+adversarial evaluation suite reusing already-real, externally-validated
 attack data under one runner, one wire format, and one scoring convention
-across all four ministers. This choice is deliberate and methodological, not
-incidental: a self-authored attack set risks unconsciously being shaped to be
-catchable by the very system it evaluates, since the same person or process
-who understands the detector's mechanism is the one writing the attacks.
-Reusing attack corpora authored independently, by real security researchers,
-for a purpose unrelated to Kavach, avoids this risk structurally rather than
-by discipline alone.
+across all four ministers. This is deliberate: a self-authored attack set
+risks unconsciously being shaped to be catchable by the very system that
+writes it, and reusing independently-authored corpora avoids this risk
+structurally rather than by discipline alone.
 
-\paragraph{What is reused, what is new.} The underlying attack and benign
-data is real and reused, not invented: attack cases are drawn from
-AtomicRedTeam (technique-tagged adversary emulation commands) and GTFOBins
-(Unix binary living-off-the-land technique commands), and benign calls are
-drawn from the Berkeley Function-Calling Leaderboard (BFCL, general-purpose)
-plus a 55-case agent-shaped benign set. What is novel is the unification
-itself: a single harness dispatching every case through the same
-\texttt{/hook/parliament} path regardless of source corpus, a per-minister
-scoring methodology (below), and a two-population benign false-positive
-convention --- none of which existed before this evaluation, all of which are
-needed to make VAULT/EXECUTOR measurable at all under real, externally
-sourced attack data.
+\paragraph{What is reused, what is new.} Attack cases are drawn from
+AtomicRedTeam and GTFOBins; benign calls from the Berkeley Function-Calling
+Leaderboard (BFCL, general-purpose) plus a 55-case agent-shaped benign set.
+What is novel is the unification: a single harness dispatching every case
+through the same \texttt{/hook/parliament} path regardless of source corpus,
+a per-minister scoring methodology (below), and a two-population benign
+false-positive convention.
 
 \paragraph{Scoring convention.} Each attack case carries a
-\texttt{target\_patterns} list (e.g.\ \texttt{["VAULT:VAULT-060"]}) naming
-which minister(s) the case is expected to trigger; we report both an overall
-detected rate (any minister returns \textsc{Block} or \textsc{Escalate}, the
-minister-agnostic bottom line) and a per-minister hit rate (did the
-specifically targeted minister itself fire, checked directly in the
-response's per-minister field rather than only via which minister the
-speaker's verdict is attributed to) --- a case can be detected overall while
-its targeted minister misses, and we surface that divergence as a real
-coverage finding rather than absorbing it into the aggregate. On the benign
-side, \textsc{Block} is a hard false positive and \textsc{Escalate} is
-reported separately, never conflated with either \textsc{Block} or a clean
-\textsc{Allow} --- the same convention CHANNEL's own provenance mechanism
-uses (\S\ref{sec:channel}). We report two benign populations separately
-rather than pooled: BFCL (793 cases, real but general-purpose/utility calls,
-not agent-shaped --- a clean result here is real but weaker evidence, a
-domain mismatch we state rather than obscure) and the 55-case agent-shaped
-benign set (the stronger evidence).
+\texttt{target\_patterns} list naming which minister(s) it should trigger;
+we report both an overall detected rate (any minister returns \textsc{Block}
+or \textsc{Escalate}) and a per-minister hit rate --- a case can be detected
+overall while its targeted minister misses, and we surface that divergence
+rather than absorbing it into the aggregate. On the benign side,
+\textsc{Block} is a hard false positive and \textsc{Escalate} is reported
+separately, never conflated with \textsc{Block} or a clean \textsc{Allow}
+--- the same convention CHANNEL's own provenance mechanism uses
+(\S\ref{sec:channel}). We report two benign populations separately rather
+than pooled: BFCL (793 cases, general-purpose, not agent-shaped) and the
+55-case agent-shaped set (the stronger evidence).
 
 \subsection{Kavach-PB results: VAULT and EXECUTOR}
 \label{sec:vault-executor-eval}
 On Kavach-PB's 519-case AtomicRedTeam/GTFOBins reference corpus (117
-VAULT-targeted, 203 EXECUTOR-targeted cases; the corpus's
-\texttt{target\_patterns} field is unmodified since its original authoring
-commit, confirmed via \texttt{git diff}, so it is independent ground truth
-rather than tuned after the fact), the deterministic layer alone recovers
-VAULT 34.2\% (40/117) and EXECUTOR 34.5\% (70/203); adding the
-cosine-escalate-only triage layer over the deterministic residual
-(\S\ref{sec:triage}) raises full-pipeline detection to VAULT 74.4\%
-(87/117) and EXECUTOR 90.1\% (183/203), with zero new hard-block false
-positives on either benign population (793 BFCL, 55 agent-shaped). A
-held-out even/odd split of the same population confirms the full-pipeline
-rate is stable rather than an artifact of the specific partition: VAULT
-71.2\% (42/59) on the even half versus 77.6\% (45/58) on the odd half;
-EXECUTOR 89.2\% (91/102) versus 91.1\% (92/101). We report both halves
-explicitly rather than only their average, consistent with our standing
-discipline of never characterizing a split as ``balanced'' or
-``generalizing'' from an aggregate number alone.
+VAULT-targeted, 203 EXECUTOR-targeted; \texttt{target\_patterns} is
+unmodified since its original authoring commit, confirmed via
+\texttt{git diff}, so it is independent ground truth), the deterministic
+layer alone recovers VAULT 34.2\% (40/117) and EXECUTOR 34.5\% (70/203);
+adding the cosine-escalate-only triage layer (\S\ref{sec:triage}) raises
+full-pipeline detection to VAULT 74.4\% (87/117) and EXECUTOR 90.1\%
+(183/203), with zero new hard-block false positives on either benign
+population (793 BFCL, 55 agent-shaped). A held-out even/odd split confirms
+this is stable, not an artifact of partition: VAULT 71.2\% (42/59) versus
+77.6\% (45/58); EXECUTOR 89.2\% (91/102) versus 91.1\% (92/101) --- both
+halves reported explicitly rather than only their average.
 
 This split addresses partition luck, not rule-authoring circularity: the
 deterministic rules were authored by inspecting misses across the full
 corpus, so both halves were visible during rule development. The
-generalization audit (\S\ref{sec:generalization-audit}) is our attempt to
-measure past this limit, and we note its own limit in turn: its scenarios
-are author-written, testing vocabulary novelty rather than an
-independently sourced attack distribution.
+generalization audit (\S\ref{sec:generalization-audit}) attempts to measure
+past this limit, and has its own limit in turn: its scenarios are
+author-written, testing vocabulary novelty rather than an independently
+sourced distribution.
 
 \subsection{LLM tiebreaker: validated, deliberately not deployed}
 \label{sec:tiebreaker-eval}
@@ -145,11 +120,10 @@ populations: 22 real multi-step benign sessions and the AgentDojo attack
 cases whose two-call read-then-send shape is structurally applicable to
 CHANNEL's mechanism. On the benign population, 5/22 sessions correctly
 escalate via CHANNEL, with 0 hard-block false positives from CHANNEL itself;
-these are exactly the sessions in which a legitimate destination value (an
-IBAN, most commonly) was read from a file or transaction history earlier in
-the same session rather than typed by the user, which is precisely the
-ambiguity that motivated an escalate, not block, verdict for this mechanism
-(\S\ref{sec:channel}). Separately, 3/22 sessions in this same population are
+these are exactly the sessions with a legitimate destination value (an IBAN,
+most commonly) read from a file or transaction history earlier in the same
+session rather than typed by the user (\S\ref{sec:channel}). Separately,
+3/22 sessions in this same population are
 hard-blocked by an unrelated interaction between TRAJECTORY and NAVIGATOR,
 never blended into CHANNEL's 5/22 figure and reported in full in
 \S\ref{sec:design-tradeoffs}. On the attack
@@ -184,19 +158,17 @@ replay of minimal ground-truth sequences.
 \paragraph{Diagnosing the apparent misses.}
 Of the 162 trajectories on which Kavach did not fire, we traced every case
 to its actual tool-call content rather than reporting a bare miss rate.
-AgentDojo's own \texttt{security} field, which we cross-reference, marks a
-trajectory as a successful attack whenever the environment state changed at
-all relative to the pre-trajectory state and does not exactly match the
-injected goal --- which conflates ``the injected attack succeeded'' with
-``the model made no consequential call related to the injection at all.''
-131 of the 162 misses fall in the latter category: the model never invoked
-any consequential tool in connection with the injected instruction, so there
-was no unauthorized action for any minister to catch. We verified this
-directly by extracting every tool call from each miss's recorded
-transcript and checking it against a fixed consequential-tool list; a
-trajectory whose only calls are read-only lookups (hotel ratings,
-restaurant listings, calendar reads) is not a detection gap, regardless of
-what AgentDojo's own field reports.
+AgentDojo's own \texttt{security} field marks a trajectory as a successful
+attack whenever the environment state changed at all relative to the
+pre-trajectory state and does not exactly match the injected goal ---
+conflating ``the injected attack succeeded'' with ``the model made no
+consequential call related to the injection at all.'' 131 of the 162 misses
+fall in the latter category: the model never invoked any consequential tool
+in connection with the injected instruction, so there was no unauthorized
+action for any minister to catch, verified by extracting every tool call
+from each miss's transcript against a fixed consequential-tool list --- a
+trajectory whose only calls are read-only lookups is not a detection gap,
+regardless of what AgentDojo's field reports.
 
 \paragraph{The remaining 19 real misses, categorized by mechanism.} The
 other 19 trajectories do contain a genuine unauthorized consequential call
@@ -214,23 +186,20 @@ failure. Fourteen cases (\texttt{banking}: 11 cases,
 \texttt{workspace}: 3 cases, \texttt{delete\_file} and
 \texttt{append\allowbreak\_to\allowbreak\_file})
 mutate existing account state or same-account data with no new destination
-value introduced at all --- there is no value for any provenance mechanism,
-however general, to trace, because the question these attacks pose is
-``should this action have happened,'' not ``where did this value come
-from.'' We attempted to close the five \texttt{reserve\_hotel} cases by
-adding the tool to CHANNEL's destination-tool list, and found this
-introduces a new false positive: CHANNEL's destination-value extractor
+value introduced at all --- there is no value for any provenance mechanism
+to trace, since these attacks ask ``should this action have happened,'' not
+``where did this value come from.'' Adding the tool to CHANNEL's
+destination-tool list to close the five \texttt{reserve\_hotel} cases
+introduces a new false positive instead: the destination-value extractor
 recognizes only email/IBAN/phone/URL shapes, so a proper-noun business name
-such as a hotel is never recognized as ``present in the user's own
-instruction'' even when it literally is, causing a legitimate reservation
-the user explicitly named to be misclassified \textsc{novel} and incorrectly
-escalate. We reverted this change rather than ship a fix with a known new
-false-positive class, and report the gap as a documented scope limitation
-(\S\ref{sec:limitations}) rather than a closed fix.
+is never recognized as ``present in the user's own instruction'' even when
+it literally is, misclassifying a legitimate named reservation as
+\textsc{novel}. We reverted this change and report the gap as a documented
+scope limitation (\S\ref{sec:limitations}) rather than a closed fix.
 
 \paragraph{Scope of this validation.} This validation covers one model
 (\texttt{gpt-4o-2024-05-13}) and one attack family
-(\texttt{important\allowbreak\_instructions}), because these are the complete recorded
+(\texttt{important\allowbreak\_instruc\allowbreak tions}), because these are the complete recorded
 trajectories AgentDojo publishes; whether detection transfers to other
 models' tool-calling styles or to subtler injection framings is untested.
 We note the trajectories are real model behavior rather than synthetic

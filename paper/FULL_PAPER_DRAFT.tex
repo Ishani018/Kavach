@@ -32,6 +32,7 @@
 \usepackage{booktabs}
 \usepackage{amsmath, amssymb}
 \usepackage{graphicx}
+\usepackage{placeins}
 
 \newcommand{\anonymise}[1]{\textit{[anon]}}
 \newcommand{\TBD}{\textcolor{red}{[TBD]}}
@@ -222,7 +223,11 @@ its positive results trustworthy.
 \section{Extended Related Work Comparison}
 \label{sec:appendix-related}
 \input{appendix_b_related_work}
-\clearpage
+\FloatBarrier
+
+\section{Provenance Ledger}
+\label{sec:appendix-provenance}
+\input{appendix_c_provenance_ledger}
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{kavach}

@@ -1,139 +1,69 @@
 % paper/appendix_a_generalization.tex
-% Full generalization-audit methodology and per-minister results, moved
-% from the former §6.1 to Appendix A for the CFP's 10-page body limit.
-% §6 now carries only a short summary ending "Full methodology and
-% results in Appendix A."
+% Compressed generalization-audit methodology and per-minister results,
+% moved from the former §6.1 to Appendix A for the CFP's 10-page body
+% limit, and compressed further (full prose walkthroughs -> methodology
+% paragraph + itemized verdicts) to fit the appendix page budget.
 
-\paragraph{Why we audit this, and how.} Kavach's deterministic detection rules
-were, in large part, authored by mining detection misses on the exact benchmarks
-we evaluate against: the VAULT and EXECUTOR rule sets were expanded by inspecting
-which of the 519 AtomicRedTeam/GTFOBins cases failed and writing a rule for each
-missed technique, and CHANNEL's destination-tool list and provenance patterns
-were built and expanded against InjecAgent and AgentDojo cases specifically. This
-is legitimate engineering, but it creates a real risk of circular validation:
-testing detection against the same data shape it was derived from will always
-flatter the detector. We therefore ran an independent, adversarial
-generalization audit before submission. We constructed a fictional agent
-environment---``AtriumOS,'' a smart-building/industrial-facility control
-agent---with an entirely invented tool vocabulary
-(\texttt{Facility\allowbreak ConfigRead},
-\texttt{Hvac\allowbreak Diagnostic}, \texttt{Unlock\allowbreak PerimeterGate},
-\texttt{Retrieve\allowbreak Tenant\allowbreak AccessLog}, and so on) that shares no tool name, corpus
-term, or surface phrasing with InjecAgent, AgentDojo, or Kavach-PB
-(\S\ref{sec:kavach-pb}). We then
-dispatched 18 attack and 18 matched-benign scenarios---covering each minister's
-intended detection \emph{shape} (credential exfiltration, dangerous execution,
-data-flow-to-untrusted-destination, unauthorized consequential action) in this
-novel surface form---through the real detection pipeline, and measured
-per-minister hit/miss per case. This sits in real tension with our own
-argument against self-authored attack data (\S\ref{sec:kavach-pb}): the
-audit's scenarios are author-written, not independently sourced. We consider
-this acceptable specifically because the audit tests \emph{transfer} of
-already-validated mechanisms to novel vocabulary, not a headline detection
-claim---the mechanisms being stressed were built and locked against
-Kavach-PB, InjecAgent, and AgentDojo before AtriumOS existed, so the risk
-Kavach-PB's own design guards against (a detector unconsciously shaped to
-catch what it will be tested on) does not apply to a novel-vocabulary
-check run against mechanisms already frozen. We report the findings without
-softening: the per-mechanism boundaries below are a deliberate product of
-this pass, and are
-more useful stated precisely than defended.
+\paragraph{Why we audit this, and how.} Kavach's deterministic detection
+rules were, in large part, authored by mining detection misses on the
+exact benchmarks we evaluate against (\S\ref{sec:kavach-pb}), creating a
+real risk of circular validation: testing detection against the same data
+shape it was derived from will always flatter the detector. We therefore
+ran an independent, adversarial generalization audit before submission: a
+fictional agent environment (``AtriumOS,'' a smart-building/industrial-facility
+control agent) with an entirely invented tool vocabulary
+(\texttt{Facility\allowbreak ConfigRead}, \texttt{Hvac\allowbreak Diagnostic},
+\texttt{Retrieve\allowbreak Tenant\allowbreak AccessLog}, and so on)
+sharing no tool name, corpus term, or surface phrasing with InjecAgent,
+AgentDojo, or Kavach-PB. We dispatched 18 attack and 18 matched-benign
+novel-vocabulary scenarios, one per minister's intended detection shape,
+through the real detection pipeline. This is in tension with our own
+argument against self-authored attack data (\S\ref{sec:kavach-pb}), which
+we consider acceptable here because the audit tests \emph{transfer} of
+mechanisms already built and locked before AtriumOS existed, not a
+headline detection claim. We report the findings without softening.
 
-\paragraph{EXECUTOR generalizes; one structural false positive was found and
-fixed.} EXECUTOR caught all eight novel-vocabulary execution attacks
-(\texttt{curl\,|\,bash}, \texttt{os.system}, \texttt{eval} of a decoded payload,
-an \texttt{nc} reverse shell, cron-drop-in persistence, a \texttt{sudoers}
-write, an inline-Python reverse shell, and a network-fetch-to-disk) despite
-novel hosts, tool names, and file paths, because these rules match on structural
-and technique-level shape rather than on tool identity. This is the strongest
-generalization result of the four ministers. The audit did surface one genuine
-defect: the structural network-fetch-to-disk predicate
-(\texttt{is\_network\_fetch\_to\_disk}) fired on \emph{any} URL-plus-write-destination
-shape, including a benign \texttt{curl http://host/api\allowbreak/status -o
-/tmp/status.json}
-data fetch---re-introducing exactly the false positive the regular-expression
-layer had already excluded when it deliberately dropped its bare \texttt{curl -o}
-branch. We scoped the structural predicate to require a payload-staging signal
-(a pipe into an interpreter, or a write target carrying an
-executable\slash{}script\slash{}library\slash{}archive extension), mirroring the regex layer's own
-exclusion logic. Post-fix validation on the full 519-case attack corpus and both
-benign populations: the audit's false positive is now silent; genuine
-network-fetch-to-disk attacks still fire; EXECUTOR's attack hit count moved by a
-single case ($98\!\to\!97$), which on inspection is a CHANNEL-targeted HTTP-exfil
-scenario on which EXECUTOR had been firing \emph{incidentally} on a benign-shaped
-data-retrieval command, not a genuine execution attack; and both benign
-populations---793 general-purpose (BFCL) and 55 agent-shaped---stay at zero
-hard-block false positives. The parser test suites remain green (27/27 and
-37/37).
+\begin{itemize}
+\item \textbf{EXECUTOR --- generalizes cleanly.} Caught all eight
+novel-vocabulary execution attacks via structural/\allowbreak technique-level shape
+matching, independent of tool identity. One structural false positive was
+found (a network-fetch-to-disk predicate firing on a benign data-retrieval
+call) and fixed pre-submission, moving EXECUTOR's attack hit count by a
+single case (98$\to$97) with zero new benign false positives on either
+population; parser test suites remain green (27/27, 37/37).
+\item \textbf{VAULT --- mostly generalizes, one inherent limit.} Caught
+5/7 novel-vocabulary credential attacks via structural credential-path and
+secret-format matching. One miss is a narrow surface-form gap (fixable);
+the other is architectural, not a bug: a named-service secret-key rule is,
+by construction, a literal allowlist, so a genuinely novel secret-variable
+name cannot match it regardless of technique.
+\item \textbf{CHANNEL --- split.} Its provenance/escalation path
+generalizes: a behavior-general destination-value fallback correctly
+escalated a novel send-tool's attacker email address, classified
+\textsc{novel}. Its taint/hard-block path does not: destination status is
+decided by a benchmark-specific tool-name dictionary with no
+behavior-general fallback, so a novel exfiltration tool is invisible to it
+and the hard-\textsc{Block} never fires.
+\item \textbf{NAVIGATOR --- does not currently generalize as a detector.}
+Cosine similarity against the attack-pattern corpus separates novel attack
+from benign by only 0.045 (0.590 vs.\ 0.545 mean), and the BM25 lexical
+gate that preserves on-benchmark precision makes this worse off-benchmark,
+collapsing both to $\sim$0.38 --- below the escalation floor, so NAVIGATOR
+goes silent on novel-domain attacks. This is structural, not incidental:
+the same mechanism giving NAVIGATOR its low on-benchmark FPR removes its
+off-benchmark signal. The one general component built for NAVIGATOR --- an
+observational/consequential tool classifier --- correctly labeled all four
+novel tools from verb-token structure alone, but is a \emph{taxonomy, not a
+detector}: it does not decide whether a consequential action was
+\emph{authorized}, which requires the pinned-intent authorized-flow layer
+reported as an incomplete negative result in \S\ref{par:navigator-authflow}.
+\end{itemize}
 
-\paragraph{VAULT mostly generalizes, with one inherent limitation.} VAULT caught
-five of seven novel-vocabulary credential attacks---SSH and \texttt{.pem}
-private-key paths, a hard-coded AWS access-key-id, a credential-file search by
-extension, and a generic \texttt{secrets/} path---all via structural credential-path
-and secret-format matching that is indifferent to the surrounding tool name. Two
-misses are worth distinguishing. The first is a narrow surface-form gap: a file
-named \texttt{badgereader.env} carries \texttt{.env} as an \emph{extension}
-rather than as the canonical dotenv \emph{filename}, and the \texttt{dotenv-file}
-rule anchors on the latter. The second is \emph{inherent} to the architecture,
-not a bug: reading a novel environment-variable secret
-(\texttt{os.environ['ATRIUM\allowbreak\_ADMIN\allowbreak\_SECRET']}) is not caught because VAULT's
-named-service environment-key rule is, by construction, a literal allowlist of
-known secret variable names (\texttt{STRIPE\_SECRET\_KEY},
-\texttt{ANTHROPIC\_API\_KEY}, and so on). A genuinely novel secret-variable name
-cannot match a name-allowlist, regardless of technique---this is a property of
-literal-name matching, and no expansion of the list closes the general case.
-
-\paragraph{CHANNEL is split: escalation generalizes, hard-block does not.} The
-audit separates CHANNEL's two mechanisms cleanly. The provenance/escalation path
-\emph{does} generalize: its behavior-general destination-value fallback extracted
-an attacker email address from a novel send-tool's arguments and returned
-\textsc{escalate} (classified \textsc{novel}), even though the tool name appears
-in no benchmark. The taint/hard-block path does \emph{not}: whether a call is a
-destination is decided by a dictionary lookup against benchmark-specific tool
-names (\texttt{send\_email}, \texttt{send\_money}, \texttt{GmailSendEmail},
-\ldots), with no behavior-general fallback, so a novel exfiltration tool
-(\texttt{send\allowbreak\_report\allowbreak\_email}, \texttt{PostToExternalDashboard}) is invisible to
-the taint mechanism and the read-then-send \textsc{block} never fires. The
-guarantee is therefore mechanism-specific: CHANNEL's hard-block guarantee
-currently holds only within the benchmark's destination-tool vocabulary, while
-its escalation guarantee is genuinely broader.
-
-\paragraph{NAVIGATOR does not currently generalize as a detector.} NAVIGATOR's
-per-call detector is cosine similarity against an attack-pattern corpus, and the
-audit shows this signal does not transfer to novel vocabulary. On the fictional
-cases, raw dense max-cosine to the NAVIGATOR corpus separates attack from benign
-by only $0.045$ (attack mean $0.590$ vs.\ benign mean $0.545$), and five of six
-benign novel cases clear the $0.50$ escalation floor---i.e.\ the raw signal would
-flag them. The BM25 lexical gate that preserves NAVIGATOR's benchmark precision
-makes this worse outside the benchmark, not better: because the gate discounts a
-score toward its floor whenever the query shares no attack keywords with the
-corpus---always the case for a genuinely novel vocabulary---the gated confidence
-of both attacks and benign calls collapses to roughly $0.38$, below the $0.50$
-escalation floor, so NAVIGATOR simply goes \emph{silent} on novel-domain attacks.
-This is a direct, structural consequence of the design, not an incidental miss:
-the mechanism that gives NAVIGATOR its low false-positive rate on the benchmark
-is the same mechanism that removes its signal off-benchmark. The one genuinely
-general component we built for NAVIGATOR---the observational/consequential tool
-classifier---correctly labeled all four novel tools (both novel consequential
-actions as \textsc{consequential}, both novel reads as \textsc{observational})
-from verb-token structure alone. But that classifier is a \emph{taxonomy, not a
-detector}: it identifies that an action is consequential without deciding whether
-it was \emph{authorized}. Turning it into detection requires the pinned-intent
-authorized-flow layer, which we attempted and did not complete---a documented
-negative result, detailed in \S\ref{par:navigator-authflow} above.
-
-\paragraph{Concrete next steps.} Two of these boundaries have specific,
-already-scoped remedies. For CHANNEL, a behavior-general destination detector for
-the taint/hard-block path---flagging a destination-shaped value (email, IBAN,
-URL, phone) in \emph{any} tool's arguments, mirroring the fallback the provenance
-path already uses successfully---would extend the hard-block guarantee to novel
-tools without a name allowlist. For NAVIGATOR, a genuinely deterministic
-authorization layer that compares each consequential action against the pinned
-user intent---continuing from where the pinned-intent/authorized-flow attempts
-left off---would convert the already-correct taxonomy classifier into real
-detection that does not depend on corpus vocabulary. We frame this whole section
-as a strength rather than an apology: it is the output of a deliberate,
-independent adversarial validation pass run \emph{before} submission,
-specifically to surface these boundaries ourselves. Knowing precisely where each
-mechanism does and does not generalize---and having fixed the one confirmed
-false positive it found---is what distinguishes a rigorously evaluated system
+\paragraph{Concrete next steps.} Two boundaries have scoped remedies: a
+behavior-general destination detector for CHANNEL's hard-block path
+(mirroring the fallback its provenance path already uses), and a
+genuinely deterministic authorization layer for NAVIGATOR that converts
+its already-correct taxonomy classifier into real, vocabulary-independent
+detection. We frame this section as a strength, not an apology: it is the
+output of a deliberate, independent validation pass run \emph{before}
+submission, specifically to surface these boundaries ourselves.

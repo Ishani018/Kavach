@@ -1,7 +1,10 @@
 % paper/related_work_table.tex
-% Input at the start of §5 (Related Work). Five axes: enforcement boundary,
-% mechanism, corpus extensibility, verdict combination, benchmark numbers.
-% All cells filled with real numbers; uses booktabs for formatting.
+% Input from Appendix B (moved from §5 body for the CFP's 10-page limit).
+% Five axes: enforcement boundary, mechanism, corpus extensibility, verdict
+% combination, benchmark numbers. Reduced from 26 to 13 comparators (+Kavach)
+% -- kept systems are those receiving substantive discussion in body prose
+% (§2 Background, §5 Related Work); 13 more briefly name-checked systems are
+% summarized in a footnote rather than given their own row, for space.
 
 \begin{table*}[tp]
 \centering
@@ -30,50 +33,34 @@
 
 % ─── Spatial / input-output rails ───────────────────────────────────────────
 PromptGuard 2 & input & DeBERTa classifier & no & threshold & 7.5\% & n/r \\
-AlignmentCheck & CoT & LLM judge & no & threshold & 2.89\% & n/r \\
-CodeShield & output & Semgrep+regex & yes (rules) & threshold & n/r & n/r \\
-LlamaFirewall (combined) & I/CoT/O & 3-layer spatial & partial & joint & 1.75\% & n/r \\
 \midrule
 
 % ─── Plan-time ───────────────────────────────────────────────────────────────
-AgentSpec & plan & rule DSL & yes & all-pass & $>$10\% blocked & n/r \\
-DRIFT & plan & rule+isolator & partial & sequential & n/r & n/r \\
 PlanGuard \cite{gong2026planguard} & plan & isolated planner + verifier & no & hard-constraint & n/r & 100\%$^\ddagger$ \\
 IntentGuard \cite{kang2025intentguard} & plan & intent trace + origin & no & alert-first & n/r & n/r \\
 Progent \cite{shi2025progent} & tool-call & progressive allowlist & yes (policy) & policy-match & 1.0\%$^\ddagger$ & n/r \\
 \midrule
 
 % ─── Tool-call-time ───────────────────────────────────────────────────────────
-Task Shield & tool-call & LLM alignment & no & threshold & 22\%$\dagger$ & n/r \\
+CodeShield & output & Semgrep+regex & yes (rules) & threshold & n/r & n/r \\
 ShieldAgent & tool-call & rule circuits & yes (docs) & probabilistic & n/r & 90.1\% \\
 PSG-Agent & tool-call & 4-component & partial & cross-turn accum. & n/r & n/r \\
-OpenClaw PRISM & tool-call & middleware checkpts & partial & sequential & n/r & n/r \\
 \textbf{Kavach (ours)} & \textbf{tool-call} & \textbf{determ.+embed.} & \textbf{yes (rules+corpus)} & \textbf{veto} & \textbf{n/a}$^{\S}$ & \textbf{100\% (544/544 DS)}$^{\P}$ \\
 \midrule
 
 % ─── Information-flow ─────────────────────────────────────────────────────────
 CaMeL & IFC & dual-LLM + taint & no & provable & 23\% (sec) & n/r \\
-FIDES & IFC & label propagation & no & provable & n/r & n/r \\
 RTBAS & IFC & saliency screener & no & threshold & 2\% loss only & n/r \\
-AGrail & adaptive & LLM + memory & yes (memory) & cooperative & 3.8\%--5\% & n/r \\
 \midrule
 
 % ─── Drift detection ──────────────────────────────────────────────────────────
-TaskTracker & session & activation delta & no & binary & n/r & n/r \\
 DeepContext & session & RNN over embeds & no & binary & n/r & n/r \\
 Trajectory Guard & trajectory & Siamese RAE & no & score & n/r & n/r \\
 \midrule
 
-% ─── Red-team / scanning tools (offensive testing + open I/O filters) ─────────
+% ─── Red-team / scanning tools ────────────────────────────────────────────────
 garak \cite{garak2024} & input (test) & vuln.\ probes & yes (probes) & per-probe & n/r & n/r \\
 PyRIT \cite{pyrit2024} & input (test) & red-team orch. & yes (attacks) & {\em n/a} & n/r & n/r \\
-LLM-Guard \cite{llmguard2024} & input/output & detector suite & yes (scanners) & threshold & n/r & n/r \\
-\midrule
-
-% ─── Commercial baseline ──────────────────────────────────────────────────────
-DKnownAI Guard & mixed & ensemble & partial & threshold & n/r & 96.5\% \\
-Lakera Guard & input & classifier & no & threshold & n/r & n/r \\
-AWS Bedrock & input & content filter & no & threshold & n/r & n/r \\
 
 \bottomrule
 \end{tabular}%
@@ -90,4 +77,9 @@ $^{\P}$DS = data-stealing subset; direct-harm subset is an open gap
 (\S\ref{sec:injecagent}).
 $^{\S}$Kavach deliberately reports per-mechanism trajectory analysis
 (\S\ref{sec:gpt4o}) rather than a single AgentDojo ASR.
+13 additional systems spanning input-time, plan-time, information-flow, and
+drift-detection guardrails were surveyed (AlignmentCheck, LlamaFirewall
+combined, AgentSpec, Task Shield, OpenClaw PRISM, FIDES, AGrail, TaskTracker,
+DRIFT, LLM-Guard, DKnownAI Guard, Lakera Guard, AWS Bedrock); omitted from
+the table for space.
 \end{table*}
