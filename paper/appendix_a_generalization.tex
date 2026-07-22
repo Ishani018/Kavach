@@ -21,16 +21,20 @@ through the real detection pipeline. This is in tension with our own
 argument against self-authored attack data (\S\ref{sec:kavach-pb}), which
 we consider acceptable here because the audit tests \emph{transfer} of
 mechanisms already built and locked before AtriumOS existed, not a
-headline detection claim. We report the findings without softening.
+headline detection claim. We report the findings without softening. The 18
+attack scenarios are not evenly split across ministers (8 EXECUTOR, 7
+VAULT, 3 combined for CHANNEL and NAVIGATOR); EXECUTOR's and VAULT's
+verdicts below rest on a reasonable sample, but CHANNEL's and NAVIGATOR's
+rest on very few cases each, and should be read as illustrative rather than
+statistically powered.
 
 \begin{itemize}
 \item \textbf{EXECUTOR --- generalizes cleanly.} Caught all eight
 novel-vocabulary execution attacks via structural/\allowbreak technique-level shape
 matching, independent of tool identity. One structural false positive was
 found (a network-fetch-to-disk predicate firing on a benign data-retrieval
-call) and fixed pre-submission, moving EXECUTOR's attack hit count by a
-single case (98$\to$97) with zero new benign false positives on either
-population; parser test suites remain green (27/27, 37/37).
+call) and fixed pre-submission, with zero new benign false positives on
+either population; parser test suites remain green (27/27, 37/37).
 \item \textbf{VAULT --- mostly generalizes, one inherent limit.} Caught
 5/7 novel-vocabulary credential attacks via structural credential-path and
 secret-format matching. One miss is a narrow surface-form gap (fixable);

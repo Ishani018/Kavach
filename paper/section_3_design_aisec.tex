@@ -25,7 +25,12 @@ suffices, no score averaging) into \textsc{Block}, \textsc{Escalate}, or
 \textsc{Allow}, via a single HTTP endpoint,
 \texttt{POST /hook\allowbreak/parliament}, called synchronously at the host
 runtime's pre-execution hook; a verdict other than \textsc{Allow} prevents
-the call from executing.
+the call from executing. A separate, pre-rearchitecture session-level
+monitor, TRAJECTORY, also remains active alongside these four ministers,
+re-confirming or escalating a subset of already-detected cases at the
+session level; it is not one of the four domain-specialized ministers and
+is disclosed in full, including a real benign false-positive interaction,
+in \S\ref{sec:design-tradeoffs}.
 
 \subsection{Deterministic-primary detection: why, and for which ministers}
 \label{sec:deterministic-primary}
