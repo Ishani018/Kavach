@@ -293,6 +293,21 @@ in actual trajectory data that a hard block would incorrectly stop. Where a
 verdict boundary has a real false-positive cost we can point to concretely,
 we chose the reversible verdict.
 
+\paragraph{Escalate has a real operational cost, and we report it as
+such.} An Escalate verdict is a request for human review, not a
+prevented action --- the call still reaches the user or operator queue,
+and someone has to look at it. This has a real cost on legitimate
+traffic: on the 55-case agent-shaped benign population, 37/55 (67.3\%)
+trigger at least one Escalate somewhere in the pipeline --- a majority
+of ordinary calls, not a tail case. VAULT and EXECUTOR's full-pipeline
+detection numbers (\S\ref{sec:vault-executor}) already report the
+Block/Escalate split for exactly this reason: VAULT's 74.4\% is 42
+points hard-Block from the deterministic layer and 45 points
+Escalate-only from cosine triage; EXECUTOR's 90.1\% is 70 points
+hard-Block and 113 points Escalate-only. A reader who reads either
+number as ``prevented'' without checking this split will overstate what
+the deployed system prevents versus flags for review.
+
 \paragraph{Synchronous evaluation on the hot path.} Kavach evaluates
 synchronously in the pre-execution hook. Asynchronous evaluation would
 reduce latency but allow a race between the verdict and execution; we accept
