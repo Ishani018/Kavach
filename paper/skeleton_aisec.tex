@@ -3,16 +3,12 @@
 % Kavach — AISec 2026 submission skeleton (ACM CCS workshop, The Hague)
 % Deadline: July 24, 2026.  10pp ACM double-column, ANONYMIZED.
 %
-% Restructured June 10, 2026 per repo audit (KAVACH_SCRUTINY_AISEC_PLAN.md):
-%   - Spine: systems/measurement (the hook-gap finding + live interception +
-%     representation-mismatch + hybrid-retrieval fix).
-%   - §5: the aggregation frontier (veto vs Bayesian vs hybrid under adaptive
-%     corruption) — now testable against the REAL Speaker via adaptive_attack v3.
-%   - The old "temporal--spatial" section is DEMOTED to a short design
-%     principle (§3.5); the implementation does not enforce load-order, so the
-%     standalone formal section over-claimed and burned page budget.
+% Rewritten July 20, 2026 for the deterministic-primary rearchitecture
+% (supersedes the June 10 cosine-primary/COMPASS/OpenClaw-hookgap version;
+% the old "§5: aggregation frontier" section described there was removed
+% entirely, since it studied a Speaker design the deployed system no
+% longer uses -- see git history for the pre-rearchitecture skeleton).
 %
-% Numbers are [TBD] until the pending benchmark runs land (see docs/internal/BENCHMARK_RUNBOOK.md).
 % Replace \anonymise{} contents only in the camera-ready.
 % ═══════════════════════════════════════════════════════════════════════════
 
