@@ -55,61 +55,41 @@ standard benchmarks we also evaluate against below, almost entirely miss
 VAULT and EXECUTOR --- both stress CHANNEL's mechanisms specifically, a gap
 we found live while validating this rearchitecture, not one we anticipated.
 We assembled a composite evaluation corpus (\S\ref{sec:kavach-pb}) for
-VAULT and EXECUTOR that closes this gap by reusing real,
-externally-validated attack data (AtomicRedTeam, GTFOBins) under one runner
-and one per-minister scoring convention, rather than authoring new synthetic
-attacks that risk being unconsciously shaped to be catchable by the system
-being evaluated; CHANNEL and NAVIGATOR are evaluated separately on
-InjecAgent and AgentDojo below. On this 519-case corpus, deterministic-primary
-detection with cosine triage reaches VAULT 74.4\% and EXECUTOR 90.1\%, stable
-under a held-out split, with zero new benign false positives across two
-independent benign populations.
-CHANNEL's
-session-level provenance mechanism --- tracking whether a consequential
-call's argument values trace to the user's own instruction or to an
-earlier, untrusted read this session --- correctly escalates 5/22 real
-benign multi-step sessions with zero false blocks, and 5/5 structurally
-applicable AgentDojo attack cases, verified independently against both the
-benchmark's minimal ground-truth call sequence and AgentDojo's own full
-recorded model trajectories for the same cases. On InjecAgent's data-stealing
-corpus, the deterministic pipeline reaches 544/544 detection; the direct-harm
-corpus remains an open gap (0\% strict recall, \S\ref{sec:injecagent}).
+VAULT and EXECUTOR from real, externally-validated attack data
+(AtomicRedTeam, GTFOBins) rather than authoring new synthetic attacks that
+risk being unconsciously shaped to be catchable by the system being
+evaluated; CHANNEL and NAVIGATOR are evaluated separately on InjecAgent and
+AgentDojo below. Full numbers, splits, and baseline comparisons are in
+\S\ref{sec:eval}: VAULT 74.4\%, EXECUTOR 90.1\%, zero new benign false
+positives, 544/544 on InjecAgent's data-stealing corpus via CHANNEL's taint
+mechanism (direct-harm remains an open gap), and 5/5 structurally applicable
+AgentDojo attacks correctly escalated with zero false blocks on 22 real
+benign sessions.
 
 \textbf{Third, a large-scale real-trajectory validation
 (\S\ref{sec:gpt4o}).} Beyond benchmark replay, we validated Kavach against
 all 629 real recorded GPT-4o attack trajectories published by AgentDojo ---
 actual model-generated tool-call sequences with real tool outputs, not a
-benchmark's minimal answer key. Kavach fires on 467/629 (74.2\%) of these.
-Tracing every apparent miss to its actual
-tool-call content shows 131 of the 162 misses reflect the model never
-executing any consequential action in connection with the injected
-instruction at all --- an artifact of AgentDojo's own success-labeling
-convention, not a detection gap --- leaving 19 genuine misses, which we
-categorize precisely by mechanism (five are a scoped CHANNEL destination-tool
-gap; fourteen have no destination value to trace at all, and are a different
-kind of problem entirely).
+benchmark's minimal answer key. Kavach fires on 467/629 (74.2\%); tracing
+every apparent miss to its actual tool-call content, most reflect the model
+never taking any consequential action at all (an artifact of AgentDojo's own
+success-labeling convention, not a detection gap), leaving 19 genuine
+misses, each categorized precisely by mechanism (\S\ref{sec:gpt4o}).
 
 \textbf{Fourth, honestly reported negative results
 (\S\ref{sec:limitations}).} NAVIGATOR, the one minister we did not move to
-deterministic-primary detection, is reported in full: a first attempt at a
-direct deterministic swap showed zero net discrimination gain and was
-abandoned at its own go/no-go gate; a second attempt reframed the minister's
-question as session-level authorization rather than similarity, and we
-report three independently designed heuristics for the resulting
-hard-constraint layer, all of which failed a frozen discriminability
-criterion set before measurement, for three distinct and informative
-reasons. An independent generalization audit, run against a fictional agent
-vocabulary sharing no surface term with any benchmark Kavach was tuned
-against, further establishes precisely which of the four ministers'
-mechanisms generalize past benchmark-specific vocabulary and which do not
---- EXECUTOR generalizes cleanly (with one structural false positive found
-and fixed during the audit itself); VAULT generalizes except where its
-mechanism is an inherent literal-name allowlist; CHANNEL's escalation path
-generalizes while its hard-block path does not; NAVIGATOR's cosine detector
-does not transfer to novel vocabulary at all. We report these boundaries
-because knowing precisely where each mechanism does and does not generalize
-is what distinguishes a system whose limits are known from one whose limits
-have simply not yet been found.
+deterministic-primary detection, is reported in full: a direct deterministic
+swap was abandoned at its own go/no-go gate, and three independently
+designed heuristics for a session-level authorization layer each failed a
+frozen discriminability criterion, for three distinct and informative
+reasons. An independent generalization audit against a fictional agent
+vocabulary establishes precisely which mechanisms transfer past
+benchmark-specific vocabulary and which do not --- EXECUTOR cleanly, VAULT
+mostly, CHANNEL's escalation path but not its hard-block path, NAVIGATOR not
+at all (\S\ref{sec:limitations}). We report these boundaries because
+knowing precisely where each mechanism does and does not generalize is what
+distinguishes a system whose limits are known from one whose limits have
+simply not yet been found.
 
 \paragraph{Scope and non-claims.} We do not claim Kavach prevents every
 class of agent-side attack. Its deterministic rules are authored against

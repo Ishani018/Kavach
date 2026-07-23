@@ -5,13 +5,9 @@
 \paragraph{No head-to-head with ClawGuard specifically.} An earlier version
 of this work lacked any AgentDojo evaluation at scale; that general gap is
 now closed by the 629-real-trajectory validation in \S\ref{sec:gpt4o}. A
-narrower gap remains: ClawGuard \cite{clawguard2026} reports a 0\%
-attack-success rate on AgentDojo under its own hand-authored rule set, and
-we do not run a controlled head-to-head against its implementation, which
-intercepts live sessions with no dataset-replay harness compatible with our
-pipeline. ClawGuard's authors report its automatic rule-derivation component
-as unevaluated, so its published number reflects hand-authored coverage of
-that specific benchmark rather than a like-for-like baseline.
+narrower gap remains: we do not run a controlled head-to-head against
+ClawGuard's implementation (\S\ref{sec:related}), which intercepts live
+sessions with no dataset-replay harness compatible with our pipeline.
 
 \paragraph{External tool-call-content baselines are structurally
 inapplicable, not weaker.}
@@ -22,12 +18,11 @@ inapplicable rather than merely weaker: CodeShield's supported-language set
 (C/C++/C\#/Java/JavaScript/PHP/Python/Rust) excludes the shell, PowerShell,
 and cmd dialects comprising $\sim$87\% of our reference corpus's
 adversary-emulation commands, and gitleaks --- a secret-value scanner ---
-produces zero findings
-on all 519 cases because they encode credential-access techniques rather
-than embedded literal secrets (its one finding across 848 benign calls was
-the empty-string SHA-256 hash misread as an API key). We report this as
-corroborating the enforcement-boundary gap this paper targets rather than
-as a performance comparison.
+produces zero findings on all 519 cases, since they encode
+credential-access techniques rather than embedded literal secrets (its one
+finding across 848 benign calls was an empty-string hash misread as an API
+key). We report this as corroborating the enforcement-boundary gap this
+paper targets, not as a performance comparison.
 
 \paragraph{Tamper-evident, not tamper-proof.} The hash-chained ledger detects
 post-hoc edits to any recorded decision or its provenance, but an attacker
@@ -46,19 +41,13 @@ both may not be caught; \S\ref{sec:generalization-audit} characterizes this
 precisely for each minister rather than leaving it as an untested assumption.
 
 \paragraph{The reserve\_hotel gap is representative of a broader,
-unfixed class.} \S\ref{sec:gpt4o} reports 19 real trajectories where a
-consequential attack succeeded and Kavach did not fire, split between a
-narrow CHANNEL scope gap (five \texttt{reserve\_hotel} cases, where a
-destination value exists but the tool was never added to CHANNEL's
-destination list) and fourteen cases with no destination value to trace at
-all. The natural fix for the first --- adding the tool to the destination
-list --- introduces a new false positive, since CHANNEL's value extractor
-only recognizes email/IBAN/phone/URL shapes, not proper-noun business names;
-we reverted this change rather than ship a fix with a known new
-false-positive class. The fourteen cases with no destination value at all
-are structurally not closeable by any refinement of CHANNEL's mechanism ---
-they are exactly the shape of question \S\ref{par:navigator-authflow} below
-reports as unresolved.
+unfixed class.} \S\ref{sec:gpt4o} categorizes the 19 genuine real-trajectory
+misses in full: five (\texttt{reserve\_hotel}) are a scoped CHANNEL
+destination-tool gap whose natural fix we tried and reverted, since it
+introduces a new false-positive class; the remaining fourteen have no
+destination value to trace at all and are structurally not closeable by any
+refinement of CHANNEL's mechanism --- exactly the shape of question
+\S\ref{par:navigator-authflow} below reports as unresolved.
 
 \paragraph{Single embedding model.} The cosine-triage layer and NAVIGATOR use
 a single encoder (\texttt{bge-base-en-v1.5}), selected for open-source
@@ -78,17 +67,18 @@ this cycle.
 progress, after three failed heuristics.}
 \label{par:navigator-authflow}
 NAVIGATOR is the one minister whose deterministic rearchitecture is not yet
-complete. A direct deterministic swap mirroring VAULT/EXECUTOR/CHANNEL showed
-zero net discrimination gain over NAVIGATOR's cosine baseline and was
-abandoned; a second attempt reframes the question as authorization rather
-than similarity (a pinned, immutable session intent, classifying each tool
-as observational or consequential, then a hard-constraint layer deciding
-whether a consequential action is \emph{derivable} from that intent). The
-first two pieces --- pinned-intent capture and the taxonomy --- are complete
-and validated, including under the generalization audit below. The
-hard-constraint layer failed three independently designed heuristics against
-a frozen discriminability criterion: (1)~tool-name/instruction-text overlap,
-evaded by attacker text sharing surface words with the legitimate request;
+complete. A direct deterministic swap mirroring VAULT/EXECUTOR/CHANNEL
+showed zero net discrimination gain and was abandoned; a second attempt
+reframes the question as authorization rather than similarity (a pinned,
+immutable session intent, classifying each tool as observational or
+consequential, then a hard-constraint layer deciding whether a
+consequential action is \emph{derivable} from that intent). The first two
+pieces --- pinned-intent capture and the taxonomy --- are complete and
+validated, including under the generalization audit below. The
+hard-constraint layer failed three independently designed heuristics
+against a frozen discriminability criterion: (1)~tool-name/instruction-text
+overlap, evaded by attacker text sharing surface words with the legitimate
+request;
 (2)~argument-value overlap alone, wrongly flagging legitimate values read
 earlier in the session; (3)~a provenance-aware version of (2), composed
 with CHANNEL's own session state, still over the frozen false-positive
@@ -137,22 +127,15 @@ is done, \S\ref{sec:eval}'s rates should be read as non-adaptive.
 \label{sec:generalization-audit}
 
 Kavach's deterministic rules were, in large part, authored by mining
-detection misses on the exact benchmarks evaluated against (\S\ref{sec:kavach-pb}),
-creating a real risk of circular validation. We therefore ran an
-independent adversarial audit before submission: a fictional agent
-environment (``AtriumOS'') with an entirely invented tool vocabulary
-sharing no tool name, corpus term, or surface phrasing with InjecAgent,
-AgentDojo, or our reference corpus, dispatching 18 attack and 18 matched-benign
-novel-vocabulary scenarios through the real detection pipeline. The
-per-minister verdict: EXECUTOR generalizes cleanly (caught all eight
-novel-vocabulary attacks; one structural false positive was found and
-fixed pre-submission); VAULT mostly generalizes, with one limitation
-inherent to the architecture (a literal secret-name allowlist cannot
-match a genuinely novel secret-variable name, by construction); CHANNEL
-is split --- its escalation path generalizes via a behavior-general
-destination-value fallback, but its hard-block path does not, since
-destination status is decided by a benchmark-specific tool-name list;
-and NAVIGATOR's cosine-similarity mechanism does not currently transfer
-to novel vocabulary at all, a direct structural consequence of the same
-lexical gate that gives it low false positives on-benchmark. Full
-methodology and results in Appendix~A.
+detection misses on the exact benchmarks evaluated against
+(\S\ref{sec:kavach-pb}), creating a real risk of circular validation. We
+therefore ran an independent adversarial audit before submission against a
+fictional agent environment (``AtriumOS'') with an entirely invented tool
+vocabulary sharing no tool name, corpus term, or surface phrasing with
+InjecAgent, AgentDojo, or our reference corpus: 18 attack and 18
+matched-benign novel-vocabulary scenarios through the real detection
+pipeline. Summary verdict: EXECUTOR generalizes cleanly, VAULT mostly does
+(one architecture-inherent limit), CHANNEL's escalation path generalizes
+but its hard-block path does not, and NAVIGATOR's cosine mechanism does not
+transfer to novel vocabulary at all. Full methodology and per-minister
+results in Appendix~A.

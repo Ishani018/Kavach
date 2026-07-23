@@ -55,35 +55,34 @@ converged on replacing this design for three of the four ministers.
 \item \textbf{Evidence 1 --- a lexical-inflation bug pointed at the fix, not
 just the bug.} BM25/IDF term weighting over-weighted rare generic tokens
 (\texttt{url}, \texttt{user}) because L3 code-syntax text had leaked into
-the lexical index, false-blocking benign calls
-(\texttt{get\_webpage}, \texttt{read\_inbox}). A regex/exact-match layer on
-L3 syntax tokens shipped instead of two rejected rerankers (SPLADE,
-cross-encoder), and is the direct conceptual precursor to deterministic-primary
-detection: the false positives were \emph{structural}, and a deterministic
-match on structure resolved them without touching the semantic layer.
+the lexical index, false-blocking benign calls (\texttt{get\_webpage},
+\texttt{read\_inbox}). A regex/exact-match layer on L3 syntax tokens
+shipped instead of two rejected rerankers (SPLADE, cross-encoder): the
+false positives were \emph{structural}, and a deterministic match on
+structure resolved them without touching the semantic layer.
 \item \textbf{Evidence 2 --- a targeted dense fine-tune traded one failure
 mode for a worse one.} A low-rank adapter fine-tuned on the frozen BGE
-encoder fixed the \texttt{get\_webpage}/\texttt{read\_inbox} false positives
-outright (71\%$\to$0\%) but regressed real attack recall on 30 genuine
-InjecAgent attacks from 63.3\% to 26.7\%: its LOLBIN-shaped training
-positives sharply separated \emph{that} shape and pulled genuinely different
-attack shapes (bank transfers, access-grant abuse) away from the decision
-boundary. The adapter was correctly not merged.
+encoder fixed the false positives outright (71\%$\to$0\%) but regressed
+real attack recall on 30 genuine InjecAgent attacks from 63.3\% to 26.7\%:
+its LOLBIN-shaped training positives sharply separated \emph{that} shape
+and pulled genuinely different attack shapes (bank transfers, access-grant
+abuse) away from the decision boundary. The adapter was correctly not
+merged.
 \item \textbf{Evidence 3 --- the corpus gap this exposed was general, not a
-training artifact.} Adding 62 real business-logic attacks (transfers, access
-grants) as positive examples revealed they do not match \emph{anything}
-already in the corpus (mean cosine similarity 0.565, far below any operating
-threshold) --- a structural blind spot for an ordinary-looking business
-action carrying a malicious argument.
+training artifact.} Adding 62 real business-logic attacks (transfers,
+access grants) as positive examples revealed they do not match
+\emph{anything} already in the corpus (mean cosine similarity 0.565, far
+below any operating threshold) --- a structural blind spot for an
+ordinary-looking business action carrying a malicious argument.
 \item \textbf{Evidence 4 --- a proposed fifth minister was formally
 falsified before being built.} We tested whether cosine similarity could
-discriminate STEWARD's target attack class (business-logic abuse) at all,
-using paired legitimate/malicious AgentDojo calls sharing a tool name and
-differing only in argument content: similarity deltas between paired calls
-were near zero (0.003--0.024). STEWARD was not built --- argument-\emph{value}
-provenance is a different kind of question than action-level semantic
-similarity, and no amount of corpus expansion closes that gap for a
-mechanism that only looks at the action as a whole.
+discriminate STEWARD's target attack class at all, using paired
+legitimate/malicious AgentDojo calls sharing a tool name and differing
+only in argument content: similarity deltas were near zero
+(0.003--0.024). STEWARD was not built --- argument-\emph{value} provenance
+is a different question than action-level semantic similarity, and no
+corpus expansion closes that gap for a mechanism that only looks at the
+action as a whole.
 \end{itemize}
 
 \paragraph{The decision.} Evidence 1--4 point at one distinction: structural
@@ -179,13 +178,8 @@ just read, are real, legitimate same-session read-then-send chains that must
 not be treated the same as an attacker-substituted destination
 (\S\ref{sec:design-tradeoffs} discusses this choice's cost).
 
-CHANNEL's locked reference numbers: 5/22 real benign multi-step sessions
-correctly escalate (0 false hard-blocks) on this mechanism; 5/5 AgentDojo
-attack cases structurally applicable to CHANNEL's read-then-send shape
-escalate correctly, confirmed against both the benchmark's minimal
-\texttt{ground\_truth()} call sequence (AgentDojo's own API for the expected
-attack steps) and, separately, against AgentDojo's
-own full recorded model trajectories for the same cases (\S\ref{sec:eval}).
+CHANNEL's locked reference numbers and full evaluation methodology are
+reported in \S\ref{sec:channel-eval}.
 
 \subsection{Cosine-ESCALATE-only triage}
 \label{sec:triage}
@@ -216,11 +210,9 @@ deterministic rule converts those flags into
 \textsc{Allow} on model timeout or error). Two simpler designs --- raw
 entity-proximity matching and asking the model to judge malicious-or-benign
 directly --- were tried and rejected first, for benign false positives and
-missed attacks respectively. The tiebreaker scored 16/17 (94.1\%) in pilot,
-and 4/5 on an independent generalization check using phrasings never used
-to write its fix (\S\ref{sec:tiebreaker-eval}); it is real, working code
-held back from live dispatch specifically because its own validation found
-a limit before we judged it decided.
+missed attacks respectively. Validation results, including a
+generalization check and why it is held back from live dispatch, are in
+\S\ref{sec:tiebreaker-eval}.
 
 \subsection{Provenance ledger}
 \label{sec:provenance}
@@ -254,13 +246,10 @@ and someone has to look at it. This has a real cost on legitimate
 traffic: on the 55-case agent-shaped benign population, 37/55 (67.3\%)
 trigger at least one Escalate somewhere in the pipeline --- a majority
 of ordinary calls, not a tail case. VAULT and EXECUTOR's full-pipeline
-detection numbers (\S\ref{sec:vault-executor}) already report the
-Block/Escalate split for exactly this reason: VAULT's 74.4\% is 42
-points hard-Block from the deterministic layer and 45 points
-Escalate-only from cosine triage; EXECUTOR's 90.1\% is 70 points
-hard-Block and 113 points Escalate-only. A reader who reads either
-number as ``prevented'' without checking this split will overstate what
-the deployed system prevents versus flags for review.
+detection numbers (\S\ref{sec:vault-executor}) report the Block/Escalate
+split explicitly for exactly this reason: a reader who reads either
+recall number as ``prevented'' without checking that split will overstate
+what the deployed system prevents versus flags for review.
 
 \paragraph{Synchronous evaluation on the hot path.} Kavach evaluates
 synchronously in the pre-execution hook. Asynchronous evaluation would
@@ -274,17 +263,16 @@ four ministers.} TRAJECTORY predates this project's rearchitecture
 detection; it combines five signals --- accumulated per-call confidence,
 drift from a seeded session intent, pairwise action coherence, denial-echo
 detection, and cross-minister escalation --- into a single per-session risk
-score, reusing each call's already-computed embedding. Its escalation signal
-shares the same underlying mechanism as the standalone intent-drift detector
-reported as a negative result in \S\ref{sec:limitations}. TRAJECTORY is not a
-first-line detector: across every locked evaluation, zero cases counted
-toward a reported detection number were first identified by TRAJECTORY ---
-a minister always fires first. It instead re-confirms or escalates a subset
-of already-detected cases at the session level: 148 of the 629 real GPT-4o
-trajectories in \S\ref{sec:gpt4o} (none affecting the reported 467/629), and,
-notably, 3 of the 22 real benign AgentDojo sessions in
-\S\ref{sec:channel-eval} --- a hard \textsc{Block}, jointly with NAVIGATOR, on
-benign traffic our own escalate-only CHANNEL mechanism does not produce. We
-report this plainly: it is a real false-positive-producing interaction on a
-live component we did not subject to the same validation rigor as VAULT,
-EXECUTOR, and CHANNEL, and it is not a contribution of this paper.
+score, sharing the same underlying mechanism as the standalone intent-drift
+detector reported as a negative result in \S\ref{sec:limitations}.
+TRAJECTORY is not a first-line detector: across every locked evaluation,
+zero cases counted toward a reported detection number were first identified
+by TRAJECTORY --- a minister always fires first. It instead re-confirms or
+escalates a subset of already-detected cases at the session level: 148 of
+the 629 real GPT-4o trajectories in \S\ref{sec:gpt4o} (none affecting the
+reported 467/629), and, notably, 3 of the 22 real benign AgentDojo sessions
+in \S\ref{sec:channel-eval} --- a hard \textsc{Block}, jointly with
+NAVIGATOR, on benign traffic our own escalate-only CHANNEL mechanism does
+not produce. We report this plainly: it is a real false-positive-producing
+interaction on a live component not subject to the same validation rigor
+as VAULT, EXECUTOR, and CHANNEL, and not a contribution of this paper.

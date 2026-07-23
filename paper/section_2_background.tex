@@ -22,9 +22,9 @@ Code's \texttt{.claude/settings.json}; CVE-2026-21858 on n8n).
 serialization/deserialization of tool responses and agent state, enabling
 arbitrary class instantiation in trusted namespaces (CVE-2025-68664 on
 LangChain Core, CVSS 9.3). \emph{Hook-bypass} attacks exploit incorrectly
-wired security hook points --- as with OpenClaw issues \#5513 and \#5943,
-where \texttt{before\_tool\_call} is documented but never invoked.
-\emph{CSRF and session} attacks exploit the harness's web surface
+wired security hook points (OpenClaw issues \#5513, \#5943, where
+\texttt{before\_tool\_call} is documented but never invoked), and
+\emph{CSRF/session} attacks exploit the harness's web surface
 (CVE-2025-34291 on LangFlow, actively exploited in the wild as of January
 2026~\cite{crowdsec2026langflow}).
 

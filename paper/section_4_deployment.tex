@@ -56,26 +56,20 @@ risks unconsciously being shaped to be catchable by the very system that
 writes it, and reusing independently-authored corpora avoids this risk
 structurally rather than by discipline alone.
 
-\paragraph{What is reused, what is new.} Attack cases are drawn from
-AtomicRedTeam and GTFOBins; benign calls from the Berkeley Function-Calling
-Leaderboard (BFCL, general-purpose) plus a 55-case agent-shaped benign set.
-What is novel is the unification: a single harness dispatching every case
-through the same \texttt{/hook/parliament} path regardless of source corpus,
-a per-minister scoring methodology (below), and a two-population benign
-false-positive convention.
-
-\paragraph{Scoring convention.} Each attack case carries a
-\texttt{target\_patterns} list naming which minister(s) it should trigger;
-we report both an overall detected rate (any minister returns \textsc{Block}
-or \textsc{Escalate}) and a per-minister hit rate --- a case can be detected
-overall while its targeted minister misses, and we surface that divergence
-rather than absorbing it into the aggregate. On the benign side,
-\textsc{Block} is a hard false positive and \textsc{Escalate} is reported
-separately, never conflated with \textsc{Block} or a clean \textsc{Allow}
---- the same convention CHANNEL's own provenance mechanism uses
-(\S\ref{sec:channel}). We report two benign populations separately rather
-than pooled: BFCL (793 cases, general-purpose, not agent-shaped) and the
-55-case agent-shaped set (the stronger evidence).
+\paragraph{Reuse, unification, and scoring.} Attack cases are drawn from
+AtomicRedTeam and GTFOBins; benign calls from BFCL (793, general-purpose)
+plus a 55-case agent-shaped benign set, reported separately rather than
+pooled. What is novel is the unification: a single harness dispatching every
+case through the same \texttt{/hook/parliament} path, one per-minister
+scoring convention, and one benign false-positive convention. Each attack
+case carries a \texttt{target\_patterns} list naming which minister(s) it
+should trigger; we report both an overall detected rate (any minister
+\textsc{Block}s or \textsc{Escalate}s) and a per-minister hit rate, since a
+case can be detected overall while its targeted minister misses. On the
+benign side, \textsc{Block} is a hard false positive and \textsc{Escalate}
+is reported separately, never conflated with \textsc{Block} or a clean
+\textsc{Allow} --- the same convention CHANNEL's provenance mechanism uses
+(\S\ref{sec:channel}).
 
 \subsection{Results: VAULT and EXECUTOR}
 \label{sec:vault-executor-eval}
@@ -107,23 +101,21 @@ showing the rearchitecture strictly dominates the design it replaced.
 We additionally compare against two independent, non-Kavach baselines on
 the identical 519-case corpus and both benign populations. A naive
 keyword/regex blocklist ($\sim$30 hand-written patterns, no corpus, no
-tuning) recovers 12.1\% (63/519) with 0\% FPR --- barely detects anything,
-the expected floor for an un-corpus-driven list. A zero-shot LLM judge
-(local \texttt{qwen2.5:7b}, no corpus, single fixed prompt, given only the
-resolved call) recovers 78.8\% (409/519), recall in Kavach's own ballpark,
-but at a real false-positive cost --- 1.4\% on general-purpose (BFCL)
-traffic and 14.5\% on agent-shaped, consequential-looking calls specifically
---- that Kavach's deterministic layer avoids entirely. A larger model
-(\texttt{qwen2.5:32b}, identical prompt and populations) does not simply
-dominate the smaller one: recall falls to 71.3\% (370/519) while FPR drops
-to 0.4\% combined (0\% agent-shaped) --- a different point on the same
-recall/precision trade-off, not a strictly better one, indicating the
-trade-off is inherent to LLM-judge-style detection rather than an artifact
-of model scale. Read together with the cosine-primary ablation above: a
-naive filter under-detects, a generic LLM judge (at either scale) trades
-recall against precision but cannot match both simultaneously, and the
-pre-rearchitecture cosine-primary configuration approaches neither
-Kavach's recall nor its zero-FPR guarantee.
+tuning) recovers 12.1\% (63/519) at 0\% FPR --- the expected floor for an
+un-corpus-driven list. A zero-shot LLM judge (local \texttt{qwen2.5:7b}, no
+corpus, single fixed prompt, resolved call only) recovers 78.8\% (409/519),
+recall in Kavach's own ballpark, but at a real false-positive cost Kavach's
+deterministic layer avoids entirely: 1.4\% on BFCL and 14.5\% on
+agent-shaped calls specifically. A larger model (\texttt{qwen2.5:32b}, same
+prompt and populations) does not simply dominate: recall falls to 71.3\%
+(370/519) while FPR drops to 0.4\% combined (0\% agent-shaped) --- a
+different point on the same recall/precision trade-off, not a strictly
+better one, indicating the trade-off is inherent to LLM-judge-style
+detection rather than an artifact of model scale. Read together with the
+cosine-primary ablation above: a naive filter under-detects, a generic LLM
+judge (at either scale) trades recall against precision but cannot match
+both, and cosine-primary approaches neither Kavach's recall nor its
+zero-FPR guarantee.
 
 This split addresses partition luck, not rule-authoring circularity: the
 deterministic rules were authored by inspecting misses across the full
@@ -157,25 +149,21 @@ CHANNEL's provenance mechanism (\S\ref{sec:channel}) is evaluated on two real
 populations: 22 real multi-step benign sessions and the AgentDojo attack
 cases whose two-call read-then-send shape is structurally applicable to
 CHANNEL's mechanism. On the benign population, 5/22 sessions correctly
-escalate via CHANNEL, with 0 hard-block false positives from CHANNEL itself;
-these are exactly the sessions with a legitimate destination value (an IBAN,
-most commonly) read from a file or transaction history earlier in the same
-session rather than typed by the user (\S\ref{sec:channel}). Separately,
-3/22 sessions in this same population are
-hard-blocked by an unrelated interaction between TRAJECTORY and NAVIGATOR,
-never blended into CHANNEL's 5/22 figure and reported in full in
-\S\ref{sec:design-tradeoffs}. On the attack
-side, 5/5 structurally applicable AgentDojo cases correctly escalate, and we
-verified this twice: once against the benchmark's minimal
-\texttt{ground\_truth()} call sequence, and again, independently, against
-AgentDojo's own full recorded model trajectories for the same five cases ---
-real, longer sessions with additional benign calls interleaved, real tool
-outputs, and the actual sequence a deployed model produced rather than the
-benchmark's answer key. This second check caught a bug in our own
-verification script (it tracked only the final step's verdict, so a benign
-call after the real attack step silently overwrote an earlier correct
-escalation) before we could report the number as final; the corrected script
-confirms genuine 5/5 on the real trajectories.
+escalate via CHANNEL with 0 hard-block false positives from CHANNEL itself
+--- exactly the sessions with a legitimate destination value (an IBAN,
+most commonly) read earlier in the same session rather than typed by the
+user (\S\ref{sec:channel}). A further 3/22 are hard-blocked by an unrelated
+TRAJECTORY/NAVIGATOR interaction, never blended into the 5/22 figure and
+reported in full in \S\ref{sec:design-tradeoffs}. On the attack side, 5/5
+structurally applicable AgentDojo cases correctly escalate, verified twice:
+against the benchmark's minimal \texttt{ground\_truth()} sequence, and
+independently against AgentDojo's own full recorded model trajectories for
+the same cases --- real, longer sessions with benign calls interleaved and
+the actual sequence a deployed model produced. This second check caught a
+bug in our own verification script (it tracked only the final step's
+verdict, letting a benign call after the attack step overwrite an earlier
+correct escalation) before we reported the number as final; the corrected
+script confirms genuine 5/5 on the real trajectories.
 
 \subsection{Large-scale real-trajectory validation}
 \label{sec:gpt4o}
@@ -201,44 +189,39 @@ attack whenever the environment state changed at all relative to the
 pre-trajectory state and does not exactly match the injected goal ---
 conflating ``the injected attack succeeded'' with ``the model made no
 consequential call related to the injection at all.'' 131 of the 162 misses
-fall in the latter category: the model never invoked any consequential tool
-in connection with the injected instruction, so there was no unauthorized
-action for any minister to catch, verified by extracting every tool call
-from each miss's transcript against a fixed consequential-tool list --- a
-trajectory whose only calls are read-only lookups is not a detection gap,
-regardless of what AgentDojo's field reports. A further 12 of the 162 are
-trajectories where AgentDojo's own \texttt{security} field already indicates
-the injection did \emph{not} succeed (the model's own defenses resisted it)
---- these are not Kavach misses either, since there is no successful attack
-to have caught (8 \texttt{workspace}, 4 \texttt{travel}). The remaining 19
-are genuine misses.
+fall in the latter category, verified by extracting every tool call from
+each miss's transcript against a fixed consequential-tool list: the model
+never invoked any consequential tool in connection with the injected
+instruction, so there was no unauthorized action for any minister to catch,
+regardless of what AgentDojo's field reports. A further 12 are trajectories
+where AgentDojo's own field already indicates the injection did \emph{not}
+succeed (8 \texttt{workspace}, 4 \texttt{travel}) --- not Kavach misses
+either, since there is no successful attack to have caught. The remaining
+19 are genuine misses.
 
-\paragraph{The remaining 19 real misses, categorized by mechanism.} The
-other 19 trajectories do contain a genuine unauthorized consequential call
-that Kavach did not catch, and we categorize each by whether the underlying
-attack has a destination \emph{value} to trace (CHANNEL's domain) or is
-purely an unauthorized \emph{action} with no data flow at all (a question
-closer to NAVIGATOR's domain, \S\ref{sec:limitations}). Five cases
-(\texttt{travel}, all \texttt{reserve\_hotel}) name an attacker-substituted
-external party --- a real destination value, of the same shape as
-\texttt{send\_money}'s recipient IBAN --- but the tool was never added to
-CHANNEL's destination-tool list, a scope gap rather than a mechanism
-failure. Fourteen cases (\texttt{banking}: 11 cases,
-\texttt{update\allowbreak\_scheduled\allowbreak\_transaction} and
-\texttt{update\allowbreak\_user\allowbreak\_info};
-\texttt{workspace}: 3 cases, \texttt{delete\_file} and
-\texttt{append\allowbreak\_to\allowbreak\_file})
-mutate existing account state or same-account data with no new destination
-value introduced at all --- there is no value for any provenance mechanism
-to trace, since these attacks ask ``should this action have happened,'' not
-``where did this value come from.'' Adding the tool to CHANNEL's
-destination-tool list to close the five \texttt{reserve\_hotel} cases
-introduces a new false positive instead: the destination-value extractor
-recognizes only email/IBAN/phone/URL shapes, so a proper-noun business name
-is never recognized as ``present in the user's own instruction'' even when
-it literally is, misclassifying a legitimate named reservation as
-\textsc{novel}. We reverted this change and report the gap as a documented
-scope limitation (\S\ref{sec:limitations}) rather than a closed fix.
+\paragraph{The remaining 19 real misses, categorized by mechanism.} We
+categorize each by whether the underlying attack has a destination
+\emph{value} to trace (CHANNEL's domain) or is purely an unauthorized
+\emph{action} with no data flow at all (closer to NAVIGATOR's domain,
+\S\ref{sec:limitations}). Five cases (\texttt{travel}, all
+\texttt{reserve\_hotel}) name an attacker-substituted external party --- a
+real destination value, of the same shape as \texttt{send\_money}'s
+recipient IBAN --- but the tool was never added to CHANNEL's
+destination-tool list, a scope gap rather than a mechanism failure.
+Fourteen cases (\texttt{banking}: 11, \texttt{update\allowbreak\_scheduled\allowbreak\_transaction}
+and \texttt{update\allowbreak\_user\allowbreak\_info};
+\texttt{workspace}: 3, \texttt{delete\_file} and
+\texttt{append\allowbreak\_to\allowbreak\_file}) mutate existing account or
+same-account state with no new destination value introduced at all --- no
+value for any provenance mechanism to trace, since these attacks ask
+``should this action have happened,'' not ``where did this value come
+from.'' Adding the tool to CHANNEL's destination list to close the five
+\texttt{reserve\_hotel} cases introduces a new false positive instead: the
+value extractor recognizes only email/IBAN/phone/URL shapes, so a
+proper-noun business name is never recognized as ``present in the user's
+own instruction'' even when it literally is. We reverted this change and
+report the gap as a documented scope limitation (\S\ref{sec:limitations})
+rather than a closed fix.
 
 \paragraph{Scope of this validation.} This validation covers one model
 (\texttt{gpt-4o-2024-05-13}) and one attack family
@@ -296,24 +279,22 @@ recall should both be read against this FPR context, not in isolation.
 \subsection{Cost}
 \label{sec:cost}
 Kavach's latency is bimodal, and we report the split rather than a blended
-figure. 17 of 159 timed calls complete under 90\,ms (p50 46\,ms, p95 86\,ms);
-the remaining 142 complete in over 680\,ms (p50 733\,ms, p95 1437\,ms), with
-no call falling in between. The split does not cleanly correspond to whether
-a deterministic rule short-circuited the call: 26 of 159 calls were
-short-circuit-eligible and matched, of which 17 returned in the fast mode
-and 9 did not, despite an identical decision path. We traced this to the
-pipeline's ledger-completeness design: every response --- short-circuited or
-not --- spawns a background task that runs the skipped COMPASS
-(\S\ref{sec:architecture}) and NAVIGATOR scoring for audit purposes,
-competing for the same CPU-bound
-embedding inference as the next request's own foreground call under
-sequential dispatch. This is a scheduling artifact of our single-process CPU
-measurement, not a property of the detection logic itself; a production
-deployment would either bound or defer this background completion work. On
-GPU-equipped hardware, we have separately observed the embedding path at
-approximately 78\,ms p50 (RTX 4090, steady state). Verdicts are
-hardware-independent: replaying 107 reference cases with the encoder pinned
-to CPU produced zero verdict or fired-minister differences against the
-GPU-measured baseline. The bashlex AST parse used for \texttt{sh}/\texttt{bash}
-(\S\ref{sec:vault-executor}) measures $\sim$0.5\,ms per call and is
-negligible on either path.
+figure: 17 of 159 timed calls complete under 90\,ms (p50 46\,ms, p95
+86\,ms), the remaining 142 in over 680\,ms (p50 733\,ms, p95 1437\,ms), with
+no call in between. The split does not cleanly track whether a
+deterministic rule short-circuited the call --- 26 of 159 were
+short-circuit-eligible and matched, of which only 17 returned fast despite
+an identical decision path --- traced to the pipeline's ledger-completeness
+design: every response, short-circuited or not, spawns a background task
+running the skipped COMPASS (\S\ref{sec:architecture}) and NAVIGATOR
+scoring for audit purposes, competing for the same CPU-bound embedding
+inference as the next request's foreground call under sequential dispatch.
+This is a scheduling artifact of our single-process CPU measurement, not
+the detection logic; a production deployment would bound or defer this
+background work. On GPU-equipped hardware we have separately observed the
+embedding path at $\sim$78\,ms p50 (RTX 4090, steady state); verdicts are
+hardware-independent (replaying 107 reference cases with the encoder
+pinned to CPU produced zero verdict or fired-minister differences against
+the GPU baseline). The bashlex parse for \texttt{sh}/\texttt{bash}
+(\S\ref{sec:vault-executor}) measures $\sim$0.5\,ms per call, negligible on
+either path.
