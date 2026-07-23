@@ -50,36 +50,25 @@ resolved arguments of the action it is about to take. We present Kavach,
 a runtime monitor that intercepts every tool call at the moment its
 arguments are resolved, via a parliament of four domain-specialized
 ministers --- VAULT (credentials), EXECUTOR (dangerous code), CHANNEL
-(exfiltration), and NAVIGATOR (unauthorized action, the least mature of
-the four and not yet independently validated) --- whose verdicts a
-deterministic speaker combines into Block, Escalate, or Allow. Four
-contributions. First: four independent lines of evidence show
-deterministic parsing over resolved arguments outperforms cosine
-similarity over semantic embedding when the attack signal is structural,
-moving three of four detectors to deterministic-primary detection.
-Second, real evaluation numbers: strict (hard-\textsc{Block}) InjecAgent
-recall is 51.6\% (544/1054, entirely data-stealing via CHANNEL's taint
-mechanism; direct-harm's strict contribution is 0\%, a disclosed gap);
-5/5 structurally applicable AgentDojo attacks escalated with zero false
-blocks from CHANNEL itself on 22 benign sessions (a separate
-TRAJECTORY/NAVIGATOR interaction hard-blocks 3/22, disclosed in full);
-and, on a 519-case suite for VAULT/EXECUTOR (InjecAgent/AgentDojo barely
-exercise either), 74.4\%/90.1\% detection with zero new hard-block false
-positives but a real benign Escalate cost (up to 67.3\% on agent-shaped
-calls, disclosed in full below), over half escalate-only --- an in-sample
-number, since rules were authored with visibility into this corpus; the
-genuinely independent check below recovers 81.8\% (mostly Escalate).
-Third: replaying
-all 629 real recorded GPT-4o attack trajectories AgentDojo publishes,
-Kavach fires on 74.2\% (a benign-trajectory control under the same
-criterion: 66.0\%, but only 4.1\% hard-\textsc{Block}), tracing every
-apparent miss to its actual tool-call content. Fourth, negative results
-in full: failed authorization
-heuristics, an abandoned deterministic swap, independent generalization
-checks against both an author-written novel vocabulary and an externally
-published attack corpus, and a benign-side gap in CHANNEL's taint
-mechanism found and fixed by direct measurement. Designed to run offline
-on CPU-only hardware, no GPU required.
+(exfiltration), and NAVIGATOR (unauthorized action) --- whose verdicts a
+deterministic speaker combines into Block, Escalate, or Allow. This paper
+reports four contributions. First, a methodology finding: across
+independent lines of evidence, deterministic parsing over resolved
+arguments outperforms cosine similarity over semantic embeddings when the
+attack signal is structural, moving three of four detectors to
+deterministic-primary detection. Second, an evaluation across InjecAgent,
+AgentDojo, and a composite corpus assembled for the two detectors those
+benchmarks barely exercise, reporting benign false-positive and Escalate
+rates jointly with recall throughout rather than recall alone. Third, a
+large-scale validation against real recorded GPT-4o attack trajectories,
+including a benign-trajectory control under the identical firing
+criterion, so the headline detection rate has an honest baseline to be
+read against. Fourth, negative results reported in full: failed
+authorization heuristics, an abandoned deterministic swap, independent
+generalization checks against both an author-written novel vocabulary and
+an externally published attack corpus, and a benign-side gap found and
+fixed by direct measurement during this work. Designed to run offline on
+CPU-only hardware, no GPU required.
 \end{abstract}
 
 \maketitle
