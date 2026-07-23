@@ -723,10 +723,39 @@ def _run_deterministic_ministers(
         )
 
     provenance_state = _state["channel_provenance"][session_id]
-    provenance_scan, _provenance_records = channel_taint.check_provenance(
+    provenance_scan, provenance_records = channel_taint.check_provenance(
         req_text, provenance_state, account_email=account_email,
         user_instruction=user_instruction, tool_output=tool_output,
     )
+
+    # Composition fix: taint's BLOCK is a structural default ("tainted,
+    # destination not on the static allowlist"), not positive evidence the
+    # destination is actually illegitimate -- confirmed via a direct
+    # false-positive measurement (335-case obfuscation study's sibling
+    # check on genuine benign two-step read-then-send actions, see
+    # §limitations): with no account_email/user_instruction context wired
+    # through, a legitimate self-forward blocked 32/32 times. Provenance
+    # runs on this same call and has positive evidence when it does fire:
+    # if every one of this call's destination values is classified SELF
+    # (matches the session's own verified identity) or USER_SUPPLIED
+    # (present in the user's own original instruction), that is a
+    # confirmed-legitimate destination, and taint's structural-default
+    # BLOCK should not override a positive finding. OUTPUT_DERIVED and
+    # NOVEL are deliberately left alone (still BLOCK): OUTPUT_DERIVED is
+    # the genuinely ambiguous read-then-send case this project's NAVIGATOR
+    # authorization work has not yet resolved, and NOVEL is
+    # indistinguishable from an attacker-injected value -- suppressing
+    # taint there would reopen exactly the exfiltration gap the mechanism
+    # exists to close.
+    if channel_scan.verdict == "BLOCK" and provenance_records and all(
+        r.classification in ("SELF", "USER_SUPPLIED") for r in provenance_records
+    ):
+        channel_scan = MinisterScan(
+            minister="CHANNEL", verdict="ALLOW", confidence=0.0,
+            matched_id=None, matched_text=None, matched_level="deterministic",
+            source=None, retrieval_mode="deterministic",
+        )
+
     results = [vault_scan, executor_scan, channel_scan]
     if provenance_scan is not None:
         results.append(provenance_scan)
