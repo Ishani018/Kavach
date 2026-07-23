@@ -118,8 +118,12 @@ caught by a different mechanism. One backup is itself imprecise: encode's
 backstop is a single NAVIGATOR pattern matching the literal
 \texttt{echo~BASE64~|~base64~-d~\allowbreak|~sh} shape, confirmed to also
 block an equivalent benign command --- a blanket rule, not intent-aware
-detection. This is a first pass, not adversarial; an attacker targeting
-two or more mechanisms' blind spots at once is untested, and
+detection. Extended to PowerShell/cmd (263 detected cases, dialect-native
+transforms --- \texttt{-EncodedCommand}, caret-escaping, split/indirection):
+true evasion is markedly higher, 28.9\% (encode, 76/263), 16.4\% (split,
+12/73), 19.2\% (indirect, 14/73) --- confirming the tokenizer-not-AST
+hypothesis empirically. Still a first pass, not adversarial; an attacker
+targeting two or more mechanisms at once is untested, and
 \S\ref{sec:eval}'s rates should be read as non-adaptive until then.
 
 \subsection{Generalization beyond the benchmark vocabulary}
@@ -135,5 +139,9 @@ AgentDojo, or our reference corpus: 18 attack and 18 matched-benign
 novel-vocabulary scenarios through the real pipeline. Summary verdict:
 EXECUTOR generalizes cleanly, VAULT mostly does (one architecture-inherent
 limit), CHANNEL's escalation path generalizes but its hard-block path does
-not, and NAVIGATOR's cosine mechanism does not transfer at all. Full
-methodology and per-minister results in Appendix~A.
+not, and NAVIGATOR's cosine mechanism does not transfer at all. A second,
+genuinely independent check against AgentHarm's (UK AISI, ICLR'25)
+published synthetic tools corroborates this: 81.8\% in-scope catch rate
+(36/44), 8 named misses, and a benign Escalate rate matching
+\S\ref{sec:design-tradeoffs}'s existing disclosure. Full methodology and
+per-minister results in Appendix~A.

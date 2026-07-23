@@ -70,6 +70,31 @@ detector}: it does not decide whether a consequential action was
 reported as an incomplete negative result in \S\ref{par:navigator-authflow}.
 \end{itemize}
 
+\paragraph{A second, genuinely independent check: AgentHarm.} AtriumOS is
+author-written; to test transfer against data this team did not author at
+all, we used AgentHarm's (UK AI Safety Institute, ICLR 2025) published
+synthetic tool implementations --- 80 harmful-scenario and 80
+benign-scenario Python tool files, MIT-licensed for safety research, fetched
+directly rather than through AgentHarm's official gated benchmark (Inspect
+framework, API keys, and not tool-call structured regardless). A local
+\texttt{qwen2.5:7b} generated one realistic call per tool from its
+docstring (a first heuristic attempt was discarded: bland placeholders on
+the harmful side, suspicious-looking placeholders on the benign side,
+neither a fair test). Every one of the 79 harmful cases was hand-classified,
+once, before computing any number, into in-scope for Kavach's stated
+four-domain threat model or not: AgentHarm covers 11 harm categories far
+broader than Kavach's claim, and counting e.g.\ a drug-marketplace search
+against Kavach would be unfair to both sides. Of 44 in-scope cases: 36
+caught (81.8\%), 8 missed --- anti-forensics (\texttt{delete\_access\_logs}),
+public exploit-bragging, phishing-asset generation, a phishing email with a
+malware attachment, a likely tool-name vocabulary gap
+(\texttt{transfer\_money\_crypto}, the same class of gap as CHANNEL's
+hard-block path above), two malware-named file uploads, and a
+no-argument credential harvest consistent with an earlier, independent
+finding. The 80 benign cases: 0\% hard-block, 56.3\% Escalate, consistent
+with \S\ref{sec:design-tradeoffs}'s disclosed 67.3\% agent-shaped rate
+rather than contradicting it.
+
 \paragraph{Concrete next steps.} Two boundaries have scoped remedies: a
 behavior-general destination detector for CHANNEL's hard-block path
 (mirroring the fallback its provenance path already uses), and a
