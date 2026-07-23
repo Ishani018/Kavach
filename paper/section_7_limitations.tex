@@ -5,10 +5,9 @@
 \paragraph{Latency is a real, unresolved cost of the no-GPU deployment
 this paper evaluates.} 142 of 159 timed calls (89\%) take over 680\,ms
 (p95 1.44\,s) on the synchronous hot path (\S\ref{sec:cost}) --- the exact
-configuration validated throughout \S\ref{sec:eval}, not a faster variant.
-Whether bounding or deferring the background COMPASS/NAVIGATOR audit work
-closes this gap is asserted, not measured; a real deferred-execution
-deployment is future work.
+configuration validated throughout \S\ref{sec:eval}. Whether deferring the
+background COMPASS/NAVIGATOR audit work closes this gap is asserted, not
+measured; a real deferred-execution deployment is future work.
 
 \paragraph{No head-to-head with ClawGuard specifically.} No controlled
 head-to-head against ClawGuard's implementation (\S\ref{sec:related})
@@ -20,30 +19,27 @@ reports per-mechanism trajectory analysis (\S\ref{sec:gpt4o}) rather than
 a single AgentDojo ASR, the field's standard metric. Producing it needs
 AgentDojo's own harness with Kavach wired in as its live defense
 (\texttt{benchmarks/run\_agentdojo\_kavach.py} is built for this), driving
-a live model through all 97 user tasks under attack --- not a replay of
-recorded trajectories, and not completed before submission: the most
-direct remaining gap here.
+a live model through all 97 user tasks under attack, not a replay: not
+completed before submission, the most direct remaining gap here.
 
 \paragraph{External tool-call-content baselines are structurally
 inapplicable, not weaker.}
 \label{par:external-baselines}
-We attempted comparison against the two closest available external
-tools; both proved structurally inapplicable, not merely weaker:
-CodeShield's supported-language set
-(C/C++/C\#/Java/\allowbreak JavaScript/\allowbreak PHP/Python/Rust)
-excludes the shell, PowerShell, and cmd dialects comprising $\sim$87\% of
-our corpus's adversary-emulation commands, and gitleaks --- a
-secret-value scanner --- finds zero hits on all 519 cases, since they
-encode credential-access techniques rather than embedded literal
-secrets: corroborating the enforcement-boundary gap this paper targets,
-not a performance comparison.
+We attempted comparison against the two closest external tools; both
+proved structurally inapplicable, not merely weaker: CodeShield's
+supported languages (C/C++/C\#/Java/\allowbreak JavaScript/\allowbreak
+PHP/Python/Rust) exclude the shell, PowerShell, and cmd dialects
+comprising $\sim$87\% of our corpus, and gitleaks --- a secret-value
+scanner --- finds zero hits on all 519 cases, since they encode
+credential-access techniques rather than embedded secrets: corroborating
+the enforcement-boundary gap targeted here, not a performance comparison.
 
 \paragraph{Tamper-evident, not tamper-proof.} The hash-chained ledger
-detects post-hoc edits to any recorded decision or its provenance, but an
-attacker with database write access can recompute the entire chain;
-defeating that needs an external append-only anchor, which we do not
-implement. We found and fixed a real bug in the ledger's own
-\emph{verification} query during this work (\S\ref{sec:provenance}).
+detects post-hoc edits to any recorded decision, but an attacker with
+database write access can recompute the entire chain; defeating that
+needs an external append-only anchor, not implemented here. We found and
+fixed a real bug in the ledger's own \emph{verification} query during
+this work (\S\ref{sec:provenance}).
 
 \paragraph{Curated corpus and deterministic rule set.} Both the
 cosine-triage corpus and the deterministic prefilters' rule sets are
@@ -144,17 +140,13 @@ until then.
 Kavach's deterministic rules were, in large part, authored by mining
 detection misses on the exact benchmarks evaluated against
 (\S\ref{sec:kavach-pb}), a real risk of circular validation. We therefore
-ran an independent adversarial audit before submission against a fictional
-agent environment (``AtriumOS'') with an entirely invented tool vocabulary
-sharing no tool name, corpus term, or surface phrasing with InjecAgent,
-AgentDojo, or our reference corpus: 18 attack and 18 matched-benign
-novel-vocabulary scenarios through the real pipeline. Summary verdict:
-EXECUTOR generalizes cleanly, VAULT mostly does (one architecture-inherent
-limit), CHANNEL's escalation path generalizes but its hard-block path does
-not, and NAVIGATOR's cosine mechanism does not transfer at all. A second,
-genuinely independent check against AgentHarm's (UK AISI, ICLR'25)
-published synthetic tools corroborates this: 81.8\% in-scope catch rate
-(36/44, mostly \textsc{Escalate}: 5 hard-\textsc{Block}, 31
-\textsc{Escalate}), 8 named misses, and a benign Escalate rate matching
-\S\ref{sec:design-tradeoffs}'s existing disclosure. Full methodology and
-per-minister results in Appendix~A.
+ran an independent adversarial audit before submission: a fictional agent
+environment (``AtriumOS'') with an entirely invented tool vocabulary
+sharing no name, term, or phrasing with InjecAgent, AgentDojo, or our
+corpus. Verdict: EXECUTOR generalizes cleanly, VAULT mostly does,
+CHANNEL's escalation path generalizes but its hard-block path does not,
+and NAVIGATOR's cosine mechanism does not transfer. A second, independent
+check against AgentHarm's (UK AISI, ICLR'25) published tools corroborates
+this: 81.8\% in-scope (36/44, mostly \textsc{Escalate}), consistent with
+\S\ref{sec:design-tradeoffs}'s disclosure. Full methodology in
+Appendix~A.

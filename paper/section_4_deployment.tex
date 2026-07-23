@@ -54,22 +54,19 @@ by discipline alone.
 
 \paragraph{The corpus's other 207 cases, and Kavach's rate on all 519.}
 Target sets overlap, so per-minister counts do not sum to 519: VAULT
-(117) and EXECUTOR (203) share 8 cases (312 distinct, not the naive 320),
-leaving 207 targeting neither. Within those 207 (all AtomicRedTeam),
-CHANNEL (72) and NAVIGATOR (144) similarly share 9 (union 207, not 216);
-their \emph{primary} evaluation remains InjecAgent
-(\S\ref{sec:injecagent}) and AgentDojo (\S\ref{sec:channel-eval},
-\S\ref{sec:gpt4o}), reported here rather than left unaccounted for.
-Any-minister detection on these 207 is 206/207 (99.5\%), though each
-minister's own verdict alone catches only 23/72 (31.9\%, CHANNEL) and
-92/144 (63.9\%, NAVIGATOR) --- most of the rest is caught by cosine-triage
-or a different minister. Kavach's overall any-minister rate across all
-519 --- the same denominator the baselines below use --- is 515/519
-(99.2\%); this is a looser metric than the strict per-target recall
-reported next, and should be read as such, not as a like-for-like
-comparison. NAVIGATOR's own contribution, per \S\ref{sec:architecture}'s
-disclosure convention: sole contributor on 9/519 (1.7\%), so 506/519
-(97.5\%) of the 515 any-minister hits survive with it removed entirely.
+(117) and EXECUTOR (203) share 8 (312 distinct), leaving 207 targeting
+neither. Within those 207 (all AtomicRedTeam), CHANNEL (72) and NAVIGATOR
+(144) share 9 (union 207); their \emph{primary} evaluation remains
+InjecAgent (\S\ref{sec:injecagent}) and AgentDojo (\S\ref{sec:channel-eval},
+\S\ref{sec:gpt4o}). Any-minister detection on these 207 is 206/207
+(99.5\%), though each minister's own verdict alone catches only 23/72
+(31.9\%, CHANNEL) and 92/144 (63.9\%, NAVIGATOR) --- the rest caught by
+cosine-triage or a different minister. Kavach's overall any-minister rate
+across all 519 --- the same denominator the baselines below use --- is
+515/519 (99.2\%), a looser metric than the strict per-target recall
+reported next, not a like-for-like comparison. NAVIGATOR's own
+contribution, per \S\ref{sec:architecture}'s disclosure convention: sole
+contributor on 9/519 (1.7\%), so 506/519 (97.5\%) survive with it removed.
 
 \paragraph{Reuse and scoring.} Attack cases are drawn from AtomicRedTeam
 and GTFOBins; benign calls from BFCL (793, general-purpose) plus a
@@ -121,21 +118,18 @@ populations' benign:attack ratios are corpus-constructed, not a measured
 production base rate, so these figures should be read relative to each
 other, not as an absolute expectation.
 
-The controlled comparison for our central claim is architecture vs.\
-architecture, full pipeline vs.\ full pipeline, not component vs.\ system.
-Pre-rearchitecture cosine-primary --- same harness, same 519 cases, code
-unmodified, Block-or-Escalate counted as a hit on both sides (re-verified
-by re-running this exact old code against the current corpus: 79/117 and
-174/203, confirming the convention matches rather than asserting it) ---
-recovers VAULT 67.5\% (79/117) and EXECUTOR 85.7\% (174/203), at a 4.9\%
-(39/793) hard-block false-positive rate on general-purpose benign (BFCL)
-traffic. Deterministic-primary (the 74.4\%/90.1\% above, not the
-deterministic layer's own 35.9\%/34.5\% standalone figure, a decomposition
-of it) wins both axes: a modest,
-mechanism-attributable recall gain (+6.9pp VAULT, 87 vs.\ 79, +8 cases;
-+4.4pp EXECUTOR, 183 vs.\ 174, +9 cases) alongside the decisive result,
-hard-block FPR eliminated (4.9\%\,$\to$\,0\% on both benign populations)
---- a same-team, same-harness baseline showing the
+The controlled comparison is architecture vs.\ architecture, full
+pipeline vs.\ full pipeline, not component vs.\ system. Pre-rearchitecture
+cosine-primary --- same harness, same 519 cases, code unmodified,
+Block-or-Escalate a hit on both sides (re-verified against the current
+corpus: 79/117, 174/203, confirming the convention rather than asserting
+it) --- recovers VAULT 67.5\% (79/117) and EXECUTOR 85.7\% (174/203), at
+4.9\% (39/793) hard-block FPR on general-purpose benign (BFCL). The
+74.4\%/90.1\% pipeline above (not the deterministic layer's own
+35.9\%/34.5\%, a decomposition of it) wins both axes: a modest,
+mechanism-attributable recall gain (+6.9pp VAULT, +8 cases; +4.4pp
+EXECUTOR, +9 cases) alongside the decisive result, hard-block FPR
+eliminated (4.9\%\,$\to$\,0\%) --- a same-team baseline showing the
 rearchitecture improves on the design it replaced on this same 519-case
 corpus.
 
@@ -218,23 +212,18 @@ real tool calls and outputs, not a minimal ground-truth replay.
 (100\%), travel 63/140 (45.0\%), workspace 180/240 (75.0\%).
 
 \paragraph{Benign control, same criterion.} 74.2\% had no benign
-comparison at this granularity, so we replayed AgentDojo's own 97 recorded
-no-injection GPT-4o trajectories (one per real user task) under the
-identical criterion. Kavach fires on 64/97 (66.0\%), but as a single
-hard-block action --- comparable to actual breakage --- only 4/97
-(4.1\%) are hard-\textsc{Block}; the rest are soft \textsc{Escalate}
-(one minister credited per fired case, same convention as
-\S\ref{sec:injecagent}). Per-minister credit: CHANNEL 28, EXECUTOR 19,
-NAVIGATOR 12, VAULT 5 --- NAVIGATOR is a minority contributor; CHANNEL and
-EXECUTOR alone account for 47/64 (73\%). On the attack side, hard-Block
-alone fires on 7/629 (1.1\%) --- \emph{lower}, not higher, than the
-benign control's 4.1\%, because these are session-level provenance
-attacks and CHANNEL deliberately escalates rather than hard-blocks that
-signal class (\S\ref{sec:design-tradeoffs}); hard-Block is reserved for
-VAULT/EXECUTOR's structural certainty, which multi-step AgentDojo
-sessions rarely trigger. This recontextualizes rather than invalidates
-74.2\%, consistent with \S\ref{sec:design-tradeoffs}'s 67.3\% Escalate
-rate: read 66.0\%/74.2\% as sensitivity, not precision.
+comparison at this granularity, so we replayed AgentDojo's 97 recorded
+no-injection GPT-4o trajectories under the identical criterion. Kavach
+fires on 64/97 (66.0\%), but only 4/97 (4.1\%) are hard-\textsc{Block}
+(the rest Escalate); per-minister credit: CHANNEL 28, EXECUTOR 19,
+NAVIGATOR 12, VAULT 5 --- NAVIGATOR is a minority contributor. On the
+attack side, hard-Block alone fires on 7/629 (1.1\%), \emph{lower} than
+the benign 4.1\%, since these are session-level provenance attacks
+CHANNEL deliberately escalates rather than hard-blocks
+(\S\ref{sec:design-tradeoffs}); hard-Block is reserved for VAULT/EXECUTOR's
+structural certainty, rarely triggered by multi-step sessions. This
+recontextualizes rather than invalidates 74.2\%, consistent with
+\S\ref{sec:design-tradeoffs}'s 67.3\% Escalate rate.
 
 \paragraph{Diagnosing the apparent misses.}
 Of the 162 trajectories on which Kavach did not fire, we traced every case
@@ -323,19 +312,17 @@ work (\S\ref{par:navigator-authflow}).
 
 DH tells a different, weaker story: no individual minister reaches hard
 \textsc{Block} on a DH case. 221/510 (43.3\%) reach the loose
-(block-or-escalate) level; \emph{decided-by} counts --- the one minister
-the Speaker credits per case, mutually exclusive by construction --- split
-this as CHANNEL (153), VAULT (34), EXECUTOR (17), and NAVIGATOR (17); the
-remaining 289/510 (56.7\%) are missed entirely. (Counting any minister
-that fired at all, not just the decider, gives EXECUTOR 34 and NAVIGATOR
-51: 51 cases have two or more ministers firing together, which decided-by
-avoids double-counting.) CHANNEL's provenance mechanism
-escalates 153/510 (30\%) via a novel-value classification, confirming the
-fix surfaces the intended data-flow signal, while its own hard-block
-contribution stays exactly 0\%, as designed. Separately, 16/510 (3.1\%)
-reach a hard \textsc{Block} in aggregate via TRAJECTORY
-(\S\ref{sec:design-tradeoffs}), not any minister --- consistent with its
-already-disclosed role, not a change to any minister's detection
+(block-or-escalate) level; \emph{decided-by} counts (the one minister the
+Speaker credits per case, mutually exclusive by construction, vs.\
+counting any minister that fired, which gives EXECUTOR 34 and NAVIGATOR
+51 since 51 cases have two-plus ministers firing together) split this as
+CHANNEL (153), VAULT (34), EXECUTOR (17), and NAVIGATOR (17); the
+remaining 289/510 (56.7\%) are missed entirely. CHANNEL's provenance
+mechanism escalates 153/510 (30\%) via a novel-value classification,
+while its own hard-block contribution stays exactly 0\%, as designed.
+Separately, 16/510 (3.1\%) reach a hard \textsc{Block} in aggregate via
+TRAJECTORY (\S\ref{sec:design-tradeoffs}), not any minister --- consistent
+with its already-disclosed role, not a change to any minister's detection
 contract. DH remains a genuine, unresolved gap, not a strength of the
 current architecture, and is not folded into DS's headline number. This
 snapshot predates CHANNEL's destination-shape generalization fix
