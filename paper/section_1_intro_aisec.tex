@@ -5,19 +5,18 @@
 \section{Introduction}
 \label{sec:intro}
 
-LLM agents increasingly act in the world through tool calls: reading files,
-sending money, messaging other people, executing code. The guardrails
-deployed to secure this behavior overwhelmingly evaluate the agent's
-\emph{language} --- its input prompt, its chain-of-thought, its output text
---- rather than the \emph{resolved arguments} of the action it is about to
-take. This is a real gap: a tool call to \texttt{send\_money} with an
-attacker-substituted recipient IBAN, or to a credential-harvesting shell
-one-liner, is often indistinguishable from a benign call at the language
-level and only becomes distinguishable once its concrete arguments are
-inspected. Kavach is a runtime monitor that closes this gap by intercepting
-every tool call at the moment its arguments are resolved and scoring the
-resulting action --- not the prompt, not the plan, the resolved call itself
---- before any side effect occurs.
+A tool call to \texttt{send\_money} with an attacker-substituted recipient
+IBAN, or to a shell one-liner that quietly harvests credentials, is often
+indistinguishable from its benign counterpart at the level of language ---
+the surrounding prompt, the model's chain-of-thought, the plan it wrote
+down all read the same either way. The two calls only come apart once
+their concrete, resolved arguments are inspected: the actual IBAN, the
+actual command string. Most deployed guardrails never look there. They
+evaluate what the agent \emph{said} it would do, not what the action it is
+about to take will actually resolve to. Kavach closes that gap: a runtime
+monitor that intercepts every tool call at the moment its arguments are
+resolved and scores the resulting action --- not the prompt, not the plan,
+the resolved call itself --- before any side effect occurs.
 
 This paper is substantially a report on a design decision and the evidence
 that produced it: we built Kavach's first version as a semantic,
