@@ -85,16 +85,14 @@ as observational or consequential, then a hard-constraint layer deciding
 whether a consequential action is \emph{derivable} from that intent). The
 first two pieces --- pinned-intent capture and the taxonomy --- are complete
 and validated, including under the generalization audit below. The
-hard-constraint layer itself has failed three independently designed
-heuristics against a frozen discriminability criterion set: (1)~tool-name/
-instruction-text overlap, evaded by attacker text sharing surface words with
-the legitimate request; (2)~argument-value overlap alone, which wrongly
-flagged legitimate values read earlier in the same session; (3)~a
-provenance-aware version of (2), composed with CHANNEL's own session state,
-which still exceeded the frozen false-positive threshold. The hard-constraint
-layer remains open; its three failure modes are reported precisely because a
-negative result with a specific mechanism of failure is more useful to
-future work than a vague one.
+hard-constraint layer failed three independently designed heuristics against
+a frozen discriminability criterion: (1)~tool-name/instruction-text overlap,
+evaded by attacker text sharing surface words with the legitimate request;
+(2)~argument-value overlap alone, wrongly flagging legitimate values read
+earlier in the session; (3)~a provenance-aware version of (2), composed
+with CHANNEL's own session state, still over the frozen false-positive
+threshold. Reported precisely because a negative result with a specific
+failure mechanism is more useful to future work than a vague one.
 
 \paragraph{A proposed alternative for NAVIGATOR: intent-drift, explored and
 not validated.} Independently of the hard-constraint layer above, we
@@ -114,30 +112,25 @@ future work, not a contribution: NAVIGATOR's deployed detector remains the
 cosine-corpus mechanism in \S\ref{sec:generalization-audit}, unchanged.
 
 \paragraph{No adaptive-attacker evaluation, and a first-pass obfuscation
-check.} Every attack corpus in this paper is static: no attacker in our
-evaluation knows Kavach's rules or adapts to them. Deterministic signature
-matching is historically evadable --- encoded payloads, string
-construction, variable indirection --- and while bashlex's real AST closes
-a class of these transforms for sh/bash, PowerShell and cmd remain on a
-tokenizer. We ran a first-pass check: 335 previously-detected sh/bash cases
-put through three transforms, each targeting one named mechanism above
-(base64 encode-and-pipe, variable-split reconstruction, variable
-indirection). The bottom-line detection rate held at 100\% (0/335 missed).
-Distinguishing a genuinely evaded original mechanism from TRAJECTORY's
+check.} Every attack corpus in this paper is static: no attacker knows
+Kavach's rules or adapts to them. Deterministic matching is historically
+evadable --- encoding, string construction, variable indirection --- and
+while bashlex's AST closes a class of these for sh/bash, PowerShell and
+cmd remain on a tokenizer. First-pass check: 335 previously-detected
+sh/bash cases through three transforms (base64 encode-and-pipe,
+variable-split, variable indirection). Bottom line held at 100\% (0/335
+missed). After correctly distinguishing genuine evasion from TRAJECTORY's
 session-level re-confirmation merely relabeling an already-correct verdict
-(\S\ref{sec:design-tradeoffs}), the true per-mechanism evasion rate is
-7.0\% for encode (13/185), 4.0\% for split (3/75), and 25.3\% for indirect
-(19/75); every evasion was caught instead by a different mechanism. One of
-these backups is itself imprecise: for encode, the backstop is a single
-NAVIGATOR corpus pattern matching the literal
-\texttt{echo~BASE64~|~base64~-d~\allowbreak|~sh} shape --- we confirmed directly that
-this same pattern blocks an equivalent, genuinely benign decode-and-pipe
-command, so this specific backup is a blanket structural rule, not evidence
-of intent-aware detection. 335 cases across three hand-written transforms
-is a first pass, not an adversarial study; an attacker deliberately
-targeting two or more mechanisms' blind spots at once is untested. Until
-that broader study is done, the detection rates in \S\ref{sec:eval} should
-be read as rates against non-adaptive attacks.
+(\S\ref{sec:design-tradeoffs}), true per-mechanism evasion is 7.0\% (encode,
+13/185), 4.0\% (split, 3/75), 25.3\% (indirect, 19/75); every evasion was
+caught by a different mechanism. One backup is itself imprecise: encode's
+backstop is a single NAVIGATOR pattern matching the literal
+\texttt{echo~BASE64~|~base64~-d~\allowbreak|~sh} shape --- confirmed
+directly to also block an equivalent benign command, so it is a blanket
+rule, not intent-aware detection. 335 cases across three hand-written
+transforms is a first pass, not adversarial; an attacker targeting two or
+more mechanisms' blind spots at once is untested. Until that broader study
+is done, \S\ref{sec:eval}'s rates should be read as non-adaptive.
 
 \subsection{Generalization beyond the benchmark vocabulary}
 \label{sec:generalization-audit}

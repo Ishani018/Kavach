@@ -43,49 +43,39 @@ the agent lifecycle the guardrail enforces, and (2) \emph{what mechanism}
 it uses to detect violations.
 
 \paragraph{Input-time guardrails} operate on the user's message before the
-agent processes it. PromptGuard 2 \cite{saxe2025llamafirewall} (DeBERTa
-fine-tune, 97.5\% recall at 1\% FPR on English jailbreaks) and Azure Prompt
-Shields are canonical examples. These guardrails cannot detect attacks that
-arrive via tool outputs, the dominant attack vector in prompt-injection
-benchmarks \cite{zhan2024injecagent}.
+agent processes it (PromptGuard 2 \cite{saxe2025llamafirewall}, Azure
+Prompt Shields) and cannot detect attacks arriving via tool outputs, the
+dominant vector in prompt-injection benchmarks \cite{zhan2024injecagent}.
 
-\paragraph{Plan-time / chain-of-thought guardrails} operate on the agent's
-reasoning trace before it commits to an action. AlignmentCheck
-\cite{saxe2025llamafirewall} audits the chain-of-thought with an LLM,
-reducing AgentDojo ASR from 0.18 to 0.0289 standalone. DRIFT
-\cite{drift2026} chains a Secure Planner, Dynamic Validator, and Injection
-Isolator across the plan representation. Both are powerful but expensive
-(full LLM inference) and cannot inspect a tool call's \emph{resolved
-arguments}, only its declarative intent.
+\paragraph{Plan-time / chain-of-thought guardrails} audit the agent's
+reasoning trace before it commits to an action (AlignmentCheck
+\cite{saxe2025llamafirewall}, DRIFT \cite{drift2026}) --- powerful but
+expensive (full LLM inference), and blind to a tool call's \emph{resolved
+arguments}, seeing only declarative intent.
 
 \paragraph{Tool-call-time guardrails} operate at the tool-call boundary ---
-Kavach's enforcement point. LlamaFirewall's CodeShield
-\cite{saxe2025llamafirewall} applies Semgrep to code-returning tool outputs
-(96\% precision, 79\% recall on CyberSecEval3), but only for code
-generation, not general tool calls. ShieldAgent \cite{chen2025shieldagent}
-retrieves probabilistic rule circuits per action trajectory; Task Shield
-\cite{jia2025taskshield} evaluates whether each instruction advances the
-user's task. None uses a curated semantic corpus of attack-pattern
-descriptions at the tool-call level.
+Kavach's enforcement point. CodeShield \cite{saxe2025llamafirewall} applies
+Semgrep to code-returning outputs only, not general tool calls; ShieldAgent
+\cite{chen2025shieldagent} retrieves rule circuits per trajectory; Task
+Shield \cite{jia2025taskshield} checks task alignment. None uses a curated
+semantic corpus of attack-pattern descriptions at the tool-call level.
 
-\paragraph{Information-flow guardrails} tag data with provenance and
-capability labels, then enforce policies statically. CaMeL
-\cite{debenedetti2025camel}, FIDES \cite{costa2025fides}, and RTBAS
-\cite{zhong2025rtbas} belong to this family, each provable but unable to
-detect attacks whose data provenance is correctly labeled while the
-argument content itself is semantically malicious.
+\paragraph{Information-flow guardrails} (CaMeL \cite{debenedetti2025camel},
+FIDES \cite{costa2025fides}, RTBAS \cite{zhong2025rtbas}) tag data with
+provenance/capability labels and enforce statically --- provable, but
+unable to detect attacks whose provenance is correctly labeled while the
+argument content itself is malicious.
 
-\paragraph{Output-time guardrails} operate after the tool has executed, on
-the agent's reply. NeMo Guardrails, Conseca \cite{tsai2025conseca}, and the
-post-hoc monitor Kavach replaces belong here --- useful for forensics but
-unable to prevent tool execution.
+\paragraph{Output-time guardrails} (NeMo Guardrails, Conseca
+\cite{tsai2025conseca}, and the post-hoc monitor Kavach replaces) act after
+execution --- useful for forensics, unable to prevent it.
 
-\paragraph{Drift-detection guardrails} measure whether the agent's
-trajectory diverges from stated intent across turns. TaskTracker
+\paragraph{Drift-detection guardrails} (TaskTracker
 \cite{abdelnabi2024tasktracker}, DeepContext
-\cite{albrethsen2026deepcontext}, and Trajectory Guard
-\cite{advani2026trajectoryguard} belong to this family. Kavach's NAVIGATOR
-minister sits here at the per-call level, comparing a proposed consequential
+\cite{albrethsen2026deepcontext}, Trajectory Guard
+\cite{advani2026trajectoryguard}) measure trajectory divergence from stated
+intent across turns. Kavach's NAVIGATOR minister sits here at the per-call
+level, comparing a proposed consequential
 action against the session's pinned user intent; we report both a completed
 taxonomy layer and an incomplete authorization mechanism for it in
 \S\ref{sec:limitations}.

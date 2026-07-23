@@ -65,9 +65,10 @@ embedding when the attack signal is structural. We moved three of Kavach's
 four detectors to deterministic-primary detection on this evidence. Second, a
 deployment with real numbers: 544/544 on InjecAgent's data-stealing corpus,
 entirely via CHANNEL's taint mechanism, whose hard-block guarantee
-currently holds within InjecAgent's own destination-tool vocabulary rather
-than a general guarantee (\S\ref{sec:generalization-audit}; direct-harm
-remains an open gap: 0\% strict recall, \S\ref{sec:injecagent}),
+originally held within InjecAgent's own destination-tool vocabulary only,
+since extended to a shape-based fallback covering untested tool names too
+(\S\ref{sec:generalization-audit}; direct-harm remains an open gap: 0\%
+strict recall, \S\ref{sec:injecagent}),
 and a session-level provenance mechanism that correctly escalates 5/5
 structurally applicable AgentDojo attacks --- verified against both the
 benchmark's ground-truth sequence and AgentDojo's own full recorded model

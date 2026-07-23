@@ -41,13 +41,20 @@ secret-format matching. One miss is a narrow surface-form gap (fixable);
 the other is architectural, not a bug: a named-service secret-key rule is,
 by construction, a literal allowlist, so a genuinely novel secret-variable
 name cannot match it regardless of technique.
-\item \textbf{CHANNEL --- split.} Its provenance/escalation path
-generalizes: a behavior-general destination-value fallback correctly
-escalated a novel send-tool's attacker email address, classified
-\textsc{novel}. Its taint/hard-block path does not: destination status is
-decided by a benchmark-specific tool-name dictionary with no
-behavior-general fallback, so a novel exfiltration tool is invisible to it
-and the hard-\textsc{Block} never fires.
+\item \textbf{CHANNEL --- split, since partially closed.} Its
+provenance/escalation path generalizes: a behavior-general
+destination-value fallback correctly escalated a novel send-tool's
+attacker email address, classified \textsc{novel}. Its taint/hard-block
+path originally did not, since destination status was decided by a
+benchmark-specific tool-name dictionary alone; we have since wired the
+same shape-based fallback into the hard-block path (verified: a novel
+tool with a shape-matched value, e.g.\ an IBAN, now correctly
+hard-\textsc{Block}s), closing the gap for destination values matching a
+known shape. A genuinely novel exfiltration tool whose destination is
+\emph{not} shape-matchable (e.g.\ a proper-noun business name, the
+\texttt{reserve\_hotel} case elsewhere in this paper) remains invisible to
+the hard-block path --- the fix is real but narrower than full
+generalization.
 \item \textbf{NAVIGATOR --- does not currently generalize as a detector.}
 Cosine similarity against the attack-pattern corpus separates novel attack
 from benign by only 0.045 (0.590 vs.\ 0.545 mean), and the BM25 lexical
