@@ -103,20 +103,18 @@ verdict combination, and reported AgentDojo / InjecAgent performance.
 
 The three most widely used agent-security benchmarks are:
 
-\textbf{InjecAgent} \cite{zhan2024injecagent} — 1,054 prompt-injection test
-cases from UIUC (2024), structured as 17 user tools $\times$ 62 attacker
-tools, split into direct-harm (30 tools) and data-stealing (32 tools)
-settings, each providing a benign user instruction, a tool the agent would
-invoke, a malicious payload in the tool's output, and the expected attacker
+\textbf{InjecAgent} \cite{zhan2024injecagent} --- 1,054 prompt-injection
+cases (17 user tools $\times$ 62 attacker tools) split into direct-harm (30
+tools) and data-stealing (32 tools) settings, each pairing a benign user
+instruction with a malicious tool-output payload and an expected attacker
 action. Kavach runs the 544-case data-stealing (DS) subset cold, and the
 direct-harm subset separately (\S\ref{sec:injecagent}).
 
-\textbf{AgentDojo} \cite{debenedetti2024agentdojo} — 97 user tasks and 629
-security test cases across four environments (workspace, Slack, banking,
-travel), scored by ASR and utility. We evaluate against AgentDojo's
-structurally applicable ground-truth attack cases (\S\ref{sec:channel-eval})
-and, at scale, against all 629 real recorded GPT-4o attack trajectories
-AgentDojo has published (\S\ref{sec:gpt4o}).
+\textbf{AgentDojo} \cite{debenedetti2024agentdojo} --- 97 user tasks and
+629 security test cases across four environments, scored by ASR and
+utility. We evaluate against its structurally applicable ground-truth
+attack cases (\S\ref{sec:channel-eval}) and, at scale, against all 629 real
+recorded GPT-4o attack trajectories it publishes (\S\ref{sec:gpt4o}).
 
 A methodological note: reporting attack recall without the accompanying
 benign false-positive rate conflates detector quality with detector

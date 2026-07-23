@@ -21,17 +21,17 @@ mattered (\S\ref{sec:audit-resolution}).
 \subsection{An audit discrepancy, and how it was resolved}
 \label{sec:audit-resolution}
 Early in this work, three measurements of VAULT/EXECUTOR detection rate on
-the same reference corpus disagreed sharply: an early run measured
-34.2\%/34.5\% (deterministic layer alone, in-process, since superseded by
-a VAULT rule fix to the current 35.9\%/34.5\%, \S\ref{sec:vault-executor}),
-72.6\%/89.9\% (full pipeline, in-process), and 14.9\%/19.2\% (an earlier
-live-HTTP measurement). Two independent causes
-were responsible: the live-HTTP figure was corrupted by a duplicate server
-process answering a fraction of requests, and the metric itself differed ---
-one measurement counted \textsc{Block}-or-\textsc{Escalate} as a hit, another
-counted only the deterministic layer's contribution. Once corrected, the
-live-HTTP and in-process full-pipeline numbers agreed --- a reminder that a
-benchmark harness's own bugs can masquerade as detector performance.
+the same reference corpus disagreed sharply: 34.2\%/34.5\% (deterministic
+layer alone, in-process, since superseded by a VAULT rule fix to the
+current 35.9\%/34.5\%, \S\ref{sec:vault-executor}), 72.6\%/89.9\% (full
+pipeline, in-process), and 14.9\%/19.2\% (an earlier live-HTTP
+measurement). Two independent causes were responsible: the live-HTTP
+figure was corrupted by a duplicate server process answering a fraction of
+requests, and the metric itself differed --- one measurement counted
+\textsc{Block}-or-\textsc{Escalate} as a hit, another counted only the
+deterministic layer's contribution. Once corrected, the live-HTTP and
+in-process full-pipeline numbers agreed --- a reminder that a benchmark
+harness's own bugs can masquerade as detector performance.
 
 \subsection{A composite evaluation corpus for VAULT and EXECUTOR}
 \label{sec:kavach-pb}
@@ -47,14 +47,26 @@ to validate it against.
 Rather than author new synthetic attacks to close this gap, we assembled a
 unified, composite evaluation corpus for VAULT and EXECUTOR from
 already-real, externally-validated attack data (AtomicRedTeam, GTFOBins,
-BFCL) under one runner, one wire format, and one scoring convention;
-CHANNEL and NAVIGATOR
-are evaluated separately, on InjecAgent (\S\ref{sec:injecagent}) and
-AgentDojo (\S\ref{sec:channel-eval}, \S\ref{sec:gpt4o}). This is deliberate:
-a self-authored attack set
-risks unconsciously being shaped to be catchable by the very system that
-writes it, and reusing independently-authored corpora avoids this risk
-structurally rather than by discipline alone.
+BFCL) under one runner, one wire format, and one scoring convention. This
+is deliberate: a self-authored attack set risks unconsciously being shaped
+to be catchable by the very system that writes it, and reusing
+independently-authored corpora avoids this risk structurally rather than
+by discipline alone.
+
+\paragraph{The corpus's other 207 cases, and Kavach's rate on all 519.}
+The remaining 207 cases (all AtomicRedTeam) target CHANNEL (72) or
+NAVIGATOR (144), not VAULT/EXECUTOR; their \emph{primary} evaluation
+remains InjecAgent (\S\ref{sec:injecagent}) and AgentDojo
+(\S\ref{sec:channel-eval}, \S\ref{sec:gpt4o}), but we report this in-corpus
+subset rather than leaving it unaccounted for. Any-minister detection on
+these 207 is 206/207 (99.5\%), though each minister's own verdict alone
+catches only 23/72 (31.9\%, CHANNEL) and 92/144 (63.9\%, NAVIGATOR) ---
+most of the remainder is caught by cosine-triage or a different minister,
+not the targeted one's primary mechanism. Kavach's overall any-minister,
+any-target rate across all 519 --- the same denominator the baselines
+below use --- is 515/519 (99.2\%); this is a looser metric than the strict
+per-target recall reported next, and should be read as such, not as a
+like-for-like comparison.
 
 \paragraph{Reuse, unification, and scoring.} Attack cases are drawn from
 AtomicRedTeam and GTFOBins; benign calls from BFCL (793, general-purpose)
@@ -92,6 +104,20 @@ the full-pipeline rate is stable, not an artifact of partition: VAULT
 91.1\% (92/101) --- both halves reported explicitly rather than only their
 average.
 
+\paragraph{Escalate-precision, not just recall.} A high benign Escalate
+rate could make an attack-side Escalate uninformative, so we report
+Escalate-precision --- of a minister's own Escalate verdicts, what
+fraction land on a true attack --- per benign population rather than
+pooled: VAULT is 93.8\% (45 true vs.\ 3 false) on agent-shaped benign but
+29.8\% (45 vs.\ 106) on the larger, more general BFCL population; EXECUTOR
+is 100\% (113 vs.\ 0) agent-shaped but 48.9\% (113 vs.\ 118) on BFCL.
+Precision is high on the population closer to Kavach's deployment context
+and lower on generic traffic, an effect of BFCL's volume amplifying a
+modest per-call rate rather than a change in the mechanism; both
+populations' benign:attack ratios are corpus-constructed, not a measured
+production base rate, so these figures should be read relative to each
+other, not as an absolute expectation.
+
 For comparison, the pre-rearchitecture cosine-primary configuration ---
 same harness, same 519 cases, same scoring convention, code unmodified from
 before the rearchitecture --- recovers VAULT 67.5\% (79/117) and EXECUTOR
@@ -105,13 +131,15 @@ deterministic-vs-cosine claim and a same-team, same-harness baseline
 showing the rearchitecture strictly dominates the design it replaced.
 
 We additionally compare against two independent, non-Kavach baselines on
-the identical 519-case corpus and both benign populations. A naive
-keyword/regex blocklist ($\sim$30 hand-written patterns, no corpus, no
-tuning) recovers 12.1\% (63/519) at 0\% FPR --- the expected floor for an
-un-corpus-driven list. A zero-shot LLM judge (local \texttt{qwen2.5:7b}, no
-corpus, single fixed prompt, resolved call only) recovers 78.8\% (409/519),
-recall in Kavach's own ballpark, but at a real false-positive cost Kavach's
-deterministic layer avoids entirely: 1.4\% on BFCL and 14.5\% on
+the identical 519-case corpus and both benign populations, matching their
+denominator against Kavach's own 515/519 (99.2\%, \S\ref{sec:kavach-pb})
+rather than the narrower per-target figures above. A naive keyword/regex
+blocklist ($\sim$30 hand-written patterns, no corpus, no tuning) recovers
+12.1\% (63/519) at 0\% FPR --- the expected floor for an un-corpus-driven
+list. A zero-shot LLM judge (local \texttt{qwen2.5:7b}, no corpus, single
+fixed prompt, resolved call only) recovers 78.8\% (409/519), well below
+Kavach's 99.2\% on the same 519 cases, at a real false-positive cost
+Kavach's deterministic layer avoids entirely: 1.4\% on BFCL and 14.5\% on
 agent-shaped calls specifically. A larger model (\texttt{qwen2.5:32b}, same
 prompt and populations) does not simply dominate: recall falls to 71.3\%
 (370/519) while FPR drops to 0.4\% combined (0\% agent-shaped) --- a
@@ -135,19 +163,17 @@ sourced distribution.
 \label{sec:tiebreaker-eval}
 The tiebreaker (\S\ref{sec:tiebreaker}) scored 16/17 (94.1\%) in pilot.
 Re-validated against all 144 real benign-set calls, it produced one new
-false positive (a \texttt{non\_standard\_source} misread of legitimate
-internally-authored, locally-stored content); a prompt clarification fixed
-this case with zero new false positives on re-test. A genuine
-generalization check --- five phrasings never used to write the fix, plus
-three negative controls --- then scored 4/5, with one confirmed remaining
-miss (an internal file described as run ``from the ops share,'' a
-network-share phrasing the fix does not cover). We stopped at this result
-rather than re-running it against our full narrative-phrasing test set: a
-mechanism with one already-known, characterized generalization gap should
-not be scored as if it had none, and reporting a headline recall number
-here would overstate what the 4/5 result actually shows. The tiebreaker is
-real, working code, held back from live dispatch specifically because its
-own validation found a limit before we judged it decided.
+false positive (a \texttt{non\_standard\_source} misread of legitimate,
+locally-stored content); a prompt clarification fixed this with zero new
+false positives on re-test. A generalization check --- five phrasings
+never used to write the fix, plus three negative controls --- then scored
+4/5, with one confirmed remaining miss (an internal file run ``from the
+ops share,'' a network-share phrasing the fix does not cover). We stopped
+here rather than re-running against our full narrative-phrasing test set:
+a mechanism with one known, characterized generalization gap should not be
+scored as if it had none. The tiebreaker is real, working code, held back
+from live dispatch specifically because its own validation found a limit
+before we judged it decided.
 
 \subsection{CHANNEL: session-level provenance}
 \label{sec:channel-eval}
@@ -174,13 +200,12 @@ script confirms genuine 5/5 on the real trajectories.
 \subsection{Large-scale real-trajectory validation}
 \label{sec:gpt4o}
 The measurements above use either a synthetic reference corpus or a small,
-hand-verified set of AgentDojo cases. To validate detection at scale on real
-model behavior, we replayed all 629 real recorded attack trajectories for
-GPT-4o (\texttt{gpt-4o-2024\allowbreak-05-13}) across AgentDojo's four suites'
-\texttt{important\allowbreak\_instructions} attack family, sourced directly from
-AgentDojo's own published \texttt{runs/} data --- real conversation
-transcripts with real tool calls and real tool outputs, not a benchmark
-replay of minimal ground-truth sequences.
+hand-verified set of AgentDojo cases. To validate at scale on real model
+behavior, we replayed all 629 real recorded attack trajectories for GPT-4o
+(\texttt{gpt-4o-2024\allowbreak-05-13}) across AgentDojo's four suites'
+\texttt{important\allowbreak\_instructions} family, sourced directly from
+AgentDojo's own published \texttt{runs/} data --- real transcripts with
+real tool calls and outputs, not a minimal ground-truth replay.
 
 \paragraph{Headline result.} Kavach fires (\textsc{Block} or
 \textsc{Escalate}, any minister, at any point in the session) on 467/629
@@ -214,27 +239,23 @@ categorize each by whether the underlying attack has a destination
 real destination value, of the same shape as \texttt{send\_money}'s
 recipient IBAN --- but the tool was never added to CHANNEL's
 destination-tool list, a scope gap rather than a mechanism failure.
-Fourteen cases (\texttt{banking}: 11, \texttt{update\allowbreak\_scheduled\allowbreak\_transaction}
-and \texttt{update\allowbreak\_user\allowbreak\_info};
-\texttt{workspace}: 3, \texttt{delete\_file} and
-\texttt{append\allowbreak\_to\allowbreak\_file}) mutate existing account or
-same-account state with no new destination value introduced at all --- no
-value for any provenance mechanism to trace, since these attacks ask
-``should this action have happened,'' not ``where did this value come
-from.'' Adding the tool to CHANNEL's destination list to close the five
-\texttt{reserve\_hotel} cases introduces a new false positive instead: the
-value extractor recognizes only email/IBAN/phone/URL shapes, so a
-proper-noun business name is never recognized as ``present in the user's
-own instruction'' even when it literally is. We reverted this change and
-report the gap as a documented scope limitation (\S\ref{sec:limitations})
-rather than a closed fix.
+Fourteen cases (\texttt{banking}: 11; \texttt{workspace}: 3,
+\texttt{delete\_file} and \texttt{append\allowbreak\_to\allowbreak\_file})
+mutate existing account or same-account state with no new destination
+value introduced at all --- no value for any provenance mechanism to
+trace, since these attacks ask ``should this action have happened,'' not
+``where did this value come from.'' Adding the tool to CHANNEL's
+destination list to close the five \texttt{reserve\_hotel} cases
+introduces a new false positive instead: the value extractor recognizes
+only email/IBAN/phone/URL shapes, not proper-noun business names. We
+reverted this change and report the gap as a documented scope limitation
+(\S\ref{sec:limitations}) rather than a closed fix.
 
 \paragraph{Scope of this validation.} This covers one model
-(\texttt{gpt-4o-2024\allowbreak-05-13}) and one attack family
-(\texttt{important\allowbreak\_instruc\allowbreak tions}) --- the complete
-recorded trajectories AgentDojo publishes; whether detection transfers to
-other models' tool-calling styles or subtler injection framings is
-untested, a deliberate trade of breadth for realism.
+(\texttt{gpt-4o-2024\allowbreak-05-13}) and one attack family, the complete
+recorded trajectories AgentDojo publishes; transfer to other models'
+tool-calling styles or subtler injection framings is untested, a
+deliberate trade of breadth for realism.
 
 \subsection{InjecAgent}
 \label{sec:injecagent}

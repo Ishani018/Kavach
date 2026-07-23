@@ -141,29 +141,26 @@ it targets is a sensitive-data \emph{read} followed by an external
 \emph{send} in the same session, which no single-call regex can express. It
 maintains two independent pieces of per-session state.
 
-\paragraph{Taint.} A call to a known source tool (a domain-specific
-sensitive-data read) marks the session tainted. A subsequent call to a known
-destination tool (external communication) is \textsc{Block}ed if the session
-is tainted and the destination is not allow-listed; the allow-list is empty
-by default, since no corpus evidence supports a "trusted" external recipient
-distinct from an attacker-controlled one. Source and destination are matched
-by tool name against curated lists, extended with a naming-convention-agnostic
-tokenizer and a behavior-general fallback that checks destination-shaped
-argument values (email, IBAN, URL) for any tool not already in the named
-list, so a genuinely novel exfiltration tool is not silently invisible.
+\paragraph{Taint.} A call to a known source tool (a sensitive-data read)
+marks the session tainted; a subsequent call to a known destination tool
+is \textsc{Block}ed if tainted and the destination is not allow-listed ---
+the allow-list is empty by default, since no corpus evidence supports a
+``trusted'' external recipient distinct from an attacker-controlled one.
+Source and destination are matched by tool name against curated lists,
+extended with a tokenizer and a behavior-general fallback checking
+destination-shaped values (email, IBAN, URL) for any unnamed tool, so a
+genuinely novel exfiltration tool is not silently invisible.
 
 \paragraph{Provenance.} Independent of taint, every destination-tool call's
 argument values are classified by where they came from this session:
-\textsc{user\_supplied} (present in the user's own original instruction),
-\textsc{self} (the session's own verified identity), \textsc{output\_derived}
-(first seen in the output of an earlier tool call this session), or
-\textsc{novel} (neither). A destination value classified
-\textsc{output\_derived} or \textsc{novel} on a consequential call returns
-\textsc{Escalate}, deliberately not \textsc{Block}: paying a bill by reading
-its own file for the recipient IBAN, or replying to the sender of an email
-just read, are real, legitimate same-session read-then-send chains that must
-not be treated the same as an attacker-substituted destination
-(\S\ref{sec:design-tradeoffs} discusses this choice's cost).
+\textsc{user\_supplied}, \textsc{self} (verified identity),
+\textsc{output\_derived} (first seen in an earlier tool call's output this
+session), or \textsc{novel} (neither). \textsc{Output\_derived} or
+\textsc{novel} on a consequential call returns \textsc{Escalate},
+deliberately not \textsc{Block}: paying a bill by reading its own file for
+the recipient IBAN, or replying to an email just read, are real, legitimate
+same-session read-then-send chains that must not be treated the same as an
+attacker-substituted destination (\S\ref{sec:design-tradeoffs}).
 
 CHANNEL's locked reference numbers and full evaluation methodology are
 reported in \S\ref{sec:channel-eval}.
@@ -214,17 +211,13 @@ work are described in Appendix~C.
 
 \paragraph{Deterministic-primary is a per-minister decision, not a blanket
 policy.} NAVIGATOR's question --- was this action authorized by what the
-user actually asked for --- does not reduce to a structural shape the way a
-credential path or network-fetch-to-disk pattern does, so it was not moved
-uniformly with the other three; this per-minister treatment carries into
-\S\ref{sec:limitations}'s report of the NAVIGATOR authorization attempts.
-
-\paragraph{Escalate, not block, where the deployment ambiguity is genuine.}
-CHANNEL's provenance mechanism escalates rather than blocks specifically
-because we found real, common, benign same-session read-then-send patterns
-in actual trajectory data that a hard block would incorrectly stop. Where a
-verdict boundary has a real false-positive cost we can point to concretely,
-we chose the reversible verdict.
+user actually asked for --- does not reduce to a structural shape the way
+a credential path or network-fetch-to-disk pattern does, so it was not
+moved uniformly with the other three (\S\ref{sec:limitations}). CHANNEL's
+provenance mechanism escalates rather than blocks for the same kind of
+reason: real, common, benign same-session read-then-send patterns in
+actual trajectory data would be incorrectly stopped by a hard block, so we
+chose the reversible verdict where that false-positive cost is concrete.
 
 \paragraph{Escalate has a real operational cost, and we report it as
 such.} An Escalate verdict is a request for human review, not a
@@ -236,7 +229,10 @@ of ordinary calls, not a tail case. VAULT and EXECUTOR's full-pipeline
 detection numbers (\S\ref{sec:vault-executor}) report the Block/Escalate
 split explicitly for exactly this reason: a reader who reads either
 recall number as ``prevented'' without checking that split will overstate
-what the deployed system prevents versus flags for review.
+what the deployed system prevents versus flags for review. A high benign
+Escalate rate also raises whether an Escalate is informative at all;
+\S\ref{sec:vault-executor-eval} reports Escalate-precision directly rather
+than leaving that question open.
 
 \paragraph{Synchronous evaluation on the hot path.} Kavach evaluates
 synchronously in the pre-execution hook. Asynchronous evaluation would
