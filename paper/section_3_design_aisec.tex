@@ -202,9 +202,14 @@ generalization check and why it is held back from live dispatch, are in
 \label{sec:provenance}
 
 Every verdict is logged to an append-only, SHA-256 hash-chained SQLite
-ledger that is tamper-\emph{evident}, not tamper-\emph{proof}; full
-mechanism and a real verification-bug episode found and fixed during this
-work are described in Appendix~C.
+ledger: each row's hash covers the previous row's hash plus its own
+content, so any edit, deletion, or reorder breaks every later hash,
+detectable in $O(n)$ by \texttt{/ledger/verify} --- tamper-\emph{evident},
+not tamper-\emph{proof}, since write access lets an attacker recompute the
+whole chain. During this work we found and fixed a case where the
+verification query itself, not the ledger, omitted a newer column,
+producing a false tamper report; the fix restored a clean
+\texttt{intact: true} across all rows.
 
 \subsection{Design decisions and trade-offs}
 \label{sec:design-tradeoffs}

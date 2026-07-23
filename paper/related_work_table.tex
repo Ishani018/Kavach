@@ -9,20 +9,17 @@
 \begin{table*}[tp]
 \centering
 \caption{%
-  Comparison of agent guardrails on five axes. ``Boundary'' indicates where in
-  the agent lifecycle enforcement fires. ``Mechanism'' is the primary detection
-  approach. ``Ext.'' indicates whether the detection corpus / rule set is
-  extensible without retraining. ``Verdict'' indicates how multiple detection
-  signals are combined. AgentDojo ASR and InjecAgent Recall are the best
-  numbers reported by the respective papers; {\em n/r} = not reported;
-  {\em ext.} = experimental; $\dagger$ = estimated from paper description;
-  $\ddagger$ = cited from the source paper as an upper reference point, not
-  independently reproduced here.
-  Lower ASR is better; higher Recall is better.
+  Comparison of agent guardrails on five axes: enforcement boundary,
+  primary mechanism, whether the corpus/rule set is extensible without
+  retraining, verdict combination, and best-reported AgentDojo/InjecAgent
+  numbers ({\em n/r} = not reported; $\ddagger$ = source paper's own
+  number, not independently reproduced here). Lower ASR / higher Recall is
+  better; not a leaderboard, since benchmark subset and threat model vary
+  system to system.
 }
 \label{tab:guardrail-comparison}
 \footnotesize
-\resizebox{0.95\linewidth}{!}{%
+\resizebox{0.82\linewidth}{!}{%
 \begin{tabular}{@{}lllllrr@{}}
 \toprule
 \textbf{System} & \textbf{Boundary} & \textbf{Mechanism} &
@@ -68,18 +65,13 @@ PyRIT \cite{pyrit2024} & input (test) & red-team orch. & yes (attacks) & {\em n/
 
 \medskip
 \noindent\footnotesize
-\textbf{Veto verdict} (Kavach): any single minister returning \textsc{Block}
-vetoes the call unconditionally; no score averaging or learned aggregation.
-\textbf{Corpus extensibility} (Kavach): deterministic prefilters are extended by
-adding a structural rule; the cosine-triage corpus by adding a natural-language
+\textbf{Veto} (Kavach): any minister returning \textsc{Block} vetoes the
+call unconditionally, no score averaging.
+\textbf{Extensibility} (Kavach): deterministic prefilters extend by adding
+a structural rule; the cosine-triage corpus by adding a natural-language
 attack-pattern description, re-embedded without retraining.
-$^{\P}$DS = data-stealing subset; direct-harm subset is an open gap
+$^{\P}$DS = data-stealing subset, direct-harm an open gap
 (\S\ref{sec:injecagent}).
-$^{\S}$Kavach deliberately reports per-mechanism trajectory analysis
+$^{\S}$Kavach reports per-mechanism trajectory analysis
 (\S\ref{sec:gpt4o}) rather than a single AgentDojo ASR.
-13 additional systems spanning input-time, plan-time, information-flow, and
-drift-detection guardrails were surveyed (AlignmentCheck, LlamaFirewall
-combined, AgentSpec, Task Shield, OpenClaw PRISM, FIDES, AGrail, TaskTracker,
-DRIFT, LLM-Guard, DKnownAI Guard, Lakera Guard, AWS Bedrock); omitted from
-the table for space.
 \end{table*}
