@@ -53,10 +53,11 @@ ministers --- VAULT (credentials), EXECUTOR (dangerous code), CHANNEL
 (exfiltration), and NAVIGATOR (unauthorized action) --- whose verdicts a
 deterministic speaker combines into Block, Escalate, or Allow. This paper
 reports four contributions. First, a methodology finding: across
-independent lines of evidence, deterministic parsing over resolved
-arguments outperforms cosine similarity over semantic embeddings when the
-attack signal is structural, moving three of four detectors to
-deterministic-primary detection. Second, an evaluation across InjecAgent,
+independent lines of evidence, a deterministic-primary architecture ---
+structural parsing over resolved arguments, embedding similarity demoted
+to escalate-only triage --- beats the cosine-primary design it replaced
+when the attack signal is structural, on both recall and false-positive
+rate, moving three of four detectors. Second, an evaluation across InjecAgent,
 AgentDojo, and a composite corpus assembled for the two detectors those
 benchmarks barely exercise (in-sample, and labeled as such, with an
 independent check reported alongside it), reporting benign false-positive
@@ -148,10 +149,12 @@ in Appendix~B.
 
 \section{Conclusion}
 \label{sec:conclusion}
-Kavach demonstrates that deterministic parsing over resolved arguments
-outperforms cosine similarity when the attack signal is structural: three
-of four ministers moved to deterministic-primary detection, the fourth's
-intent-shaped question still open past a validated taxonomy classifier.
+Kavach demonstrates that a deterministic-primary architecture outperforms
+the cosine-primary design it replaced when the attack signal is
+structural, on both recall and hard-block FPR
+(\S\ref{sec:vault-executor-eval}): three of four ministers moved, the
+fourth's intent-shaped question still open past a validated taxonomy
+classifier.
 Validating against 629 real attack trajectories surfaced both real
 strength and characterized gaps: this paper's negative results are as
 much a contribution as its numbers.
