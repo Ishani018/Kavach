@@ -4,4 +4,19 @@
 % limit. §5 now carries only a short summary naming PlanGuard, ClawGuard, and
 % Progent, ending "A full 26-system comparison appears in Appendix B."
 
+Table~\ref{tab:guardrail-comparison} extends \S\ref{sec:related}'s summary
+to all 13 systems given their own row (plus 13 more name-checked in a
+footnote for space), so a reader can see the full landscape at once rather
+than reconstructing it from scattered prose citations. Rows are grouped by
+enforcement boundary --- input-time, plan-time, tool-call-time,
+information-flow, drift-detection, and red-team/scanning --- matching
+\S\ref{sec:background}'s taxonomy, so the boundary a system enforces at is
+visible directly from its position in the table, not just its ``Boundary''
+column. As stated in the caption, AgentDojo ASR and InjecAgent Recall are
+each system's own best reported number, not independently reproduced here;
+the table is a map of mechanisms and enforcement points, not a
+leaderboard, since benchmark subset, environment version, and threat model
+all vary system to system and no number in it is directly comparable
+across rows.
+
 \input{related_work_table}
