@@ -16,7 +16,9 @@ dispatch and the tool's actual execution. Every resolved tool call is
 evaluated by a parliament of four domain-specialized ministers --- VAULT
 (credential and identity abuse), EXECUTOR (dangerous code execution),
 CHANNEL (data exfiltration and provenance), and NAVIGATOR (unauthorized or
-drifted agent action). Three of these (VAULT, EXECUTOR, CHANNEL) are
+drifted agent action), pre-selected per call by a similarity-gated router
+(falling back to all four when none crosses its threshold). Three of these
+(VAULT, EXECUTOR, CHANNEL) are
 validated detectors with reported detection numbers throughout this paper;
 NAVIGATOR is the fourth, exploratory component, and we report plainly that
 it is not yet one (\S\ref{sec:limitations}). A deterministic Speaker
@@ -25,12 +27,16 @@ suffices, no score averaging) into \textsc{Block}, \textsc{Escalate}, or
 \textsc{Allow}, via a single HTTP endpoint,
 \texttt{POST /hook\allowbreak/parliament}, called synchronously at the host
 runtime's pre-execution hook; a verdict other than \textsc{Allow} prevents
-the call from executing. A separate, pre-rearchitecture session-level
-monitor, TRAJECTORY, also remains active alongside these four ministers,
-re-confirming or escalating a subset of already-detected cases at the
-session level; it is not one of the four domain-specialized ministers and
-is disclosed in full, including a real benign false-positive interaction,
-in \S\ref{sec:design-tradeoffs}.
+the call from executing. Two further pre-rearchitecture components remain
+in the live code path but outside the four ministers: TRAJECTORY, a
+session-level monitor re-confirming or escalating a subset of
+already-detected cases (disclosed in full, including a real benign
+false-positive interaction, in \S\ref{sec:design-tradeoffs}); and COMPASS,
+a session-intent-drift check that \emph{can} independently upgrade a
+verdict to \textsc{Block} when active, but whose trigger condition (a
+seeded session intent) never arises in any of this paper's dispatch
+harnesses --- confirmed empirically zero occurrences across all 519 + 1,054
++ 629 evaluated cases (\S\ref{sec:cost}).
 
 \subsection{Deterministic-primary detection: why, and for which ministers}
 \label{sec:deterministic-primary}

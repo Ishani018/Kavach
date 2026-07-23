@@ -303,8 +303,9 @@ a deterministic rule short-circuited the call: 26 of 159 calls were
 short-circuit-eligible and matched, of which 17 returned in the fast mode
 and 9 did not, despite an identical decision path. We traced this to the
 pipeline's ledger-completeness design: every response --- short-circuited or
-not --- spawns a background task that runs the skipped COMPASS, router, and
-NAVIGATOR scoring for audit purposes, competing for the same CPU-bound
+not --- spawns a background task that runs the skipped COMPASS
+(\S\ref{sec:architecture}) and NAVIGATOR scoring for audit purposes,
+competing for the same CPU-bound
 embedding inference as the next request's own foreground call under
 sequential dispatch. This is a scheduling artifact of our single-process CPU
 measurement, not a property of the detection logic itself; a production
