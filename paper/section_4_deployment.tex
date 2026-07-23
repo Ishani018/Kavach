@@ -8,15 +8,15 @@
 
 We evaluate Kavach on three independent axes: deterministic-primary
 detection on a composite evaluation corpus for VAULT and EXECUTOR,
-assembled because the two standard benchmarks below almost entirely miss them
-(\S\ref{sec:kavach-pb}--\ref{sec:vault-executor-eval}); CHANNEL's
+assembled because the two standard benchmarks below almost entirely miss
+them (\S\ref{sec:kavach-pb}--\ref{sec:vault-executor-eval}); CHANNEL's
 session-level provenance mechanism against real multi-step AgentDojo
 trajectories (\S\ref{sec:channel-eval}); and a large-scale validation
-against AgentDojo's own recorded model transcripts, not a benchmark replay
-of minimal ground-truth sequences (\S\ref{sec:gpt4o}). We report benign
-false positives jointly with recall throughout, and distinguish in-process
-from live-HTTP-dispatch measurements, since these diverged in ways that
-mattered (\S\ref{sec:audit-resolution}).
+against AgentDojo's own recorded model transcripts
+(\S\ref{sec:gpt4o}). We report benign false positives jointly with recall
+throughout, and distinguish in-process from live-HTTP-dispatch
+measurements, since these diverged in ways that mattered
+(\S\ref{sec:audit-resolution}).
 
 \subsection{An audit discrepancy, and how it was resolved}
 \label{sec:audit-resolution}
@@ -71,15 +71,15 @@ like-for-like comparison.
 \paragraph{Reuse, unification, and scoring.} Attack cases are drawn from
 AtomicRedTeam and GTFOBins; benign calls from BFCL (793, general-purpose)
 plus a 55-case agent-shaped benign set, reported separately rather than
-pooled. What is novel is the unification: a single harness dispatching every
-case through the same \texttt{/hook/parliament} path, one per-minister
-scoring convention, and one benign false-positive convention. Each attack
-case carries a \texttt{target\_patterns} list naming which minister(s) it
-should trigger; we report both an overall detected rate (any minister
-\textsc{Block}s or \textsc{Escalate}s) and a per-minister hit rate, since a
-case can be detected overall while its targeted minister misses. On the
-benign side, \textsc{Block} is a hard false positive and \textsc{Escalate}
-is reported separately, never conflated with \textsc{Block} or a clean
+pooled. What is novel is the unification: a single harness dispatching
+every case through the same \texttt{/hook/parliament} path, one
+per-minister scoring convention, and one benign false-positive
+convention. Each attack case carries a \texttt{target\_patterns} list
+naming which minister(s) it should trigger; we report both an overall
+detected rate and a per-minister hit rate, since a case can be detected
+overall while its targeted minister misses. On the benign side,
+\textsc{Block} is a hard false positive and \textsc{Escalate} is reported
+separately, never conflated with \textsc{Block} or a clean
 \textsc{Allow} --- the same convention CHANNEL's provenance mechanism uses
 (\S\ref{sec:channel}).
 
@@ -187,15 +187,14 @@ most commonly) read earlier in the same session rather than typed by the
 user (\S\ref{sec:channel}). A further 3/22 are hard-blocked by an unrelated
 TRAJECTORY/NAVIGATOR interaction, never blended into the 5/22 figure and
 reported in full in \S\ref{sec:design-tradeoffs}. On the attack side, 5/5
-structurally applicable AgentDojo cases correctly escalate, verified twice:
-against the benchmark's minimal \texttt{ground\_truth()} sequence, and
-independently against AgentDojo's own full recorded model trajectories for
-the same cases --- real, longer sessions with benign calls interleaved and
-the actual sequence a deployed model produced. This second check caught a
-bug in our own verification script (it tracked only the final step's
-verdict, letting a benign call after the attack step overwrite an earlier
+structurally applicable AgentDojo cases correctly escalate, verified
+twice: against the benchmark's minimal \texttt{ground\_truth()} sequence,
+and independently against AgentDojo's own full recorded model
+trajectories for the same cases --- real, longer sessions with benign
+calls interleaved. This second check caught a bug in our own verification
+script (a benign call after the attack step could overwrite an earlier
 correct escalation) before we reported the number as final; the corrected
-script confirms genuine 5/5 on the real trajectories.
+script confirms genuine 5/5.
 
 \subsection{Large-scale real-trajectory validation}
 \label{sec:gpt4o}
@@ -276,24 +275,40 @@ VAULT and EXECUTOR returning \textsc{Allow} on all 544 --- this result
 exercises CHANNEL's multi-step provenance/taint mechanism directly, not
 VAULT/\allowbreak EXECUTOR's deterministic layer.
 
+\paragraph{The paired 0\% benign hard-block FPR did not test this
+mechanism, and we found and fixed a real gap.} InjecAgent's benign
+dispatch is single-call --- no destination step follows the source-read
+--- so taint's precondition is never presented to it; the 0\% figure is a
+structural guarantee of the dispatch, not a measurement. Direct test: 32
+genuine two-step benign actions built from InjecAgent's own tool
+vocabulary, dispatched live. Legitimate self-forwarding was hard-blocked
+32/32 times, since taint's only carve-out was a literal account-identity
+match this harness never supplies. We fixed the two positively
+confirmable cases --- destination matches the session's own identity, or
+was named in the user's own instruction --- by having taint defer to
+CHANNEL's own provenance classification (\S\ref{sec:channel});
+re-validated with zero change to DS's 544/544 recall or the 519-case
+reference corpus (checkpoint gate unchanged: 87/117 VAULT, 183/203
+EXECUTOR). The harder case --- a destination first seen only in an
+earlier tool's output, which could be a legitimate invoice recipient or
+exactly how an injected destination is smuggled in --- remains an open
+gap, deliberately left blocking rather than resolved by this fix, since
+resolving it correctly needs the still-incomplete NAVIGATOR authorization
+work (\S\ref{par:navigator-authflow}).
+
 DH tells a different, weaker story: no individual minister reaches hard
-\textsc{Block} on a DH case --- CHANNEL, VAULT, EXECUTOR, and NAVIGATOR are
-never independently strict-positive here. 221/510 (43.3\%) reach the loose
-(block-or-escalate) level, split across CHANNEL (153), VAULT (34), EXECUTOR
-(17), and NAVIGATOR (17); the remaining 289/510 (56.7\%) are missed entirely
-(\textsc{Allow}). After the two-step dispatch correction, CHANNEL's
-provenance mechanism now escalates 153/510 (30\%) of DH cases via a
-novel-value classification --- confirming the fix surfaces the intended
-data-flow signal --- while CHANNEL's own hard-block contribution remains
-exactly 0\%, as designed. Separately, 16/510 (3.1\%) cases now reach a hard
-\textsc{Block} in aggregate, but not via any of the four ministers: all 16
-are decided by TRAJECTORY (\S\ref{sec:design-tradeoffs}), which for the
-first time has a genuine multi-step DH session to reason about under the
-corrected dispatch, consistent with its already-disclosed role and
-limitations rather than a change to any minister's detection contract. DH
-remains a genuine, unresolved gap in the deterministic layer, not a
-strength of the current architecture, and is not folded into DS's headline
-number.
+\textsc{Block} on a DH case. 221/510 (43.3\%) reach the loose
+(block-or-escalate) level, split across CHANNEL (153), VAULT (34),
+EXECUTOR (17), and NAVIGATOR (17); the remaining 289/510 (56.7\%) are
+missed entirely. CHANNEL's provenance mechanism escalates 153/510 (30\%)
+via a novel-value classification, confirming the fix surfaces the
+intended data-flow signal, while its own hard-block contribution stays
+exactly 0\%, as designed. Separately, 16/510 (3.1\%) reach a hard
+\textsc{Block} in aggregate via TRAJECTORY (\S\ref{sec:design-tradeoffs}),
+not any minister --- consistent with its already-disclosed role, not a
+change to any minister's detection contract. DH remains a genuine,
+unresolved gap, not a strength of the current architecture, and is not
+folded into DS's headline number.
 
 On the paired benign side (1,054 user-instruction prompts, one per attack
 case), hard-block FPR is \textbf{0\%} --- no benign prompt is ever
@@ -316,8 +331,9 @@ running the skipped COMPASS (\S\ref{sec:architecture}) and NAVIGATOR
 scoring for audit purposes, competing for the same CPU-bound embedding
 inference as the next request's foreground call under sequential dispatch.
 This is a scheduling artifact of our single-process CPU measurement, not
-the detection logic; a production deployment would bound or defer this
-background work. On GPU-equipped hardware we have separately observed the
+the detection logic; whether bounding or deferring it in a real deployment
+actually closes the gap is unmeasured (\S\ref{sec:limitations}). On
+GPU-equipped hardware we have separately observed the
 embedding path at $\sim$78\,ms p50 (RTX 4090, steady state); verdicts are
 hardware-independent (replaying 107 reference cases with the encoder
 pinned to CPU produced zero verdict or fired-minister differences against

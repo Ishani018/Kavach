@@ -28,13 +28,14 @@ wired security hook points (OpenClaw issues \#5513, \#5943, where
 (CVE-2025-34291 on LangFlow, actively exploited in the wild as of January
 2026~\cite{crowdsec2026langflow}).
 
-These vulnerability classes correspond directly to Kavach's minister structure.
-EXECUTOR detects code-execution-class attacks (CVE-2025-59536, CVE-2025-34291,
-CVE-2025-68664). VAULT detects credential-theft-class attacks (CVE-2026-21852,
-CVE-2025-68664). CHANNEL detects exfiltration-class attacks (CVE-2026-21852
-via URL redirection, CVE-2026-21858). NAVIGATOR detects trajectory-manipulation
-attacks that span multiple tool calls. Section~\ref{sec:architecture} gives the
-MITRE ATT\&CK and OWASP Agentic 2026 taxonomic grounding for each minister.
+These vulnerability classes correspond directly to Kavach's minister
+structure: EXECUTOR detects code-execution-class attacks (CVE-2025-59536,
+CVE-2025-34291, CVE-2025-68664), VAULT credential-theft-class attacks
+(CVE-2026-21852, CVE-2025-68664), CHANNEL exfiltration-class attacks
+(CVE-2026-21852 via URL redirection, CVE-2026-21858), and NAVIGATOR
+trajectory-manipulation attacks spanning multiple tool calls.
+Section~\ref{sec:architecture} gives the MITRE ATT\&CK and OWASP Agentic
+2026 taxonomic grounding for each minister.
 
 \subsection{Existing guardrails and their enforcement points}
 

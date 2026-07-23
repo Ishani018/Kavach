@@ -55,37 +55,27 @@ code), CHANNEL (exfiltration), and NAVIGATOR (unauthorized action, the
 least mature of the four and, as we report, not yet an independently
 validated detector) --- whose verdicts a deterministic speaker combines
 into Block, Escalate, or Allow. We make four contributions. First, a
-methodology finding: four independent lines of evidence --- a
-lexical-inflation bug, a dense fine-tune trading one failure mode for a
-worse one, a corpus-coverage gap, and a proposed fifth minister falsified
-before being built (near-zero cosine-similarity deltas between paired
-legitimate/malicious calls) --- show deterministic parsing over an
-action's resolved arguments outperforms cosine similarity over its
-semantic embedding when the attack signal is structural, moving three of
-Kavach's four detectors to deterministic-primary detection.
+methodology finding: four independent lines of evidence show deterministic
+parsing over an action's resolved arguments outperforms cosine similarity
+over its semantic embedding when the attack signal is structural, moving
+three of Kavach's four detectors to deterministic-primary detection.
 Second, a deployment with real numbers: 544/544 on InjecAgent's
-data-stealing corpus via CHANNEL's taint mechanism, since extended past its
-original benchmark-specific tool vocabulary to a shape-based fallback
-(\S\ref{sec:generalization-audit}; direct-harm remains an open gap: 0\%
-strict recall per minister, 3.1\% in aggregate via TRAJECTORY,
-\S\ref{sec:injecagent}); a session-level provenance mechanism correctly
-escalating 5/5 structurally applicable AgentDojo attacks with zero false
-blocks on 22 real benign sessions, verified against both ground-truth and
-AgentDojo's own recorded trajectories; and, on a 519-case supporting suite
-covering VAULT and EXECUTOR specifically since InjecAgent/AgentDojo barely
-exercise either (\S\ref{sec:kavach-pb}), 74.4\%/90.1\% detection with zero
-new benign false positives --- of which 45/87 and 113/183 are escalate-only
-review-flags rather than hard-blocks, a split reported throughout, not
-just in \S\ref{sec:design-tradeoffs}. Third, a large-scale real-trajectory
-validation: replaying all 629 real recorded GPT-4o attack trajectories
-AgentDojo has published, Kavach fires on 74.2\%, tracing every apparent
-miss to its actual tool-call content and distinguishing benchmark-labeling
-artifacts from genuine, precisely categorized gaps. Fourth, negative
-results reported in full: three failed heuristics for a session-level
-authorization layer, an abandoned deterministic swap, and an independent
-generalization audit against a fictional vocabulary establishing precisely
-which mechanisms transfer past benchmark vocabulary and which do not.
-Kavach needs no GPU and is fully reproducible offline.
+data-stealing corpus via CHANNEL's taint mechanism (direct-harm remains an
+open gap: 0\% strict recall per minister, 3.1\% in aggregate via
+TRAJECTORY); 5/5 structurally applicable AgentDojo attacks correctly
+escalated with zero false blocks on 22 real benign sessions; and, on a
+519-case supporting suite covering VAULT and EXECUTOR specifically, since
+InjecAgent/AgentDojo barely exercise either, 74.4\%/90.1\% detection with
+zero new benign false positives, over half escalate-only review-flags
+rather than hard-blocks, a split reported throughout. Third, a
+large-scale real-trajectory validation: replaying all 629 real recorded
+GPT-4o attack trajectories AgentDojo has published, Kavach fires on 74.2\%,
+tracing every apparent miss to its actual tool-call content. Fourth,
+negative results reported in full: failed authorization heuristics, an
+abandoned deterministic swap, an independent generalization audit against
+a fictional vocabulary, and a benign-side gap in CHANNEL's taint mechanism
+found and fixed by direct measurement. Kavach needs no GPU and is fully
+reproducible offline.
 \end{abstract}
 
 \maketitle
@@ -131,20 +121,18 @@ mechanism choice (deterministic vs.\ cosine) is made per detection domain
 on direct evidence, with generalization reported explicitly
 (\S\ref{sec:limitations}) rather than only success.
 
-\paragraph{Plan-time authorization systems.} PlanGuard \cite{gong2026planguard},
-IntentGuard \cite{kang2025intentguard}, and Progent \cite{shi2025progent}
-are the closest precedents for NAVIGATOR's authorization question, each at
-the plan level rather than the tool-call level. PlanGuard's hard-constraint
-stage plus LLM verifier reports 100\% attack-blocking on InjecAgent;
-NAVIGATOR's analogous pinned-intent design is instead an incomplete,
-three-attempt negative result (\S\ref{par:navigator-authflow}) --- its LLM
-verifier may do real work our deterministic heuristics did not replace.
-IntentGuard's user-confirmation-on-alert is close in spirit to CHANNEL's
-escalate-not-block verdict (\S\ref{sec:channel}), at the plan rather than
-argument-provenance level. Progent's progressive allowlist reports an
-AgentDojo ASR reduction from 39.9\% to 1.0\%, an upper reference point, not
-a number Kavach reproduces (policy synthesis and deterministic argument
-parsing are not directly comparable).
+\paragraph{Plan-time authorization systems.} PlanGuard
+\cite{gong2026planguard}, IntentGuard \cite{kang2025intentguard}, and
+Progent \cite{shi2025progent} are the closest precedents for NAVIGATOR's
+authorization question, each at the plan level rather than the tool-call
+level. PlanGuard's hard-constraint stage plus LLM verifier reports 100\%
+attack-blocking on InjecAgent; NAVIGATOR's analogous pinned-intent design
+is instead an incomplete, three-attempt negative result
+(\S\ref{par:navigator-authflow}). IntentGuard's user-confirmation-on-alert
+is close in spirit to CHANNEL's escalate-not-block verdict
+(\S\ref{sec:channel}). Progent's progressive allowlist reports an
+AgentDojo ASR reduction from 39.9\% to 1.0\%, an upper reference point,
+not a number Kavach reproduces.
 
 \paragraph{Red-team and scanning tools.} garak \cite{garak2024}, PyRIT
 \cite{pyrit2024}, and LLM-Guard \cite{llmguard2024} probe or scan at the
@@ -152,13 +140,11 @@ prompt/input boundary pre-deployment rather than enforcing at the
 tool-call boundary at runtime --- complementary to, not competing with,
 Kavach.
 
-Table~\ref{tab:guardrail-comparison} (Appendix~B) situates Kavach against 26
-systems on five axes: enforcement boundary, mechanism, corpus extensibility,
-verdict combination, and reported benchmark numbers, drawn from each cited
-paper's own evaluation setup --- benchmark subset, environment version, and
-threat model all vary system to system --- so it should be read as a map of
-enforcement boundaries and mechanisms, not a benchmark leaderboard; no
-number in it is directly comparable across rows. Full 26-system comparison
+Table~\ref{tab:guardrail-comparison} (Appendix~B) situates Kavach against
+26 systems on five axes, drawn from each cited paper's own evaluation
+setup --- benchmark subset, environment, and threat model all vary --- so
+it is a map of enforcement boundaries and mechanisms, not a leaderboard;
+no number in it is directly comparable across rows. Full comparison
 in Appendix~B.
 
 \section{Limitations}
@@ -169,18 +155,16 @@ in Appendix~B.
 \label{sec:conclusion}
 Kavach demonstrates that deterministic parsing over a tool call's resolved
 arguments outperforms cosine similarity over its semantic embedding when
-the attack signal is structural, and that this is a per-mechanism question,
-not a property of the paradigm as a whole: three of four ministers moved
-to deterministic-primary detection on four independent lines of evidence,
+the attack signal is structural, not a property of the paradigm as a
+whole: three of four ministers moved to deterministic-primary detection,
 while the fourth's intent-shaped question remains open past a validated
 taxonomy classifier. Validating against 629 real recorded attack
 trajectories surfaced both real detection strength and precisely
-characterized gaps. We take this paper's negative results --- the falsified
-fifth minister, the abandoned deterministic swap, the failed authorization
+characterized gaps. We take this paper's negative results --- the
+falsified fifth minister, the abandoned swap, the failed authorization
 heuristics, and the generalization audit's boundaries --- to be as much a
-contribution as the detection numbers: knowing where a runtime monitor's
-mechanisms do and do not generalize is what makes its positive results
-trustworthy.
+contribution as the numbers: knowing a monitor's limits is what makes its
+results trustworthy.
 
 \appendix
 

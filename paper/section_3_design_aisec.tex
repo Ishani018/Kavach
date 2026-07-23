@@ -17,30 +17,27 @@ evaluated by a parliament of four domain-specialized ministers --- VAULT
 (credential and identity abuse), EXECUTOR (dangerous code execution),
 CHANNEL (data exfiltration and provenance), and NAVIGATOR (unauthorized or
 drifted agent action), pre-selected per call by a similarity-gated router
-(falling back to all four when none crosses its threshold). Three of these
-(VAULT, EXECUTOR, CHANNEL) are
-validated detectors with reported detection numbers throughout this paper;
-NAVIGATOR is the fourth, exploratory component, and we report plainly that
-it is not yet one (\S\ref{sec:limitations}); every aggregate figure in this
-paper that includes a NAVIGATOR contribution reports it broken out
-per-minister alongside the total, not folded in invisibly, so a reader
-treating NAVIGATOR as unvalidated can identify and discount its share
-directly (e.g.\ \S\ref{sec:injecagent}, \S\ref{sec:cost}). A deterministic Speaker
+(falling back to all four when none crosses its threshold). VAULT,
+EXECUTOR, and CHANNEL are validated detectors with reported detection
+numbers throughout this paper; NAVIGATOR is the fourth, exploratory
+component, and we report plainly that it is not yet one
+(\S\ref{sec:limitations}) --- every aggregate figure including a NAVIGATOR
+contribution reports it broken out per-minister, not folded in invisibly
+(e.g.\ \S\ref{sec:injecagent}, \S\ref{sec:cost}). A deterministic Speaker
 combines their verdicts by pure veto (any minister's \textsc{Block}
 suffices, no score averaging) into \textsc{Block}, \textsc{Escalate}, or
 \textsc{Allow}, via a single HTTP endpoint,
 \texttt{POST /hook\allowbreak/parliament}, called synchronously at the host
 runtime's pre-execution hook; a verdict other than \textsc{Allow} prevents
 the call from executing. Two further pre-rearchitecture components remain
-in the live code path but outside the four ministers: TRAJECTORY, a
-session-level monitor re-confirming or escalating a subset of
-already-detected cases (disclosed in full, including a real benign
-false-positive interaction, in \S\ref{sec:design-tradeoffs}); and COMPASS,
-a session-intent-drift check that \emph{can} independently upgrade a
-verdict to \textsc{Block} when active, but whose trigger condition (a
-seeded session intent) never arises in any of this paper's dispatch
-harnesses --- confirmed empirically zero occurrences across all 519 + 1,054
-+ 629 evaluated cases (\S\ref{sec:cost}).
+outside the four ministers: TRAJECTORY, a session-level monitor
+re-confirming or escalating a subset of already-detected cases (disclosed
+in full, including a real benign false-positive interaction, in
+\S\ref{sec:design-tradeoffs}); and COMPASS, a session-intent-drift check
+that \emph{can} independently upgrade a verdict to \textsc{Block} when
+active, but whose trigger condition never arises in any of this paper's
+dispatch harnesses --- confirmed zero occurrences across all 519 + 1,054 +
+629 evaluated cases (\S\ref{sec:cost}).
 
 \subsection{Deterministic-primary detection: why, and for which ministers}
 \label{sec:deterministic-primary}
@@ -103,11 +100,10 @@ authorization layer is reported as a negative result in
 
 VAULT and EXECUTOR score each proposed tool call's arguments with
 deterministic prefilters (\texttt{parliament/prefilters.py}) built on a
-behavioral-primitive taxonomy: VAULT's primitives (V1--V6) cover credential
-paths, dotenv files, named-service secret environment variables, and
-credential-shaped strings; EXECUTOR's primitives (E1--E7) cover
-network-fetch-to-disk, reverse-shell shapes, and persistence-mechanism
-writes. Two extraction layers back these primitives, chosen per shell
+behavioral-primitive taxonomy: VAULT's primitives (V1--V6) cover
+credential paths, dotenv files, and secret environment variables;
+EXECUTOR's (E1--E7) cover network-fetch-to-disk, reverse-shell shapes, and
+persistence writes. Two extraction layers back these, chosen per shell
 dialect by a latency/correctness trade-off measured directly rather than
 assumed:
 
@@ -160,7 +156,12 @@ session), or \textsc{novel} (neither). \textsc{Output\_derived} or
 deliberately not \textsc{Block}: paying a bill by reading its own file for
 the recipient IBAN, or replying to an email just read, are real, legitimate
 same-session read-then-send chains that must not be treated the same as an
-attacker-substituted destination (\S\ref{sec:design-tradeoffs}).
+attacker-substituted destination (\S\ref{sec:design-tradeoffs}). Taint's
+\textsc{Block} authority previously ignored this classification entirely,
+hard-blocking legitimate self- or user-named destinations we found and
+fixed by direct measurement (\S\ref{sec:injecagent}); a destination first
+seen only in a prior tool's \emph{output} still blocks, deliberately,
+since that is exactly how an injected destination would appear too.
 
 CHANNEL's locked reference numbers and full evaluation methodology are
 reported in \S\ref{sec:channel-eval}.
