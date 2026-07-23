@@ -20,8 +20,9 @@ We additionally attempted comparison against the two closest available
 external tools at the tool-call content level. Both proved structurally
 inapplicable rather than merely weaker: CodeShield's supported-language set
 (C/C++/C\#/Java/JavaScript/PHP/Python/Rust) excludes the shell, PowerShell,
-and cmd dialects comprising $\sim$87\% of Kavach-PB's adversary-emulation
-commands, and gitleaks --- a secret-value scanner --- produces zero findings
+and cmd dialects comprising $\sim$87\% of our reference corpus's
+adversary-emulation commands, and gitleaks --- a secret-value scanner ---
+produces zero findings
 on all 519 cases because they encode credential-access techniques rather
 than embedded literal secrets (its one finding across 848 benign calls was
 the empty-string SHA-256 hash misread as an API key). We report this as
@@ -141,7 +142,7 @@ creating a real risk of circular validation. We therefore ran an
 independent adversarial audit before submission: a fictional agent
 environment (``AtriumOS'') with an entirely invented tool vocabulary
 sharing no tool name, corpus term, or surface phrasing with InjecAgent,
-AgentDojo, or Kavach-PB, dispatching 18 attack and 18 matched-benign
+AgentDojo, or our reference corpus, dispatching 18 attack and 18 matched-benign
 novel-vocabulary scenarios through the real detection pipeline. The
 per-minister verdict: EXECUTOR generalizes cleanly (caught all eight
 novel-vocabulary attacks; one structural false positive was found and

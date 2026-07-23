@@ -54,8 +54,8 @@ only as an escalate-only triage layer over the deterministic residual.
 standard benchmarks we also evaluate against below, almost entirely miss
 VAULT and EXECUTOR --- both stress CHANNEL's mechanisms specifically, a gap
 we found live while validating this rearchitecture, not one we anticipated.
-We assembled Kavach-PB (\S\ref{sec:kavach-pb}), a composite evaluation suite
-for VAULT and EXECUTOR that closes this gap by reusing real,
+We assembled a composite evaluation corpus (\S\ref{sec:kavach-pb}) for
+VAULT and EXECUTOR that closes this gap by reusing real,
 externally-validated attack data (AtomicRedTeam, GTFOBins) under one runner
 and one per-minister scoring convention, rather than authoring new synthetic
 attacks that risk being unconsciously shaped to be catchable by the system
@@ -127,5 +127,5 @@ comprehensive deployment runs more than one.
 \paragraph{Reproducibility.} The parliament service, the deterministic
 prefilters and their test suites, the reference-corpus evaluation harness,
 and the real-trajectory replay scripts used for every number in
-\S\ref{sec:eval} are shipped with the paper and run entirely offline on
-CPU-only hardware.
+\S\ref{sec:eval} run entirely offline on CPU-only hardware, with no GPU or
+paid API access required.

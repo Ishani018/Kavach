@@ -7,7 +7,7 @@
 \label{sec:eval}
 
 We evaluate Kavach on three independent axes: deterministic-primary
-detection on Kavach-PB, a composite evaluation suite for VAULT and EXECUTOR
+detection on a composite evaluation corpus for VAULT and EXECUTOR,
 assembled because the two standard benchmarks below almost entirely miss them
 (\S\ref{sec:kavach-pb}--\ref{sec:vault-executor-eval}); CHANNEL's
 session-level provenance mechanism against real multi-step AgentDojo
@@ -33,7 +33,7 @@ counted only the deterministic layer's contribution. Once corrected, the
 live-HTTP and in-process full-pipeline numbers agreed --- a reminder that a
 benchmark harness's own bugs can masquerade as detector performance.
 
-\subsection{Kavach-PB: a composite evaluation suite for VAULT and EXECUTOR}
+\subsection{A composite evaluation corpus for VAULT and EXECUTOR}
 \label{sec:kavach-pb}
 InjecAgent and AgentDojo, the two standard agent-security benchmarks we rely
 on elsewhere in this section, almost exclusively stress CHANNEL: InjecAgent's
@@ -44,11 +44,11 @@ while validating VAULT/EXECUTOR's deterministic-primary rearchitecture
 (\S\ref{sec:deterministic-primary}) and discovering we had no real benchmark
 to validate it against.
 
-Rather than author new synthetic attacks to close this gap, we assembled
-\textbf{Kavach-PB} (Kavach Parliament Benchmark): a unified, composite
-evaluation suite for VAULT and EXECUTOR, assembled from already-real,
-externally-validated attack data (AtomicRedTeam, GTFOBins, BFCL) under one
-runner, one wire format, and one scoring convention; CHANNEL and NAVIGATOR
+Rather than author new synthetic attacks to close this gap, we assembled a
+unified, composite evaluation corpus for VAULT and EXECUTOR from
+already-real, externally-validated attack data (AtomicRedTeam, GTFOBins,
+BFCL) under one runner, one wire format, and one scoring convention;
+CHANNEL and NAVIGATOR
 are evaluated separately, on InjecAgent (\S\ref{sec:injecagent}) and
 AgentDojo (\S\ref{sec:channel-eval}, \S\ref{sec:gpt4o}). This is deliberate:
 a self-authored attack set
@@ -77,10 +77,10 @@ separately, never conflated with \textsc{Block} or a clean \textsc{Allow}
 than pooled: BFCL (793 cases, general-purpose, not agent-shaped) and the
 55-case agent-shaped set (the stronger evidence).
 
-\subsection{Kavach-PB results: VAULT and EXECUTOR}
+\subsection{Results: VAULT and EXECUTOR}
 \label{sec:vault-executor-eval}
-On Kavach-PB's 519-case AtomicRedTeam/GTFOBins reference corpus (117
-VAULT-targeted, 203 EXECUTOR-targeted; \texttt{target\_patterns} is
+On this 519-case AtomicRedTeam/GTFOBins reference corpus (117
+VAULT-targeted, 203 EXECUTOR-targeted; \texttt{target\allowbreak\_patterns} is
 unmodified since its original authoring commit, confirmed via
 \texttt{git diff}, so it is independent ground truth), the deterministic
 layer alone recovers VAULT 35.9\% (42/117) and EXECUTOR 34.5\% (70/203);
