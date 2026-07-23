@@ -57,19 +57,23 @@ contributions. First: four independent lines of evidence show
 deterministic parsing over resolved arguments outperforms cosine
 similarity over semantic embedding when the attack signal is structural,
 moving three of four detectors to deterministic-primary detection.
-Second, real deployment numbers: 544/544 on InjecAgent's data-stealing
-corpus via CHANNEL's taint mechanism (direct-harm open: 0\% per minister,
-3.1\% via TRAJECTORY); 5/5 AgentDojo attacks escalated with zero false
+Second, real evaluation numbers: strict (hard-\textsc{Block}) InjecAgent
+recall is 51.6\% (544/1054, entirely data-stealing via CHANNEL's taint
+mechanism; direct-harm's strict contribution is 0\%, a disclosed gap);
+5/5 structurally applicable AgentDojo attacks escalated with zero false
 blocks from CHANNEL itself on 22 benign sessions (a separate
 TRAJECTORY/NAVIGATOR interaction hard-blocks 3/22, disclosed in full);
 and, on a 519-case suite for VAULT/EXECUTOR (InjecAgent/AgentDojo barely
-exercise either), 74.4\%/90.1\% detection with zero new false positives,
-over half escalate-only --- an in-sample number, since rules were
-authored with visibility into this corpus; the genuinely independent
-check below recovers 81.8\%. Third: replaying
+exercise either), 74.4\%/90.1\% detection with zero new hard-block false
+positives but a real benign Escalate cost (up to 67.3\% on agent-shaped
+calls, disclosed in full below), over half escalate-only --- an in-sample
+number, since rules were authored with visibility into this corpus; the
+genuinely independent check below recovers 81.8\% (mostly Escalate).
+Third: replaying
 all 629 real recorded GPT-4o attack trajectories AgentDojo publishes,
-Kavach fires on 74.2\%, tracing every apparent miss to its actual
-tool-call content. Fourth, negative results in full: failed authorization
+Kavach fires on 74.2\% (a benign-trajectory control under the same
+criterion: 64.5\%), tracing every apparent miss to its actual tool-call
+content. Fourth, negative results in full: failed authorization
 heuristics, an abandoned deterministic swap, independent generalization
 checks against both an author-written novel vocabulary and an externally
 published attack corpus, and a benign-side gap in CHANNEL's taint

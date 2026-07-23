@@ -65,9 +65,11 @@ minister's own verdict alone catches only 23/72 (31.9\%, CHANNEL) and
 92/144 (63.9\%, NAVIGATOR) --- most of the rest is caught by cosine-triage
 or a different minister. Kavach's overall any-minister rate across all
 519 --- the same denominator the baselines below use --- is 515/519
-(99.2\%); this is a looser metric than the strict
-per-target recall reported next, and should be read as such, not as a
-like-for-like comparison.
+(99.2\%); this is a looser metric than the strict per-target recall
+reported next, and should be read as such, not as a like-for-like
+comparison. NAVIGATOR's own contribution, per \S\ref{sec:architecture}'s
+disclosure convention: sole contributor on 9/519 (1.7\%), so 506/519
+(97.5\%) of the 515 any-minister hits survive with it removed entirely.
 
 \paragraph{Reuse and scoring.} Attack cases are drawn from AtomicRedTeam
 and GTFOBins; benign calls from BFCL (793, general-purpose) plus a
@@ -129,7 +131,8 @@ ministers (74.4\%/90.1\% vs.\ 67.5\%/85.7\%) while eliminating that
 false-positive rate entirely (0\% hard-block FPR on both benign
 populations) --- both an ablation for the paper's central
 deterministic-vs-cosine claim and a same-team, same-harness baseline
-showing the rearchitecture strictly dominates the design it replaced.
+showing the rearchitecture improves both recall and hard-block FPR over
+the design it replaced on this same 519-case corpus.
 
 We additionally compare against two independent, non-Kavach baselines on
 the identical 519-case corpus and both benign populations, matching their
@@ -138,10 +141,12 @@ rather than the narrower per-target figures above. A naive keyword/regex
 blocklist ($\sim$30 hand-written patterns, no corpus, no tuning) recovers
 12.1\% (63/519) at 0\% FPR --- the expected floor for an un-corpus-driven
 list. A zero-shot LLM judge (local \texttt{qwen2.5:7b}, no corpus, single
-fixed prompt, resolved call only) recovers 78.8\% (409/519), well below
-Kavach's 99.2\% on the same 519 cases, at a real false-positive cost
-Kavach's deterministic layer avoids entirely: 1.4\% on BFCL and 14.5\% on
-agent-shaped calls specifically. A larger model (\texttt{qwen2.5:32b}, same
+fixed prompt, resolved call only) recovers 78.8\% (409/519) --- below
+Kavach's Block-or-Escalate 99.2\% but above its single-tier,
+hard-\textsc{Block}-only 29.5\% (not on equal footing; see below) --- at
+a false-positive cost Kavach's deterministic layer avoids entirely: 1.4\%
+BFCL, 14.5\% agent-shaped.
+A larger model (\texttt{qwen2.5:32b}, same
 prompt and populations) does not simply dominate: recall falls to 71.3\%
 (370/519) while FPR drops to 0.4\% combined (0\% agent-shaped) --- a
 different point on the same recall/precision trade-off, not a strictly
@@ -170,22 +175,6 @@ generalization audit (\S\ref{sec:generalization-audit}) attempts to measure
 past this limit, and has its own limit in turn: its scenarios are
 author-written, testing vocabulary novelty rather than an independently
 sourced distribution.
-
-\subsection{LLM tiebreaker: validated, deliberately not deployed}
-\label{sec:tiebreaker-eval}
-The tiebreaker (\S\ref{sec:tiebreaker}) scored 16/17 (94.1\%) in pilot.
-Re-validated against all 144 real benign-set calls, it produced one new
-false positive (a \texttt{non\_standard\_source} misread of legitimate,
-locally-stored content); a prompt clarification fixed this with zero new
-false positives on re-test. A generalization check --- five phrasings
-never used to write the fix, plus three negative controls --- then scored
-4/5, with one confirmed remaining miss (an internal file run ``from the
-ops share,'' a network-share phrasing the fix does not cover). We stopped
-here rather than re-running against our full narrative-phrasing test set:
-a mechanism with one known, characterized generalization gap should not be
-scored as if it had none. The tiebreaker is real, working code, held back
-from live dispatch specifically because its own validation found a limit
-before we judged it decided.
 
 \subsection{CHANNEL: session-level provenance}
 \label{sec:channel-eval}
@@ -222,6 +211,17 @@ real tool calls and outputs, not a minimal ground-truth replay.
 \textsc{Escalate}, any minister, at any point in the session) on 467/629
 (74.2\%) of these real trajectories: banking 119/144 (82.6\%), slack 105/105
 (100\%), travel 63/140 (45.0\%), workspace 180/240 (75.0\%).
+
+\paragraph{Benign control, same criterion.} 74.2\% had no benign
+comparison at this granularity, so we replayed AgentDojo's own 124
+recorded no-injection GPT-4o trajectories (one per user task, zero
+attacker instruction present) under the identical criterion. Kavach fires
+on 80/124 (64.5\%): banking 17/25, slack 26/26 (100\%), travel 8/27,
+workspace 29/46. This recontextualizes rather than invalidates 74.2\%,
+consistent with \S\ref{sec:design-tradeoffs}'s already-disclosed 67.3\%
+agent-shaped Escalate rate: read 74.2\% as this criterion's sensitivity,
+not a precision figure --- \S\ref{sec:design-tradeoffs}'s
+Escalate-precision numbers remain the honest read on cost.
 
 \paragraph{Diagnosing the apparent misses.}
 Of the 162 trajectories on which Kavach did not fire, we traced every case
@@ -310,24 +310,35 @@ work (\S\ref{par:navigator-authflow}).
 
 DH tells a different, weaker story: no individual minister reaches hard
 \textsc{Block} on a DH case. 221/510 (43.3\%) reach the loose
-(block-or-escalate) level, split across CHANNEL (153), VAULT (34),
-EXECUTOR (17), and NAVIGATOR (17); the remaining 289/510 (56.7\%) are
-missed entirely. CHANNEL's provenance mechanism escalates 153/510 (30\%)
-via a novel-value classification, confirming the fix surfaces the
-intended data-flow signal, while its own hard-block contribution stays
-exactly 0\%, as designed. Separately, 16/510 (3.1\%) reach a hard
-\textsc{Block} in aggregate via TRAJECTORY (\S\ref{sec:design-tradeoffs}),
-not any minister --- consistent with its already-disclosed role, not a
-change to any minister's detection contract. DH remains a genuine,
-unresolved gap, not a strength of the current architecture, and is not
-folded into DS's headline number.
+(block-or-escalate) level; \emph{decided-by} counts --- the one minister
+the Speaker credits per case, mutually exclusive by construction --- split
+this as CHANNEL (153), VAULT (34), EXECUTOR (17), and NAVIGATOR (17); the
+remaining 289/510 (56.7\%) are missed entirely. (Counting any minister
+that fired at all, not just the decider, gives EXECUTOR 34 and NAVIGATOR
+51: 51 cases have two or more ministers firing together, which decided-by
+avoids double-counting.) CHANNEL's provenance mechanism
+escalates 153/510 (30\%) via a novel-value classification, confirming the
+fix surfaces the intended data-flow signal, while its own hard-block
+contribution stays exactly 0\%, as designed. Separately, 16/510 (3.1\%)
+reach a hard \textsc{Block} in aggregate via TRAJECTORY
+(\S\ref{sec:design-tradeoffs}), not any minister --- consistent with its
+already-disclosed role, not a change to any minister's detection
+contract. DH remains a genuine, unresolved gap, not a strength of the
+current architecture, and is not folded into DS's headline number. This
+snapshot predates CHANNEL's destination-shape generalization fix
+(Appendix~A); re-measuring after it lands is future work, kept out here
+so \S\ref{sec:eval} reflects one consistent snapshot, not a pre/post-fix mix.
 
 On the paired benign side (1,054 user-instruction prompts, one per attack
 case), hard-block FPR is \textbf{0\%} --- no benign prompt is ever
-hard-blocked --- but the soft-escalate rate is \textbf{35.2\% (371/1,054)},
-again led by CHANNEL (248), with EXECUTOR (62) and NAVIGATOR (61)
-contributing the rest and VAULT at 0. DS's strong recall and DH's weak
-recall should both be read against this FPR context, not in isolation.
+hard-blocked --- but the soft-escalate rate is \textbf{35.2\% (371/1,054)}
+by the same decided-by convention, again led by CHANNEL (248), with
+EXECUTOR (62) and NAVIGATOR (61) contributing the rest and VAULT at 0.
+DS's strong recall and DH's weak recall should both be read against this
+FPR context, not in isolation; across the combined 1,054-case corpus,
+Kavach's strict (hard-\textsc{Block}-only) recall is 544/1054 (51.6\%) ---
+entirely DS, since DH's strict contribution is 0\% --- the number
+missing from a strict, apples-to-apples row in Table~\ref{tab:guardrail-comparison}.
 
 \subsection{Cost}
 \label{sec:cost}

@@ -15,6 +15,15 @@ head-to-head against ClawGuard's implementation (\S\ref{sec:related})
 exists: it intercepts live sessions with no dataset-replay harness
 compatible with our pipeline.
 
+\paragraph{No AgentDojo ASR with Kavach as the live defense.} Table~1
+reports per-mechanism trajectory analysis (\S\ref{sec:gpt4o}) rather than
+a single AgentDojo ASR, the field's standard metric. Producing it needs
+AgentDojo's own harness with Kavach wired in as its live defense
+(\texttt{benchmarks/run\_agentdojo\_kavach.py} is built for this), driving
+a live model through all 97 user tasks under attack --- not a replay of
+recorded trajectories, and not completed before submission: the most
+direct remaining gap here.
+
 \paragraph{External tool-call-content baselines are structurally
 inapplicable, not weaker.}
 \label{par:external-baselines}
@@ -91,40 +100,40 @@ raised FPR to 35.9\% at the same threshold, since ordinary mid-session
 follow-ups (e.g., checking a balance right after a payment) are
 semantically distant
 from the session's \emph{original} goal despite being legitimate, and
-held-out recall on the enlarged set collapsed to 22--56\%. This is
-consistent with an independent evaluation of the same mechanism on
-AgentDojo ground-truth, which measured 7.3\% recall. We report this as
-future work, not a contribution: NAVIGATOR's deployed detector remains the
-cosine-corpus mechanism in \S\ref{sec:generalization-audit}, unchanged.
+held-out recall on the enlarged set collapsed to 22--56\%, consistent with
+the broader drift-detection literature's own reported difficulty
+generalizing past its original benign distribution
+(\S\ref{sec:background}). We report this as future work, not a
+contribution: NAVIGATOR's deployed detector remains the cosine-corpus
+mechanism in \S\ref{sec:generalization-audit}, unchanged.
 
 \paragraph{No adaptive-attacker evaluation, and a first-pass obfuscation
 check.} Every attack corpus here is static: no attacker knows Kavach's
 rules or adapts to them. Deterministic matching is historically evadable
 --- encoding, string construction, variable indirection --- and while
 bashlex's AST closes a class of these for sh/bash, PowerShell and cmd
-remain on a tokenizer. First-pass check: 185 previously-detected sh/bash
-cases through base64 encode-and-pipe (applies to all 185); split and
-indirection require a literal anchor span present in only 75, so those
-two are scored on that subset. Held at 100\% (0/335 missed) across all
-three transforms' dispatches combined. After correctly distinguishing
-genuine evasion from
-TRAJECTORY's session-level re-confirmation merely relabeling an
-already-correct verdict (\S\ref{sec:design-tradeoffs}), true
-per-mechanism evasion is 7.0\% (encode, 13/185), 4.0\% (split, 3/75),
-25.3\% (indirect, 19/75); every evasion was caught by a different
-mechanism. One backup is itself imprecise: encode's backstop is a single
-NAVIGATOR pattern matching the literal
-\texttt{echo~BASE64~|~base64~-d~\allowbreak|~sh} shape, confirmed to also
-block an equivalent benign command --- a blanket rule, not intent-aware
-detection. Extended to PowerShell/cmd on the same convention (263
-detected cases; encode applies to all 263, split/indirect to the 73 with
-an anchor), dialect-native transforms --- \texttt{-EncodedCommand},
-caret-escaping, split/indirection):
-true evasion is markedly higher, 28.9\% (encode, 76/263), 16.4\% (split,
-12/73), 19.2\% (indirect, 14/73) --- confirming the tokenizer-not-AST
-hypothesis empirically. Still a first pass, not adversarial; an attacker
-targeting two or more mechanisms at once is untested, and
-\S\ref{sec:eval}'s rates should be read as non-adaptive until then.
+remain on a tokenizer. First-pass check, sh/bash: 185 previously-detected cases through base64
+encode-and-pipe (applies to all 185); split and indirection require a
+literal anchor span present in only 75, so those two are scored on that
+subset. True per-mechanism evasion --- after correctly distinguishing
+genuine evasion from TRAJECTORY's session-level re-confirmation merely
+relabeling an already-correct verdict (\S\ref{sec:design-tradeoffs}) ---
+is 7.0\% (encode, 13/185), 4.0\% (split, 3/75), 25.3\% (indirect, 19/75):
+35/335 (10.4\%) evaded overall, every one caught by a different
+mechanism, so none reached the agent unblocked. One backup is itself
+imprecise: encode's backstop is a single NAVIGATOR pattern matching the
+literal \texttt{echo~BASE64~|~base64~-d~\allowbreak|~sh} shape, confirmed
+to also block an equivalent benign command --- a blanket rule, not
+intent-aware detection. Extended to PowerShell/cmd on the same
+convention (263 detected cases; encode applies to all 263, split/indirect
+to the 73 with an anchor), dialect-native transforms ---
+\texttt{-EncodedCommand}, caret-escaping, split/indirection: true evasion
+is markedly higher, 28.9\% (encode, 76/263), 16.4\% (split, 12/73), 19.2\%
+(indirect, 14/73), 102/409 (24.9\%) overall --- confirming the
+tokenizer-not-AST hypothesis empirically. Still a first pass, not
+adversarial; an attacker targeting two or more mechanisms at once is
+untested, and \S\ref{sec:eval}'s rates should be read as non-adaptive
+until then.
 
 \subsection{Generalization beyond the benchmark vocabulary}
 \label{sec:generalization-audit}
@@ -142,6 +151,7 @@ limit), CHANNEL's escalation path generalizes but its hard-block path does
 not, and NAVIGATOR's cosine mechanism does not transfer at all. A second,
 genuinely independent check against AgentHarm's (UK AISI, ICLR'25)
 published synthetic tools corroborates this: 81.8\% in-scope catch rate
-(36/44), 8 named misses, and a benign Escalate rate matching
+(36/44, mostly \textsc{Escalate}: 5 hard-\textsc{Block}, 31
+\textsc{Escalate}), 8 named misses, and a benign Escalate rate matching
 \S\ref{sec:design-tradeoffs}'s existing disclosure. Full methodology and
 per-minister results in Appendix~A.

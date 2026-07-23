@@ -176,27 +176,16 @@ semantic signal that cannot reliably discriminate (Evidence 4) should not be
 trusted with an irreversible verdict, but remains useful as a flag for human
 review on cases a deterministic rule did not anticipate.
 
-\subsection{An LLM tiebreaker for narrative-phrasing attacks (built, not
-deployed)}
-\label{sec:tiebreaker}
-
-VAULT and EXECUTOR's deterministic rules match literal syntax; an attack
-described in prose rather than code (``append an entry to the SSH
-authorized-keys file for persistence'' rather than the literal path) can
-evade every rule that only recognizes concrete command shapes. We built an
-escalation tier for this residual that keeps the verdict-making step
-model-free even though it consults a model: a cheap deterministic pre-flag
-decides whether a call is worth escalating at all, a small local model
-(\texttt{qwen2.5:7b}) only \emph{extracts three narrow factual flags} from
-flagged calls rather than rendering a verdict directly, and a separate
-deterministic rule converts those flags into
-\textsc{Block}/\textsc{Escalate}/\textsc{Allow} (failing open to
-\textsc{Allow} on model timeout or error). Two simpler designs --- raw
-entity-proximity matching and asking the model to judge malicious-or-benign
-directly --- were tried and rejected first, for benign false positives and
-missed attacks respectively. Validation results, including a
-generalization check and why it is held back from live dispatch, are in
-\S\ref{sec:tiebreaker-eval}.
+\paragraph{An LLM tiebreaker for narrative-phrasing attacks: built, not
+deployed.} VAULT/EXECUTOR's rules match literal syntax; a prose-described
+attack (e.g.\ ``append an SSH authorized-keys entry'' rather than the
+literal path) can evade them. We built and validated an escalation tier
+where a small local model (\texttt{qwen2.5:7b}) only extracts factual
+flags rather than rendering a verdict directly: 94.1\% in pilot, 4/5 on
+held-out phrasings, one characterized generalization gap (a network-share
+phrasing the fix does not cover). It is deliberately held back from live
+dispatch until that gap closes, so no number in \S\ref{sec:eval} includes
+it --- future work, not a contribution.
 
 \subsection{Provenance ledger}
 \label{sec:provenance}

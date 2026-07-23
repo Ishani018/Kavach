@@ -1,3 +1,12 @@
+# Local Python virtualenv used for benchmark/eval scripts tonight (930MB, regenerate with
+# python3 -m venv .venv_bench && .venv_bench/bin/pip install aiohttp pymupdf ... as needed)
+.venv_bench/
+
+# Sparse git checkout of github.com/ethz-spylab/agentdojo's runs/ data (111MB, nested .git
+# repo -- never commit; regenerate via the sparse-checkout command in
+# benchmarks/_gpt4o_real_trajectory_benign_control.py's docstring / results READMEs)
+scratch_agentdojo_repo/
+
 # ChromaDB
 parliament/.chroma_kavach/
 

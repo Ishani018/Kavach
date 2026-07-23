@@ -19,7 +19,7 @@
 }
 \label{tab:guardrail-comparison}
 \footnotesize
-\resizebox{0.82\linewidth}{!}{%
+\resizebox{0.68\linewidth}{!}{%
 \begin{tabular}{@{}lllllrr@{}}
 \toprule
 \textbf{System} & \textbf{Boundary} & \textbf{Mechanism} &
@@ -42,7 +42,7 @@ Progent \cite{shi2025progent} & tool-call & progressive allowlist & yes (policy)
 CodeShield & output & Semgrep+regex & yes (rules) & threshold & n/r & n/r \\
 ShieldAgent & tool-call & rule circuits & yes (docs) & probabilistic & n/r & 90.1\% \\
 PSG-Agent & tool-call & 4-component & partial & cross-turn accum. & n/r & n/r \\
-\textbf{Kavach (ours)} & \textbf{tool-call} & \textbf{determ.+embed.} & \textbf{yes (rules+corpus)} & \textbf{veto} & \textbf{n/a}$^{\S}$ & \textbf{100\% (544/544 DS)}$^{\P}$ \\
+\textbf{Kavach (ours)} & \textbf{tool-call} & \textbf{determ.+embed.} & \textbf{yes (rules+corpus)} & \textbf{veto} & \textbf{n/a}$^{\S}$ & \textbf{51.6\% strict (544/1054)}$^{\P}$ \\
 \midrule
 
 % ─── Information-flow ─────────────────────────────────────────────────────────
@@ -70,8 +70,9 @@ call unconditionally, no score averaging.
 \textbf{Extensibility} (Kavach): deterministic prefilters extend by adding
 a structural rule; the cosine-triage corpus by adding a natural-language
 attack-pattern description, re-embedded without retraining.
-$^{\P}$DS = data-stealing subset, direct-harm an open gap
-(\S\ref{sec:injecagent}).
+$^{\P}$Strict (hard-\textsc{Block}-only) recall on the full 1,054-case
+corpus, entirely from the 544/544 data-stealing subset; direct-harm's
+strict contribution is 0\%, a genuine gap (\S\ref{sec:injecagent}).
 $^{\S}$Kavach reports per-mechanism trajectory analysis
 (\S\ref{sec:gpt4o}) rather than a single AgentDojo ASR.
 \end{table*}

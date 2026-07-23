@@ -8,11 +8,12 @@
 
 Modern LLM agents are composite systems: a language model provides the
 reasoning surface, while the harness provides tool dispatch, context
-management, multi-turn state, and persistence. In production deployments the
-harness accounts for the overwhelming majority of source lines, with the
-model contributing only a small fraction --- a structural inversion with a
-direct security consequence: the harness, not the model, is the dominant
-attack surface.
+management, multi-turn state, and persistence. In production deployments
+the model is typically an external API call, while tool dispatch, context
+management, multi-turn state, and persistence are all local harness
+code --- a structural asymmetry with a direct security consequence: the
+harness, not the model itself, is where most exploitable surface area
+lives.
 
 Agent harnesses expose several classes of latent vulnerabilities.
 \emph{Configuration-as-code} attacks exploit declarative configuration the
@@ -58,8 +59,11 @@ seeing only declarative intent.
 Kavach's enforcement point. CodeShield \cite{saxe2025llamafirewall} applies
 Semgrep to code-returning outputs only; ShieldAgent
 \cite{chen2025shieldagent} retrieves rule circuits per trajectory; Task
-Shield \cite{jia2025taskshield} checks task alignment. None uses a curated
-semantic corpus of attack-pattern descriptions at the tool-call level.
+Shield \cite{jia2025taskshield} checks task alignment. None combines
+deterministic parsing of an action's resolved arguments with a semantic
+corpus as a secondary triage layer at the tool-call level --- the
+combination \S\ref{sec:design} argues for, after finding the semantic
+corpus alone was the wrong primary mechanism for three of four detectors.
 
 \paragraph{Information-flow guardrails} (CaMeL \cite{debenedetti2025camel},
 FIDES \cite{costa2025fides}, RTBAS \cite{zhong2025rtbas}) tag data and
@@ -99,7 +103,7 @@ verdict combination, and reported AgentDojo / InjecAgent performance.
 
 \subsection{Benchmarks and evaluation methodology}
 
-The three most widely used agent-security benchmarks are:
+The two agent-security benchmarks we evaluate against are:
 
 \textbf{InjecAgent} \cite{zhan2024injecagent} --- 1,054 prompt-injection
 cases (17 user tools $\times$ 62 attacker tools) split into direct-harm (30

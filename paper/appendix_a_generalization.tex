@@ -20,74 +20,65 @@ should be read as illustrative rather than statistically powered.
 
 \begin{itemize}
 \item \textbf{EXECUTOR --- generalizes cleanly.} Caught all eight
-novel-vocabulary execution attacks via structural/\allowbreak technique-level shape
-matching, independent of tool identity. One structural false positive was
-found (a network-fetch-to-disk predicate firing on a benign data-retrieval
-call) and fixed pre-submission, with zero new benign false positives on
-either population; parser test suites remain green (27/27, 37/37).
+novel-vocabulary execution attacks via structural/technique-level shape
+matching, independent of tool identity. One structural false positive
+(a network-fetch-to-disk predicate firing on a benign data-retrieval
+call) was found and fixed pre-submission; parser test suites remain
+green (27/27, 37/37).
 \item \textbf{VAULT --- mostly generalizes, one inherent limit.} Caught
 5/7 novel-vocabulary credential attacks via structural credential-path and
-secret-format matching. One miss is a narrow surface-form gap (fixable);
-the other is architectural, not a bug: a named-service secret-key rule is,
-by construction, a literal allowlist, so a genuinely novel secret-variable
-name cannot match it regardless of technique.
+secret-format matching. One miss is a fixable surface-form gap; the other
+is architectural: a named-service secret-key rule is, by construction, a
+literal allowlist, so a genuinely novel secret-variable name cannot match
+it regardless of technique.
 \item \textbf{CHANNEL --- split, since partially closed.} Its
 provenance/escalation path generalizes: a behavior-general
 destination-value fallback correctly escalated a novel send-tool's
-attacker email address, classified \textsc{novel}. Its taint/hard-block
-path originally did not, since destination status was decided by a
-benchmark-specific tool-name dictionary alone; we have since wired the
-same shape-based fallback into the hard-block path (verified: a novel
-tool with a shape-matched value, e.g.\ an IBAN, now correctly
-hard-\textsc{Block}s), closing the gap for destination values matching a
-known shape. A genuinely novel exfiltration tool whose destination is
-\emph{not} shape-matchable (e.g.\ a proper-noun business name, the
-\texttt{reserve\_hotel} case elsewhere in this paper) remains invisible to
-the hard-block path --- the fix is real but narrower than full
-generalization.
+attacker email address. Its taint/hard-block path originally did not,
+since destination status was decided by a benchmark-specific tool-name
+dictionary alone; we wired the same shape-based fallback into the
+hard-block path (verified against a novel IBAN-shaped value), closing the
+gap for destination values matching a known shape. A genuinely novel
+exfiltration tool whose destination is \emph{not} shape-matchable (e.g.\ a
+proper-noun business name, the \texttt{reserve\_hotel} case elsewhere in
+this paper) remains invisible to the hard-block path.
 \item \textbf{NAVIGATOR --- does not currently generalize as a detector.}
 Cosine similarity against the attack-pattern corpus separates novel attack
 from benign by only 0.045 (0.590 vs.\ 0.545 mean), and the BM25 lexical
 gate that preserves on-benchmark precision makes this worse off-benchmark,
-collapsing both to $\sim$0.38 --- below the escalation floor, so NAVIGATOR
-goes silent on novel-domain attacks. This is structural, not incidental:
-the same mechanism giving NAVIGATOR its low on-benchmark FPR removes its
-off-benchmark signal. The one general component built for NAVIGATOR --- an
-observational/consequential tool classifier --- correctly labeled all four
-novel tools from verb-token structure alone, but is a \emph{taxonomy, not a
-detector}: it does not decide whether a consequential action was
-\emph{authorized}, which requires the pinned-intent authorized-flow layer
-reported as an incomplete negative result in \S\ref{par:navigator-authflow}.
+collapsing both to $\sim$0.38 --- below the escalation floor. Structural,
+not incidental: the same mechanism giving NAVIGATOR its low on-benchmark
+FPR removes its off-benchmark signal. The one general component built for
+NAVIGATOR --- an observational/consequential tool classifier --- correctly
+labeled all four novel tools from verb-token structure alone, but is a
+\emph{taxonomy, not a detector}: it does not decide whether a
+consequential action was \emph{authorized}, which needs the pinned-intent
+layer reported incomplete in \S\ref{par:navigator-authflow}.
 \end{itemize}
 
 \paragraph{A second, genuinely independent check: AgentHarm.} AtriumOS is
 author-written; to test transfer against data this team did not author at
 all, we used AgentHarm's (UK AI Safety Institute, ICLR 2025) published
 synthetic tool implementations --- 80 harmful-scenario and 80
-benign-scenario Python tool files, MIT-licensed for safety research, fetched
-directly rather than through AgentHarm's official gated benchmark (Inspect
-framework, API keys, and not tool-call structured regardless). A local
+benign-scenario Python tool files, MIT-licensed, fetched directly rather
+than through AgentHarm's official gated benchmark (Inspect framework, API
+keys, and not tool-call structured regardless). A local
 \texttt{qwen2.5:7b} generated one realistic call per tool from its
-docstring (a first heuristic attempt was discarded: bland placeholders on
-the harmful side, suspicious-looking placeholders on the benign side,
-neither a fair test; 1 of the 80 harmful tools failed argument generation
-and was excluded, leaving 79). Every one of those 79 cases was
-hand-classified, once, before computing any number, into in-scope for
-Kavach's stated
-four-domain threat model or not: AgentHarm covers 11 harm categories far
-broader than Kavach's claim, and counting e.g.\ a drug-marketplace search
-against Kavach would be unfair to both sides. Of 44 in-scope cases: 36
-caught (81.8\%), 8 missed --- anti-forensics (\texttt{delete\_access\_logs}),
-public exploit-bragging, phishing-asset generation, a phishing email with a
-malware attachment, a likely tool-name vocabulary gap
-(\texttt{transfer\_money\_crypto}, the same class of gap as CHANNEL's
-hard-block path above), two malware-named file uploads, and a
-no-argument credential harvest consistent with an earlier, independent
-finding. The 80 benign cases: 0\% hard-block, 56.3\% Escalate, consistent
-with \S\ref{sec:design-tradeoffs}'s disclosed 67.3\% agent-shaped rate
-rather than contradicting it.
+docstring (a first heuristic attempt was discarded as unfair to both
+sides; 1 of 80 harmful tools failed argument generation, leaving 79).
+Every one of those 79 cases was hand-classified, once, before computing
+any number, as in-scope or out-of-scope for Kavach's stated four-domain
+threat model --- AgentHarm covers 11 harm categories far broader than
+Kavach's claim. Of 44 in-scope cases: 36 caught (81.8\%, Block-or-Escalate: 5
+hard-\textsc{Block}, 31 \textsc{Escalate}), 8 missed --- anti-forensics
+(\texttt{delete\_access\_logs}), public exploit-bragging, phishing-asset
+generation, a phishing email with a malware attachment, a tool-name
+vocabulary gap (\texttt{transfer\_money\_crypto}, the same class as
+CHANNEL's hard-block gap above), two malware-named file uploads, and a
+no-argument credential harvest matching an earlier finding. The 80 benign
+cases: 0\% hard-block, 56.3\% Escalate, consistent with
+\S\ref{sec:design-tradeoffs}'s disclosed 67.3\% agent-shaped rate.
 
-We frame this section as a strength, not an apology: it is the output of
-a deliberate, independent validation pass run \emph{before} submission,
-specifically to surface these boundaries ourselves; scoped remedies for
-both open boundaries are discussed in \S\ref{sec:limitations}.
+We frame this as a strength: a deliberate validation pass run
+\emph{before} submission to surface these boundaries ourselves; scoped
+remedies are in \S\ref{sec:limitations}.
