@@ -16,17 +16,16 @@ attack surface.
 
 Agent harnesses expose several classes of latent vulnerabilities.
 \emph{Configuration-as-code} attacks exploit declarative configuration the
-harness loads and executes without sanitization (CVE-2026-21852 on Claude
-Code's \texttt{.claude/settings.json}; CVE-2026-21858 on n8n).
-\emph{Serialization-injection} attacks exploit the harness's
-serialization/deserialization of tool responses and agent state, enabling
-arbitrary class instantiation in trusted namespaces (CVE-2025-68664 on
-LangChain Core, CVSS 9.3). \emph{Hook-bypass} attacks exploit incorrectly
-wired security hook points (OpenClaw issues \#5513, \#5943, where
-\texttt{before\_tool\_call} is documented but never invoked), and
-\emph{CSRF/session} attacks exploit the harness's web surface
-(CVE-2025-34291 on LangFlow, actively exploited in the wild as of January
-2026~\cite{crowdsec2026langflow}).
+harness loads and executes unsanitized (CVE-2026-21852 on Claude Code's
+\texttt{.claude/settings.json}; CVE-2026-21858 on n8n).
+\emph{Serialization-injection} attacks exploit serialization/deserialization
+of tool responses and agent state, enabling arbitrary class instantiation
+in trusted namespaces (CVE-2025-68664 on LangChain Core, CVSS 9.3).
+\emph{Hook-bypass} attacks exploit incorrectly wired security hook points
+(OpenClaw issues \#5513, \#5943: \texttt{before\_tool\_call} documented but
+never invoked), and \emph{CSRF/session} attacks exploit the harness's web
+surface (CVE-2025-34291 on LangFlow, actively exploited in the wild as of
+January 2026~\cite{crowdsec2026langflow}).
 
 These vulnerability classes correspond directly to Kavach's minister
 structure: EXECUTOR detects code-execution-class attacks (CVE-2025-59536,
@@ -74,12 +73,11 @@ execution --- useful for forensics, unable to prevent it.
 \paragraph{Drift-detection guardrails} (TaskTracker
 \cite{abdelnabi2024tasktracker}, DeepContext
 \cite{albrethsen2026deepcontext}, Trajectory Guard
-\cite{advani2026trajectoryguard}) measure trajectory divergence from stated
-intent across turns. Kavach's NAVIGATOR minister sits here at the per-call
-level, comparing a proposed consequential
-action against the session's pinned user intent; we report both a completed
-taxonomy layer and an incomplete authorization mechanism for it in
-\S\ref{sec:limitations}.
+\cite{advani2026trajectoryguard}) measure trajectory divergence from
+stated intent across turns. NAVIGATOR sits here at the per-call level,
+comparing a proposed consequential action against the session's pinned
+intent; we report both a completed taxonomy layer and an incomplete
+authorization mechanism in \S\ref{sec:limitations}.
 
 Across these categories, the tool-call boundary is the only enforcement point at
 which the \emph{resolved runtime arguments} of an action are available for

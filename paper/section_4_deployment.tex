@@ -18,13 +18,6 @@ throughout, and distinguish in-process from live-HTTP-dispatch
 measurements, since these diverged in ways that mattered
 (\S\ref{sec:audit-resolution}).
 
-Consistent with the ACM Policy on Authorship, generative AI tooling
-(Anthropic's Claude, via Claude Code) was used to implement detection
-mechanisms from the authors' designs, build and run the evaluation
-harnesses, and assist analysis; all methodology, architecture, and
-interpretation were specified and verified by the authors. Full
-disclosure follows the references.
-
 \subsection{An audit discrepancy, and how it was resolved}
 \label{sec:audit-resolution}
 Early in this work, three measurements of VAULT/EXECUTOR detection rate on
@@ -32,13 +25,12 @@ the same reference corpus disagreed sharply: 34.2\%/34.5\% (deterministic
 layer alone, in-process, since superseded by a VAULT rule fix to the
 current 35.9\%/34.5\%, \S\ref{sec:vault-executor}), 72.6\%/89.9\% (full
 pipeline, in-process), and 14.9\%/19.2\% (an earlier live-HTTP
-measurement). Two independent causes were responsible: the live-HTTP
-figure was corrupted by a duplicate server process answering a fraction of
-requests, and the metric itself differed --- one measurement counted
-\textsc{Block}-or-\textsc{Escalate} as a hit, another counted only the
-deterministic layer's contribution. Once corrected, the live-HTTP and
-in-process full-pipeline numbers agreed --- a reminder that a benchmark
-harness's own bugs can masquerade as detector performance.
+measurement). Two causes: a duplicate server process corrupted the
+live-HTTP figure by answering a fraction of requests, and the metric
+itself differed --- one counted \textsc{Block}-or-\textsc{Escalate} as a
+hit, another only the deterministic layer's contribution. Corrected, the
+live-HTTP and in-process numbers agreed --- a benchmark harness's own bugs
+can masquerade as detector performance.
 
 \subsection{A composite evaluation corpus for VAULT and EXECUTOR}
 \label{sec:kavach-pb}
@@ -159,6 +151,17 @@ cosine-primary ablation above: a naive filter under-detects, a generic LLM
 judge (at either scale) trades recall against precision but cannot match
 both, and cosine-primary approaches neither Kavach's recall nor its
 zero-FPR guarantee.
+
+\paragraph{This comparison is not symmetric; we disclose the gap.} The
+three baselines above are single-tier (flagged or not); Kavach's figures
+mix Block and the softer Escalate. As a single hard-block action, Kavach's
+own recall on these 519 cases is 153/519 (29.5\%) --- below both judges'
+flagged rate --- and its own any-minister FPR on the same benign
+populations is 29.6\%/67.3\% (BFCL/agent-shaped), \emph{above} either
+judge's (1.4\%/14.5\% at 7B, 0.4\%/0\% at 32B). Weigh 29.5\%/29.6\%/67.3\%
+against these baselines' binary figures, not 99.2\%/0\%; the latter pair
+is a fair comparison only against another Block-or-Escalate system, such
+as the cosine-primary ablation above.
 
 This split addresses partition luck, not rule-authoring circularity: the
 deterministic rules were authored by inspecting misses across the full

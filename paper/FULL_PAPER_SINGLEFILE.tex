@@ -153,11 +153,11 @@ only as an escalate-only triage layer over the deterministic residual.
 standard benchmarks we also evaluate against below, almost entirely miss
 VAULT and EXECUTOR --- both stress CHANNEL's mechanisms specifically, a gap
 we found live while validating this rearchitecture, not one we anticipated.
-We built Kavach-PB (\S\ref{sec:kavach-pb}), a composite benchmark that closes
+We assembled a composite evaluation corpus (\S\ref{sec:kavach-pb}) that closes
 this gap by reusing real, externally-validated attack data (AtomicRedTeam,
 GTFOBins) under one runner and one per-minister scoring convention, rather
 than authoring new synthetic attacks that risk being unconsciously shaped to
-be catchable by the system being evaluated. On Kavach-PB's 519-case
+be catchable by the system being evaluated. On the 519-case
 reference corpus, deterministic-primary detection with cosine triage reaches
 VAULT 74.4\% and EXECUTOR 90.1\%, stable under a held-out split, with zero
 new benign false positives across two independent benign populations.
@@ -707,7 +707,7 @@ verdict is issued.
 \label{sec:eval}
 
 We evaluate Kavach on three independent axes: deterministic-primary
-detection on Kavach-PB, a composite benchmark we built specifically because
+detection on a composite evaluation corpus assembled specifically because
 the two standard benchmarks below almost entirely miss VAULT and EXECUTOR
 (\S\ref{sec:kavach-pb}--\ref{sec:vault-executor-eval}), CHANNEL's
 session-level provenance mechanism against real multi-step attack and
@@ -738,7 +738,7 @@ understate how easily a benchmark harness's own bugs can masquerade as
 detector performance --- a risk equally present in any comparably complex
 evaluation pipeline, ours included.
 
-\subsection{Kavach-PB: a composite benchmark for all four ministers}
+\subsection{A composite evaluation corpus for all four ministers}
 \label{sec:kavach-pb}
 InjecAgent and AgentDojo, the two standard agent-security benchmarks we rely
 on elsewhere in this section, almost exclusively stress CHANNEL: InjecAgent's
@@ -750,8 +750,8 @@ validating VAULT/EXECUTOR's deterministic-primary rearchitecture
 (\S\ref{sec:deterministic-primary}) and discovering we had no real benchmark
 to validate it against --- not an anticipated design requirement.
 
-Rather than author new synthetic attacks to close this gap, we built
-\textbf{Kavach-PB} (Kavach Parliament Benchmark): a unified, composite
+Rather than author new synthetic attacks to close this gap, we assembled
+a unified, composite
 adversarial evaluation suite that reuses already-real, externally-validated
 attack data under one runner, one wire format, and one scoring convention
 across all four ministers. This choice is deliberate and methodological, not
@@ -794,9 +794,9 @@ not agent-shaped --- a clean result here is real but weaker evidence, a
 domain mismatch we state rather than obscure) and the 55-case agent-shaped
 benign set (the stronger evidence).
 
-\subsection{Kavach-PB results: VAULT and EXECUTOR}
+\subsection{Evaluation corpus results: VAULT and EXECUTOR}
 \label{sec:vault-executor-eval}
-On Kavach-PB's 519-case AtomicRedTeam/GTFOBins reference corpus (117
+On the 519-case AtomicRedTeam/GTFOBins reference corpus (117
 VAULT-targeted, 203 EXECUTOR-targeted cases; the corpus's
 \texttt{target\_patterns} field is unmodified since its original authoring
 commit, confirmed via \texttt{git diff}, so it is independent ground truth
@@ -1276,7 +1276,7 @@ environment---``AtriumOS,'' a smart-building/industrial-facility control
 agent---with an entirely invented tool vocabulary (\texttt{FacilityConfigRead},
 \texttt{HvacDiagnostic}, \texttt{UnlockPerimeterGate},
 \texttt{RetrieveTenantAccessLog}, and so on) that shares no tool name, corpus
-term, or surface phrasing with InjecAgent, AgentDojo, or Kavach-PB
+term, or surface phrasing with InjecAgent, AgentDojo, or our reference corpus
 (\S\ref{sec:kavach-pb}). We then
 dispatched 18 attack and 18 matched-benign scenarios---covering each minister's
 intended detection \emph{shape} (credential exfiltration, dangerous execution,

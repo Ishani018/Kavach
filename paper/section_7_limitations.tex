@@ -19,30 +19,28 @@ compatible with our pipeline.
 inapplicable, not weaker.}
 \label{par:external-baselines}
 We attempted comparison against the two closest available external
-tools. Both proved structurally inapplicable rather than merely weaker:
+tools; both proved structurally inapplicable, not merely weaker:
 CodeShield's supported-language set
 (C/C++/C\#/Java/\allowbreak JavaScript/\allowbreak PHP/Python/Rust)
 excludes the shell, PowerShell, and cmd dialects comprising $\sim$87\% of
-our reference corpus's adversary-emulation commands, and gitleaks ---
-a secret-value scanner --- produces zero findings on all 519 cases, since
-they encode credential-access techniques rather than embedded literal
-secrets. We report this as corroborating the enforcement-boundary gap
-this paper targets, not a performance comparison.
+our corpus's adversary-emulation commands, and gitleaks --- a
+secret-value scanner --- finds zero hits on all 519 cases, since they
+encode credential-access techniques rather than embedded literal
+secrets: corroborating the enforcement-boundary gap this paper targets,
+not a performance comparison.
 
 \paragraph{Tamper-evident, not tamper-proof.} The hash-chained ledger
 detects post-hoc edits to any recorded decision or its provenance, but an
-attacker with write access to the database can recompute the entire
-chain; defeating that requires anchoring the chain head to an external
-append-only medium, which we do not implement. We found and fixed a real
-bug in the ledger's own \emph{verification} query during this work
-(\S\ref{sec:provenance}).
+attacker with database write access can recompute the entire chain;
+defeating that needs an external append-only anchor, which we do not
+implement. We found and fixed a real bug in the ledger's own
+\emph{verification} query during this work (\S\ref{sec:provenance}).
 
 \paragraph{Curated corpus and deterministic rule set.} Both the
 cosine-triage corpus and the deterministic prefilters' rule sets are
 authored against published taxonomies (MITRE ATT\&CK/ATLAS, AtomicRedTeam,
 GTFOBins) and known attack corpora (InjecAgent, AgentDojo); a genuinely
-novel technique outside both may not be caught
-(\S\ref{sec:generalization-audit}).
+novel technique outside both may go uncaught (\S\ref{sec:generalization-audit}).
 
 \paragraph{The reserve\_hotel gap is representative of a broader,
 unfixed class.} \S\ref{sec:gpt4o} categorizes the 19 genuine
@@ -53,11 +51,10 @@ destination value to trace at all, structurally not closeable by any
 refinement of CHANNEL's mechanism --- the shape of question
 \S\ref{par:navigator-authflow} reports as unresolved.
 
-\paragraph{Single embedding model.} The cosine-triage layer and NAVIGATOR use
-a single encoder (\texttt{bge-base-en-v1.5}), selected for open-source
-offline reproducibility rather than by a comparative ablation; whether an
-alternative open-source retrieval encoder would shift the residual
-detection rate is an open question we leave to future work.
+\paragraph{Single embedding model.} Cosine-triage and NAVIGATOR use one
+encoder (\texttt{bge-base-en-v1.5}), chosen for offline reproducibility,
+not comparative ablation; whether another retrieval encoder shifts the
+residual detection rate is left to future work.
 
 \paragraph{PowerShell's real AST is correct but too slow for the live
 path.} \S\ref{sec:vault-executor} reports why PowerShell calls are scored

@@ -78,31 +78,27 @@ misses, each categorized precisely by mechanism (\S\ref{sec:gpt4o}).
 \textbf{Fourth, honestly reported negative results
 (\S\ref{sec:limitations}).} NAVIGATOR, the one minister not moved to
 deterministic-primary detection, is reported in full: an abandoned
-deterministic swap, and three independently designed session-level
-authorization heuristics that each failed a frozen discriminability
-criterion, for three distinct reasons. Independent generalization checks
-against both a fictional agent vocabulary and an externally-published
-attack corpus establish precisely which mechanisms transfer and which do
-not --- EXECUTOR cleanly, VAULT mostly, CHANNEL's escalation path but not
-its hard-block path, NAVIGATOR not at all (\S\ref{sec:limitations}).
-Knowing precisely where each mechanism does and does not generalize is
-what distinguishes known limits from limits not yet found.
+deterministic swap, and three independently designed authorization
+heuristics that each failed a frozen discriminability criterion, for
+three distinct reasons. Independent generalization checks against a
+fictional agent vocabulary and an externally-published attack corpus show
+precisely which mechanisms transfer --- EXECUTOR cleanly, VAULT mostly,
+CHANNEL's escalation path but not its hard-block path, NAVIGATOR not at
+all (\S\ref{sec:limitations}).
 
 \paragraph{Scope and non-claims.} We do not claim Kavach prevents every
-class of agent-side attack. Its deterministic rules are authored against
-published taxonomies and known attack corpora; a genuinely novel technique
-outside both may not be caught, characterized precisely by the
+class of agent-side attack: its deterministic rules are authored against
+published taxonomies and known attack corpora, and a genuinely novel
+technique outside both may not be caught, characterized precisely by the
 generalization audit (\S\ref{sec:limitations}) rather than left as an
 assumption. NAVIGATOR's authorization question --- was this action
-derivable from what the user actually asked for --- remains open past a
-validated taxonomy classifier; we report the attempts and failure modes
-rather than a completed mechanism. We do not propose Kavach as a
-replacement for input-time or output-time guardrails; it enforces at a
-different lifecycle boundary, and a comprehensive deployment runs more
-than one.
+derivable from what the user asked for --- remains open past a validated
+taxonomy classifier; we report the attempts and failure modes, not a
+completed mechanism. Nor do we propose Kavach as a replacement for
+input-time or output-time guardrails: it enforces at a different
+lifecycle boundary, and a comprehensive deployment runs more than one.
 
-\paragraph{Reproducibility.} The parliament service, the deterministic
-prefilters and their test suites, the reference-corpus evaluation harness,
-and the real-trajectory replay scripts used for every number in
-\S\ref{sec:eval} run entirely offline on CPU-only hardware, with no GPU or
-paid API access required.
+\paragraph{Reproducibility.} The parliament service, deterministic
+prefilters and test suites, evaluation harness, and replay scripts behind
+every number in \S\ref{sec:eval} run entirely offline on CPU-only
+hardware, no GPU or paid API access required.
