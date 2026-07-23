@@ -34,16 +34,17 @@ comparing embeddings.
 \paragraph{Contributions.}
 
 \textbf{First, a methodology finding: deterministic parsing beats cosine
-similarity when the attack signal is structural (\S\ref{sec:design}).} A
-lexical-inflation bug, a dense fine-tune that traded one failure mode for a
-worse one, a corpus-coverage gap that generalized past its original
-motivating case, and a proposed fifth minister that we formally falsified
-before building --- paired legitimate/malicious tool calls that differ only
-in argument content show near-zero cosine similarity deltas (0.003--0.024)
---- together make the case that credential-path shapes, network-fetch-to-disk
-patterns, and destination-value provenance are answered more reliably by
-deterministic parsing over an action's resolved arguments than by any
-refinement of embedding similarity over its semantic content. We moved
+similarity when the attack signal is structural (\S\ref{sec:design}).}
+Four independent lines of evidence make this case: a lexical-inflation
+bug, a dense fine-tune that traded one failure mode for a worse one, a
+corpus-coverage gap that generalized past its original motivating case,
+and a proposed fifth minister formally falsified before we built it, since
+paired legitimate/malicious tool calls differing only in argument content
+show near-zero cosine similarity deltas (0.003--0.024). Together, these
+show that credential-path shapes, network-fetch-to-disk patterns, and
+destination-value provenance are answered more reliably by deterministic
+parsing over an action's resolved arguments than by any refinement of
+embedding similarity over its semantic content. We moved
 three of Kavach's four ministers (VAULT, EXECUTOR, CHANNEL) to
 deterministic-primary detection on this evidence, keeping cosine similarity
 only as an escalate-only triage layer over the deterministic residual.
