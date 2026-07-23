@@ -37,17 +37,15 @@ destinations (verified: a novel IBAN-shaped value). A destination that is
 \emph{not} shape-matchable (e.g.\ \texttt{reserve\_hotel} elsewhere in
 this paper) remains invisible to it.
 \item \textbf{NAVIGATOR --- does not currently generalize as a detector.}
-Cosine similarity against the attack-pattern corpus separates novel attack
-from benign by only 0.045 (0.590 vs.\ 0.545 mean), and the BM25 lexical
-gate that preserves on-benchmark precision makes this worse off-benchmark,
+Cosine similarity separates novel attack from benign by only 0.045 (0.590
+vs.\ 0.545 mean), and the BM25 lexical gate makes this worse off-benchmark,
 collapsing both to $\sim$0.38 --- below the escalation floor. Structural,
-not incidental: the same mechanism giving NAVIGATOR its low on-benchmark
-FPR removes its off-benchmark signal. The one general component built for
-NAVIGATOR --- an observational/consequential tool classifier --- correctly
-labeled all four novel tools from verb-token structure alone, but is a
-\emph{taxonomy, not a detector}: it does not decide whether a
-consequential action was \emph{authorized}, which needs the pinned-intent
-layer reported incomplete in \S\ref{par:navigator-authflow}.
+not incidental: the mechanism giving NAVIGATOR its low on-benchmark FPR
+removes its off-benchmark signal. Its one general component --- an
+observational/consequential classifier --- labeled all four novel tools
+correctly, but is a \emph{taxonomy, not a detector}: it does not decide
+whether an action was \emph{authorized}, needing the pinned-intent layer
+reported incomplete in \S\ref{par:navigator-authflow}.
 \end{itemize}
 
 \paragraph{A second, genuinely independent check: AgentHarm.} AtriumOS is

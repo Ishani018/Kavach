@@ -121,18 +121,23 @@ populations' benign:attack ratios are corpus-constructed, not a measured
 production base rate, so these figures should be read relative to each
 other, not as an absolute expectation.
 
-For comparison, the pre-rearchitecture cosine-primary configuration ---
-same harness, same 519 cases, same scoring convention, code unmodified from
-before the rearchitecture --- recovers VAULT 67.5\% (79/117) and EXECUTOR
-85.7\% (174/203) target-minister recall, but with a 4.9\% (39/793)
-hard-block false-positive rate on general-purpose benign (BFCL) traffic.
-The deterministic-primary pipeline exceeds cosine-primary's recall on both
-ministers (74.4\%/90.1\% vs.\ 67.5\%/85.7\%) while eliminating that
-false-positive rate entirely (0\% hard-block FPR on both benign
-populations) --- both an ablation for the paper's central
-deterministic-vs-cosine claim and a same-team, same-harness baseline
-showing the rearchitecture improves both recall and hard-block FPR over
-the design it replaced on this same 519-case corpus.
+The controlled comparison for our central claim is architecture vs.\
+architecture, full pipeline vs.\ full pipeline, not component vs.\ system.
+Pre-rearchitecture cosine-primary --- same harness, same 519 cases, code
+unmodified, Block-or-Escalate counted as a hit on both sides (re-verified
+by re-running this exact old code against the current corpus: 79/117 and
+174/203, confirming the convention matches rather than asserting it) ---
+recovers VAULT 67.5\% (79/117) and EXECUTOR 85.7\% (174/203), at a 4.9\%
+(39/793) hard-block false-positive rate on general-purpose benign (BFCL)
+traffic. Deterministic-primary (\S\ref{sec:vault-executor-eval}'s
+74.4\%/90.1\%, not the deterministic layer's own 35.9\%/34.5\% standalone
+figure, a decomposition of it) wins both axes: a modest,
+mechanism-attributable recall gain (+6.9pp VAULT, 87 vs.\ 79, +8 cases;
++4.4pp EXECUTOR, 183 vs.\ 174, +9 cases) alongside the decisive result,
+hard-block FPR eliminated (4.9\%\,$\to$\,0\% on both benign populations)
+--- a same-team, same-harness baseline showing the
+rearchitecture improves on the design it replaced on this same 519-case
+corpus.
 
 We additionally compare against two independent, non-Kavach baselines on
 the identical 519-case corpus and both benign populations, matching their
