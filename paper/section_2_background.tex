@@ -89,8 +89,10 @@ only after it has executed, too late to prevent it; and information-flow guards
 enforce data provenance rather than the semantics of the argument content. This
 is Kavach's enforcement point, and it is structurally unreachable by guards in
 the other categories: they fire at boundaries where the resolved-argument view
-does not yet, or no longer, exists --- confirmed empirically in
-\S\ref{par:external-baselines}.
+does not yet, or no longer, exists. \S\ref{par:external-baselines} reports a
+consistent, if narrower, coverage gap for the two closest available
+tool-call-content tools specifically, not a test of the general structural
+claim above.
 
 Table~\ref{tab:guardrail-comparison} (\S\ref{sec:related}) places Kavach in
 context on five axes: enforcement boundary, mechanism, corpus extensibility,
