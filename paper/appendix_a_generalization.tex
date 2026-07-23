@@ -35,25 +35,22 @@ it regardless of technique.
 provenance/escalation path generalizes: a behavior-general
 destination-value fallback correctly escalated a novel send-tool's
 attacker email address. Its taint/hard-block path originally did not,
-since destination status was decided by a benchmark-specific tool-name
-dictionary alone; we wired the same shape-based fallback into the
-hard-block path (verified against a novel IBAN-shaped value), closing the
-gap for destination values matching a known shape. A genuinely novel
-exfiltration tool whose destination is \emph{not} shape-matchable (e.g.\ a
-proper-noun business name, the \texttt{reserve\_hotel} case elsewhere in
-this paper) remains invisible to the hard-block path.
+since destination status came from a benchmark-specific tool-name
+dictionary alone; we wired the same shape-based fallback into it (verified
+against a novel IBAN-shaped value), closing the gap for shape-matchable
+destinations. A genuinely novel tool whose destination is \emph{not}
+shape-matchable (e.g.\ a proper-noun business name, \texttt{reserve\_hotel}
+elsewhere in this paper) remains invisible to the hard-block path.
 \item \textbf{NAVIGATOR --- does not currently generalize as a detector.}
-Cosine similarity against the attack-pattern corpus separates novel attack
-from benign by only 0.045 (0.590 vs.\ 0.545 mean), and the BM25 lexical
-gate that preserves on-benchmark precision makes this worse off-benchmark,
+Cosine similarity separates novel attack from benign by only 0.045 (0.590
+vs.\ 0.545 mean), and the BM25 lexical gate makes this worse off-benchmark,
 collapsing both to $\sim$0.38 --- below the escalation floor. Structural,
-not incidental: the same mechanism giving NAVIGATOR its low on-benchmark
-FPR removes its off-benchmark signal. The one general component built for
-NAVIGATOR --- an observational/consequential tool classifier --- correctly
-labeled all four novel tools from verb-token structure alone, but is a
-\emph{taxonomy, not a detector}: it does not decide whether a
-consequential action was \emph{authorized}, which needs the pinned-intent
-layer reported incomplete in \S\ref{par:navigator-authflow}.
+not incidental: the mechanism giving NAVIGATOR its low on-benchmark FPR
+removes its off-benchmark signal. Its one general component --- an
+observational/consequential classifier --- labeled all four novel tools
+correctly, but is a \emph{taxonomy, not a detector}: it does not decide
+whether an action was \emph{authorized}, needing the pinned-intent layer
+reported incomplete in \S\ref{par:navigator-authflow}.
 \end{itemize}
 
 \paragraph{A second, genuinely independent check: AgentHarm.} AtriumOS is
