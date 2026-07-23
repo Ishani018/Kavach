@@ -44,37 +44,32 @@
 % NOTE: mentor acknowledgement added in camera-ready only (kept out for double-blind).
 
 \begin{abstract}
-LLM agents increasingly act in the world through tool calls, but the guardrails
-deployed to secure them overwhelmingly evaluate an agent's language --- its
-prompt, its chain-of-thought, its output --- rather than the resolved
-arguments of the action it is about to take. We present Kavach, a runtime
-monitor that intercepts every tool call at the moment its arguments are
-resolved, before any side effect occurs, via a parliament of four
-domain-specialized ministers --- VAULT (credentials), EXECUTOR (dangerous
-code), CHANNEL (exfiltration), and NAVIGATOR (unauthorized action, the
-least mature of the four and, as we report, not yet an independently
-validated detector) --- whose verdicts a deterministic speaker combines
-into Block, Escalate, or Allow. We make four contributions. First, a
-methodology finding: four independent lines of evidence show deterministic
-parsing over an action's resolved arguments outperforms cosine similarity
-over its semantic embedding when the attack signal is structural, moving
-three of Kavach's four detectors to deterministic-primary detection.
-Second, a deployment with real numbers: 544/544 on InjecAgent's
-data-stealing corpus via CHANNEL's taint mechanism (direct-harm remains an
-open gap: 0\% strict recall per minister, 3.1\% in aggregate via
-TRAJECTORY); 5/5 structurally applicable AgentDojo attacks correctly
-escalated with zero false blocks on 22 real benign sessions; and, on a
-519-case supporting suite covering VAULT and EXECUTOR specifically, since
-InjecAgent/AgentDojo barely exercise either, 74.4\%/90.1\% detection with
-zero new benign false positives, over half escalate-only review-flags
-rather than hard-blocks, a split reported throughout. Third, a
-large-scale real-trajectory validation: replaying all 629 real recorded
-GPT-4o attack trajectories AgentDojo has published, Kavach fires on 74.2\%,
-tracing every apparent miss to its actual tool-call content. Fourth,
-negative results reported in full: failed authorization heuristics, an
-abandoned deterministic swap, an independent generalization audit against
-a fictional vocabulary, and a benign-side gap in CHANNEL's taint mechanism
-found and fixed by direct measurement. Kavach needs no GPU and is fully
+LLM agents increasingly act in the world through tool calls, but deployed
+guardrails overwhelmingly evaluate an agent's language rather than the
+resolved arguments of the action it is about to take. We present Kavach,
+a runtime monitor that intercepts every tool call at the moment its
+arguments are resolved, via a parliament of four domain-specialized
+ministers --- VAULT (credentials), EXECUTOR (dangerous code), CHANNEL
+(exfiltration), and NAVIGATOR (unauthorized action, the least mature of
+the four and not yet independently validated) --- whose verdicts a
+deterministic speaker combines into Block, Escalate, or Allow. Four
+contributions. First: four independent lines of evidence show
+deterministic parsing over resolved arguments outperforms cosine
+similarity over semantic embedding when the attack signal is structural,
+moving three of four detectors to deterministic-primary detection.
+Second, real deployment numbers: 544/544 on InjecAgent's data-stealing
+corpus via CHANNEL's taint mechanism (direct-harm open: 0\% per minister,
+3.1\% via TRAJECTORY); 5/5 AgentDojo attacks escalated with zero false
+blocks on 22 benign sessions; and, on a 519-case suite for VAULT/EXECUTOR
+(InjecAgent/AgentDojo barely exercise either), 74.4\%/90.1\% detection
+with zero new false positives, over half escalate-only. Third: replaying
+all 629 real recorded GPT-4o attack trajectories AgentDojo publishes,
+Kavach fires on 74.2\%, tracing every apparent miss to its actual
+tool-call content. Fourth, negative results in full: failed authorization
+heuristics, an abandoned deterministic swap, independent generalization
+checks against both an author-written novel vocabulary and an externally
+published attack corpus, and a benign-side gap in CHANNEL's taint
+mechanism found and fixed by direct measurement. No GPU required; fully
 reproducible offline.
 \end{abstract}
 
@@ -140,12 +135,12 @@ prompt/input boundary pre-deployment rather than enforcing at the
 tool-call boundary at runtime --- complementary to, not competing with,
 Kavach.
 
-Table~\ref{tab:guardrail-comparison} (Appendix~B) situates Kavach against
+Table~\ref{tab:guardrail-comparison} (Appendix~A) situates Kavach against
 26 systems on five axes, drawn from each cited paper's own evaluation
 setup --- benchmark subset, environment, and threat model all vary --- so
 it is a map of enforcement boundaries and mechanisms, not a leaderboard;
 no number in it is directly comparable across rows. Full comparison
-in Appendix~B.
+in Appendix~A.
 
 \section{Limitations}
 \label{sec:limitations}
@@ -168,14 +163,14 @@ results trustworthy.
 
 \appendix
 
-\section{Generalization Audit Methodology and Full Results}
-\label{sec:appendix-generalization}
-\input{appendix_a_generalization}
-
 \section{Extended Related Work Comparison}
 \label{sec:appendix-related}
 \input{appendix_b_related_work}
 \FloatBarrier
+
+\section{Generalization Audit Methodology and Full Results}
+\label{sec:appendix-generalization}
+\input{appendix_a_generalization}
 
 \section{Provenance Ledger}
 \label{sec:appendix-provenance}

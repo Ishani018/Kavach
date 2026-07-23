@@ -109,14 +109,13 @@ assumed:
 
 \paragraph{Real AST parsing where it is both correct and fast.} For
 \texttt{sh}/\texttt{bash}, arguments are parsed with \texttt{bashlex} into a
-real abstract syntax tree, closing shape-based false negatives a tokenizer
-cannot (e.g.\ heredoc body content) at $\sim$0.5\,ms per call. PowerShell
-has an equivalently real AST, but invoking it needs a
-\texttt{powershell.exe} subprocess, measured at $\sim$1.4\,s per call ---
-18$\times$ over budget --- so the real AST is wired into the live path only
-for \texttt{sh}/\texttt{bash}; PowerShell and \texttt{command\_prompt}
-remain on the structural tokenizer below, with the real PowerShell AST kept
-available as an offline/audit tool rather than a live dependency.
+real syntax tree, closing shape-based false negatives a tokenizer cannot
+(e.g.\ heredoc content) at $\sim$0.5\,ms per call. PowerShell has an
+equivalently real AST, but invoking it needs a \texttt{powershell.exe}
+subprocess at $\sim$1.4\,s per call --- 18$\times$ over budget --- so the
+real AST is wired in only for \texttt{sh}/\texttt{bash}; PowerShell and
+\texttt{command\_prompt} remain on the tokenizer below, with the real
+PowerShell AST kept as an offline/audit tool.
 
 \paragraph{A structural tokenizer for the remaining dialects.} For dialects
 where a real grammar parser is unavailable or too slow, a lightweight
@@ -242,21 +241,19 @@ the latency cost to maintain the guarantee that no tool executes before a
 verdict is issued.
 
 \paragraph{A pre-rearchitecture session monitor remains active alongside the
-four ministers.} TRAJECTORY predates this project's rearchitecture
-(\S\ref{sec:deterministic-primary}) and was not moved to deterministic-primary
-detection; it combines five signals --- accumulated per-call confidence,
-drift from a seeded session intent, pairwise action coherence, denial-echo
-detection, and cross-minister escalation --- into a single per-session risk
-score, sharing the same underlying mechanism as the standalone intent-drift
-detector reported as a negative result in \S\ref{sec:limitations}.
-TRAJECTORY is not a first-line detector: across every locked evaluation,
-zero cases counted toward a reported detection number were first identified
-by TRAJECTORY --- a minister always fires first. It instead re-confirms or
-escalates a subset of already-detected cases at the session level: 148 of
+four ministers.} TRAJECTORY predates this rearchitecture
+(\S\ref{sec:deterministic-primary}) and combines five signals ---
+per-call confidence, session-intent drift, action coherence, denial-echo,
+cross-minister escalation --- into a per-session risk score, sharing its
+mechanism with the intent-drift detector reported as a negative result
+in \S\ref{sec:limitations}. It is not a first-line detector: zero cases
+counted toward a reported detection number were first identified by
+TRAJECTORY across every locked evaluation --- a minister always fires
+first. It instead re-confirms or escalates already-detected cases: 148 of
 the 629 real GPT-4o trajectories in \S\ref{sec:gpt4o} (none affecting the
-reported 467/629), and, notably, 3 of the 22 real benign AgentDojo sessions
-in \S\ref{sec:channel-eval} --- a hard \textsc{Block}, jointly with
-NAVIGATOR, on benign traffic our own escalate-only CHANNEL mechanism does
-not produce. We report this plainly: it is a real false-positive-producing
+reported 467/629), and 3 of the 22 real benign AgentDojo sessions in
+\S\ref{sec:channel-eval} --- a hard \textsc{Block}, jointly with
+NAVIGATOR, on benign traffic our escalate-only CHANNEL mechanism does not
+produce. We report this plainly: a real false-positive-producing
 interaction on a live component not subject to the same validation rigor
 as VAULT, EXECUTOR, and CHANNEL, and not a contribution of this paper.
