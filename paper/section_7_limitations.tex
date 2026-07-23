@@ -130,7 +130,10 @@ to the 73 with an anchor), dialect-native transforms ---
 \texttt{-EncodedCommand}, caret-escaping, split/indirection: true evasion
 is markedly higher, 28.9\% (encode, 76/263), 16.4\% (split, 12/73), 19.2\%
 (indirect, 14/73), 102/409 (24.9\%) overall --- confirming the
-tokenizer-not-AST hypothesis empirically. Still a first pass, not
+tokenizer-not-AST hypothesis empirically. Unlike sh/bash, not every case
+is backstopped here: 97/102 are still caught by a different mechanism,
+but 5 (all \texttt{encode}) reach \textsc{Allow} entirely --- a genuine,
+unmitigated miss, not merely a per-mechanism one. Still a first pass, not
 adversarial; an attacker targeting two or more mechanisms at once is
 untested, and \S\ref{sec:eval}'s rates should be read as non-adaptive
 until then.

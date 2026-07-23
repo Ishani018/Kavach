@@ -217,12 +217,19 @@ comparison at this granularity, so we replayed AgentDojo's own 97 recorded
 no-injection GPT-4o trajectories (one per real user task) under the
 identical criterion. Kavach fires on 64/97 (66.0\%), but as a single
 hard-block action --- comparable to actual breakage --- only 4/97
-(4.1\%) are hard-\textsc{Block}; the rest are soft \textsc{Escalate}.
-Per-minister credit: CHANNEL 28, EXECUTOR 19, NAVIGATOR 12, VAULT 5 ---
-NAVIGATOR is a minority contributor; CHANNEL and EXECUTOR alone account
-for 47/64 (73\%). This recontextualizes rather than invalidates 74.2\%,
-consistent with \S\ref{sec:design-tradeoffs}'s 67.3\% Escalate rate: read
-66.0\%/74.2\% as sensitivity, 4.1\% as the real hard-block cost.
+(4.1\%) are hard-\textsc{Block}; the rest are soft \textsc{Escalate}
+(one minister credited per fired case, same convention as
+\S\ref{sec:injecagent}). Per-minister credit: CHANNEL 28, EXECUTOR 19,
+NAVIGATOR 12, VAULT 5 --- NAVIGATOR is a minority contributor; CHANNEL and
+EXECUTOR alone account for 47/64 (73\%). On the attack side, hard-Block
+alone fires on 7/629 (1.1\%) --- \emph{lower}, not higher, than the
+benign control's 4.1\%, because these are session-level provenance
+attacks and CHANNEL deliberately escalates rather than hard-blocks that
+signal class (\S\ref{sec:design-tradeoffs}); hard-Block is reserved for
+VAULT/EXECUTOR's structural certainty, which multi-step AgentDojo
+sessions rarely trigger. This recontextualizes rather than invalidates
+74.2\%, consistent with \S\ref{sec:design-tradeoffs}'s 67.3\% Escalate
+rate: read 66.0\%/74.2\% as sensitivity, not precision.
 
 \paragraph{Diagnosing the apparent misses.}
 Of the 162 trajectories on which Kavach did not fire, we traced every case
