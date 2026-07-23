@@ -213,15 +213,16 @@ real tool calls and outputs, not a minimal ground-truth replay.
 (100\%), travel 63/140 (45.0\%), workspace 180/240 (75.0\%).
 
 \paragraph{Benign control, same criterion.} 74.2\% had no benign
-comparison at this granularity, so we replayed AgentDojo's own 124
-recorded no-injection GPT-4o trajectories (one per user task, zero
-attacker instruction present) under the identical criterion. Kavach fires
-on 80/124 (64.5\%): banking 17/25, slack 26/26 (100\%), travel 8/27,
-workspace 29/46. This recontextualizes rather than invalidates 74.2\%,
-consistent with \S\ref{sec:design-tradeoffs}'s already-disclosed 67.3\%
-agent-shaped Escalate rate: read 74.2\% as this criterion's sensitivity,
-not a precision figure --- \S\ref{sec:design-tradeoffs}'s
-Escalate-precision numbers remain the honest read on cost.
+comparison at this granularity, so we replayed AgentDojo's own 97 recorded
+no-injection GPT-4o trajectories (one per real user task) under the
+identical criterion. Kavach fires on 64/97 (66.0\%), but as a single
+hard-block action --- comparable to actual breakage --- only 4/97
+(4.1\%) are hard-\textsc{Block}; the rest are soft \textsc{Escalate}.
+Per-minister credit: CHANNEL 28, EXECUTOR 19, NAVIGATOR 12, VAULT 5 ---
+NAVIGATOR is a minority contributor; CHANNEL and EXECUTOR alone account
+for 47/64 (73\%). This recontextualizes rather than invalidates 74.2\%,
+consistent with \S\ref{sec:design-tradeoffs}'s 67.3\% Escalate rate: read
+66.0\%/74.2\% as sensitivity, 4.1\% as the real hard-block cost.
 
 \paragraph{Diagnosing the apparent misses.}
 Of the 162 trajectories on which Kavach did not fire, we traced every case

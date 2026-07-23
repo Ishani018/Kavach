@@ -75,6 +75,13 @@ def find_trajectory_files():
         if not suite_dir.is_dir():
             continue
         for ut_dir in sorted(suite_dir.iterdir()):
+            # Only real user_task_* directories -- injection_task_*/none/none.json
+            # also exists but is a harness bookkeeping artifact, not a distinct
+            # user task (its own user_task_id field reads "injection_task_N",
+            # not a real task; including it double-counted 27 bogus benign
+            # trajectories on top of AgentDojo's real 97 user tasks).
+            if not ut_dir.name.startswith("user_task_"):
+                continue
             none_file = ut_dir / "none" / "none.json"
             if none_file.is_file():
                 files.append((suite, ut_dir.name, none_file))
@@ -182,6 +189,15 @@ def main():
     for s, c in by_suite.items():
         print(f"  {s}: {c['fired']}/{c['n']} Kavach fired, {c['channel']}/{c['n']} CHANNEL fired")
 
+    from collections import Counter
+    fired_results = [r for r in results if r.get("kavach_fired")]
+    by_minister_decided = dict(Counter(r.get("kavach_fired_decided_by") for r in fired_results))
+    by_verdict = dict(Counter(r.get("kavach_fired_verdict") for r in fired_results))
+    print("\nPer-minister (decided-by) breakdown of the", len(fired_results), "fired trajectories:")
+    for m, c in by_minister_decided.items():
+        print(f"  {m}: {c}")
+    print("Block vs Escalate breakdown:", by_verdict)
+
     out_path = Path("benchmarks/results_v2/gpt4o_real_trajectory_benign_control.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({
@@ -190,6 +206,8 @@ def main():
         "n_channel_fired": n_channel_fired,
         "n_errors": n_errors,
         "by_suite": by_suite,
+        "by_minister_decided": by_minister_decided,
+        "by_verdict": by_verdict,
         "results": results,
     }, indent=2), encoding="utf-8")
     print(f"\nWrote {out_path}")
