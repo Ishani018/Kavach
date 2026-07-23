@@ -22,15 +22,15 @@ resulting action --- not the prompt, not the plan, the resolved call itself
 This paper is substantially a report on a design decision and the evidence
 that produced it: we built Kavach's first version as a semantic,
 embedding-based detector --- a parliament of domain-specialized ministers,
-each retrieving against a curated corpus of attack-pattern descriptions --
-and over the course of developing and stress-testing it, accumulated four
-independent lines of evidence that this design was the wrong primary
-mechanism for three of its four detection domains, while remaining the right
-mechanism for the fourth. We report both the evidence and the resulting
-rearchitecture, including two attempts that did not work, because a paper
-that reports only the final, working configuration understates how the field
-should update on evidence like this: not every detection problem shaped by
-an attacker's resolved arguments is best solved by comparing embeddings.
+each retrieving against a curated corpus of attack-pattern descriptions ---
+and over the course of stress-testing it, accumulated four independent
+lines of evidence that this design was the wrong primary mechanism for
+three of its four detection domains, while remaining right for the
+fourth. We report both the evidence and the resulting rearchitecture,
+including attempts that did not work, since a paper reporting only the
+final configuration understates how the field should update: not every
+detection problem shaped by resolved arguments is best solved by
+comparing embeddings.
 
 \paragraph{Contributions.}
 

@@ -10,12 +10,10 @@ Whether bounding or deferring the background COMPASS/NAVIGATOR audit work
 closes this gap is asserted, not measured; a real deferred-execution
 deployment is future work.
 
-\paragraph{No head-to-head with ClawGuard specifically.} An earlier
-version lacked any AgentDojo evaluation at scale; that gap is now closed
-by \S\ref{sec:gpt4o}'s 629-real-trajectory validation. A narrower gap
-remains: no controlled head-to-head against ClawGuard's implementation
-(\S\ref{sec:related}), which intercepts live sessions with no
-dataset-replay harness compatible with our pipeline.
+\paragraph{No head-to-head with ClawGuard specifically.} No controlled
+head-to-head against ClawGuard's implementation (\S\ref{sec:related})
+exists: it intercepts live sessions with no dataset-replay harness
+compatible with our pipeline.
 
 \paragraph{External tool-call-content baselines are structurally
 inapplicable, not weaker.}
@@ -107,19 +105,24 @@ check.} Every attack corpus here is static: no attacker knows Kavach's
 rules or adapts to them. Deterministic matching is historically evadable
 --- encoding, string construction, variable indirection --- and while
 bashlex's AST closes a class of these for sh/bash, PowerShell and cmd
-remain on a tokenizer. First-pass check: 335 previously-detected sh/bash
-cases through three transforms (base64 encode-and-pipe, variable-split,
-variable indirection) held at 100\% (0/335 missed) overall. After
-correctly distinguishing genuine evasion from TRAJECTORY's session-level
-re-confirmation merely relabeling an already-correct verdict
-(\S\ref{sec:design-tradeoffs}), true per-mechanism evasion is 7.0\% (encode,
-13/185), 4.0\% (split, 3/75), 25.3\% (indirect, 19/75); every evasion was
-caught by a different mechanism. One backup is itself imprecise: encode's
-backstop is a single NAVIGATOR pattern matching the literal
+remain on a tokenizer. First-pass check: 185 previously-detected sh/bash
+cases through base64 encode-and-pipe (applies to all 185); split and
+indirection require a literal anchor span present in only 75, so those
+two are scored on that subset. Held at 100\% (0/335 missed) across all
+three transforms' dispatches combined. After correctly distinguishing
+genuine evasion from
+TRAJECTORY's session-level re-confirmation merely relabeling an
+already-correct verdict (\S\ref{sec:design-tradeoffs}), true
+per-mechanism evasion is 7.0\% (encode, 13/185), 4.0\% (split, 3/75),
+25.3\% (indirect, 19/75); every evasion was caught by a different
+mechanism. One backup is itself imprecise: encode's backstop is a single
+NAVIGATOR pattern matching the literal
 \texttt{echo~BASE64~|~base64~-d~\allowbreak|~sh} shape, confirmed to also
 block an equivalent benign command --- a blanket rule, not intent-aware
-detection. Extended to PowerShell/cmd (263 detected cases, dialect-native
-transforms --- \texttt{-EncodedCommand}, caret-escaping, split/indirection):
+detection. Extended to PowerShell/cmd on the same convention (263
+detected cases; encode applies to all 263, split/indirect to the 73 with
+an anchor), dialect-native transforms --- \texttt{-EncodedCommand},
+caret-escaping, split/indirection):
 true evasion is markedly higher, 28.9\% (encode, 76/263), 16.4\% (split,
 12/73), 19.2\% (indirect, 14/73) --- confirming the tokenizer-not-AST
 hypothesis empirically. Still a first pass, not adversarial; an attacker

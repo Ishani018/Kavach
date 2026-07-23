@@ -80,8 +80,10 @@ framework, API keys, and not tool-call structured regardless). A local
 \texttt{qwen2.5:7b} generated one realistic call per tool from its
 docstring (a first heuristic attempt was discarded: bland placeholders on
 the harmful side, suspicious-looking placeholders on the benign side,
-neither a fair test). Every one of the 79 harmful cases was hand-classified,
-once, before computing any number, into in-scope for Kavach's stated
+neither a fair test; 1 of the 80 harmful tools failed argument generation
+and was excluded, leaving 79). Every one of those 79 cases was
+hand-classified, once, before computing any number, into in-scope for
+Kavach's stated
 four-domain threat model or not: AgentHarm covers 11 harm categories far
 broader than Kavach's claim, and counting e.g.\ a drug-marketplace search
 against Kavach would be unfair to both sides. Of 44 in-scope cases: 36

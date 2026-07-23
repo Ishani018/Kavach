@@ -60,9 +60,13 @@ moving three of four detectors to deterministic-primary detection.
 Second, real deployment numbers: 544/544 on InjecAgent's data-stealing
 corpus via CHANNEL's taint mechanism (direct-harm open: 0\% per minister,
 3.1\% via TRAJECTORY); 5/5 AgentDojo attacks escalated with zero false
-blocks on 22 benign sessions; and, on a 519-case suite for VAULT/EXECUTOR
-(InjecAgent/AgentDojo barely exercise either), 74.4\%/90.1\% detection
-with zero new false positives, over half escalate-only. Third: replaying
+blocks from CHANNEL itself on 22 benign sessions (a separate
+TRAJECTORY/NAVIGATOR interaction hard-blocks 3/22, disclosed in full);
+and, on a 519-case suite for VAULT/EXECUTOR (InjecAgent/AgentDojo barely
+exercise either), 74.4\%/90.1\% detection with zero new false positives,
+over half escalate-only --- an in-sample number, since rules were
+authored with visibility into this corpus; the genuinely independent
+check below recovers 81.8\%. Third: replaying
 all 629 real recorded GPT-4o attack trajectories AgentDojo publishes,
 Kavach fires on 74.2\%, tracing every apparent miss to its actual
 tool-call content. Fourth, negative results in full: failed authorization
@@ -150,16 +154,14 @@ in Appendix~B.
 \label{sec:conclusion}
 Kavach demonstrates that deterministic parsing over a tool call's resolved
 arguments outperforms cosine similarity over its semantic embedding when
-the attack signal is structural, not a property of the paradigm as a
-whole: three of four ministers moved to deterministic-primary detection,
-while the fourth's intent-shaped question remains open past a validated
-taxonomy classifier. Validating against 629 real recorded attack
-trajectories surfaced both real detection strength and precisely
-characterized gaps. We take this paper's negative results --- the
-falsified fifth minister, the abandoned swap, the failed authorization
-heuristics, and the generalization audit's boundaries --- to be as much a
-contribution as the numbers: knowing a monitor's limits is what makes its
-results trustworthy.
+the attack signal is structural: three of four ministers moved to
+deterministic-primary detection, while the fourth's intent-shaped question
+remains open past a validated taxonomy classifier. Validating against 629
+real recorded attack trajectories surfaced both real strength and
+characterized gaps. We take the negative results --- the falsified fifth
+minister, the abandoned swap, the failed heuristics, and the audit's
+boundaries --- as much a contribution as the numbers: knowing a monitor's
+limits is what makes its results trustworthy.
 
 \appendix
 

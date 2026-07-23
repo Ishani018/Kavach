@@ -61,27 +61,29 @@ independently-authored corpora avoids this risk structurally rather than
 by discipline alone.
 
 \paragraph{The corpus's other 207 cases, and Kavach's rate on all 519.}
-The remaining 207 cases (all AtomicRedTeam) target CHANNEL (72) or
-NAVIGATOR (144), not VAULT/EXECUTOR; their \emph{primary} evaluation
-remains InjecAgent (\S\ref{sec:injecagent}) and AgentDojo
-(\S\ref{sec:channel-eval}, \S\ref{sec:gpt4o}), but we report this in-corpus
-subset rather than leaving it unaccounted for. Any-minister detection on
-these 207 is 206/207 (99.5\%), though each minister's own verdict alone
-catches only 23/72 (31.9\%, CHANNEL) and 92/144 (63.9\%, NAVIGATOR) ---
-most of the remainder is caught by cosine-triage or a different minister,
-not the targeted one's primary mechanism. Kavach's overall any-minister,
-any-target rate across all 519 --- the same denominator the baselines
-below use --- is 515/519 (99.2\%); this is a looser metric than the strict
+Target sets overlap, so per-minister counts do not sum to 519: VAULT
+(117) and EXECUTOR (203) share 8 cases (312 distinct, not the naive 320),
+leaving 207 targeting neither. Within those 207 (all AtomicRedTeam),
+CHANNEL (72) and NAVIGATOR (144) similarly share 9 (union 207, not 216);
+their \emph{primary} evaluation remains InjecAgent
+(\S\ref{sec:injecagent}) and AgentDojo (\S\ref{sec:channel-eval},
+\S\ref{sec:gpt4o}), reported here rather than left unaccounted for.
+Any-minister detection on these 207 is 206/207 (99.5\%), though each
+minister's own verdict alone catches only 23/72 (31.9\%, CHANNEL) and
+92/144 (63.9\%, NAVIGATOR) --- most of the rest is caught by cosine-triage
+or a different minister. Kavach's overall any-minister rate across all
+519 --- the same denominator the baselines below use --- is 515/519
+(99.2\%); this is a looser metric than the strict
 per-target recall reported next, and should be read as such, not as a
 like-for-like comparison.
 
-\paragraph{Reuse, unification, and scoring.} Attack cases are drawn from
-AtomicRedTeam and GTFOBins; benign calls from BFCL (793, general-purpose)
-plus a 55-case agent-shaped benign set, reported separately rather than
-pooled. What is novel is the unification: a single harness dispatching
-every case through the same \texttt{/hook/parliament} path, one
-per-minister scoring convention, and one benign false-positive
-convention. Each attack case carries a \texttt{target\_patterns} list
+\paragraph{Reuse and scoring.} Attack cases are drawn from AtomicRedTeam
+and GTFOBins; benign calls from BFCL (793, general-purpose) plus a
+55-case agent-shaped benign set, reported separately rather than pooled.
+All cases are dispatched through the same \texttt{/hook/parliament} path
+under one per-minister scoring convention and one benign false-positive
+convention, purely to make an existing evaluation gap measurable, not as
+a standalone artifact. Each attack case carries a \texttt{target\_patterns} list
 naming which minister(s) it should trigger; we report both an overall
 detected rate and a per-minister hit rate, since a case can be detected
 overall while its targeted minister misses. On the benign side,
