@@ -42,20 +42,21 @@ The guardrail literature can be organized along two axes: (1) \emph{where} in
 the agent lifecycle the guardrail enforces, and (2) \emph{what mechanism}
 it uses to detect violations.
 
-\paragraph{Input-time guardrails} operate on the user's message before the
-agent processes it (PromptGuard 2 \cite{saxe2025llamafirewall}, Azure
-Prompt Shields) and cannot detect attacks arriving via tool outputs, the
-dominant vector in prompt-injection benchmarks \cite{zhan2024injecagent}.
+\paragraph{Input-time guardrails} (PromptGuard 2
+\cite{saxe2025llamafirewall}, Azure Prompt Shields) operate on the user's
+message before the agent processes it, and cannot detect attacks arriving
+via tool outputs, the dominant vector in prompt-injection benchmarks
+\cite{zhan2024injecagent}.
 
-\paragraph{Plan-time / chain-of-thought guardrails} audit the agent's
-reasoning trace before it commits to an action (AlignmentCheck
-\cite{saxe2025llamafirewall}, DRIFT \cite{drift2026}) --- powerful but
-expensive (full LLM inference), and blind to a tool call's \emph{resolved
-arguments}, seeing only declarative intent.
+\paragraph{Plan-time / chain-of-thought guardrails} (AlignmentCheck
+\cite{saxe2025llamafirewall}, DRIFT \cite{drift2026}) audit the agent's
+reasoning trace before it commits to an action --- powerful but expensive
+(full LLM inference), and blind to a tool call's \emph{resolved arguments},
+seeing only declarative intent.
 
 \paragraph{Tool-call-time guardrails} operate at the tool-call boundary ---
 Kavach's enforcement point. CodeShield \cite{saxe2025llamafirewall} applies
-Semgrep to code-returning outputs only, not general tool calls; ShieldAgent
+Semgrep to code-returning outputs only; ShieldAgent
 \cite{chen2025shieldagent} retrieves rule circuits per trajectory; Task
 Shield \cite{jia2025taskshield} checks task alignment. None uses a curated
 semantic corpus of attack-pattern descriptions at the tool-call level.

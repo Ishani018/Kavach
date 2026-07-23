@@ -113,15 +113,14 @@ assumed:
 
 \paragraph{Real AST parsing where it is both correct and fast.} For
 \texttt{sh}/\texttt{bash}, arguments are parsed with \texttt{bashlex} into a
-real abstract syntax tree, and primitive matching walks the tree rather than
-raw text --- closing shape-based false negatives a tokenizer cannot (e.g.\
-heredoc body content) at $\sim$0.5\,ms per call. PowerShell has an
-equivalently real AST available, but invoking it requires a
+real abstract syntax tree, closing shape-based false negatives a tokenizer
+cannot (e.g.\ heredoc body content) at $\sim$0.5\,ms per call. PowerShell
+has an equivalently real AST, but invoking it needs a
 \texttt{powershell.exe} subprocess, measured at $\sim$1.4\,s per call ---
-18$\times$ over budget. We therefore wire the real AST into the live path
-only for \texttt{sh}/\texttt{bash}; PowerShell and \texttt{command\_prompt}
+18$\times$ over budget --- so the real AST is wired into the live path only
+for \texttt{sh}/\texttt{bash}; PowerShell and \texttt{command\_prompt}
 remain on the structural tokenizer below, with the real PowerShell AST kept
-available as an opt-in offline/audit tool rather than a live dependency.
+available as an offline/audit tool rather than a live dependency.
 
 \paragraph{A structural tokenizer for the remaining dialects.} For dialects
 where a real grammar parser is unavailable or too slow, a lightweight
@@ -129,22 +128,10 @@ shell-quote-aware tokenizer extracts URL-, path-, and credential-shaped
 tokens directly, with a two-tier credential test (a strong extension/path
 match, and a broader path-shaped fallback) rather than a single regex.
 
-On the full 519-case AtomicRedTeam/GTFOBins reference corpus, deterministic
-matching alone recovers VAULT 35.9\% (42/117) and EXECUTOR 34.5\% (70/203) of
-cases; the remaining residual is handled by the cosine-triage layer below,
-reaching a full-pipeline VAULT 74.4\% (87/117) and EXECUTOR 90.1\% (183/203).
-Of VAULT's 74.4\% (87/117), 42 points are hard-Block from the deterministic
-layer and 45 points are Escalate-only from cosine triage; of EXECUTOR's
-90.1\% (183/203), 70 points are hard-Block and 113 points are Escalate-only.
-This produces zero new hard-block false positives across both benign
-populations we measure (793 general-purpose BFCL calls, 55 agent-shaped
-benign calls). Escalate rates on the two benign populations are,
-respectively: VAULT 5.5\%/13.4\%, EXECUTOR 0\%/14.9\%, CHANNEL 40.0\%/4.5\%,
-NAVIGATOR 21.8\%/10.8\% (agent-shaped/BFCL). A held-out split of the same
-population (even/odd case IDs) shows the
-full-pipeline rate is stable across the split --- VAULT
-71.2\%/\allowbreak77.6\%, EXECUTOR 89.2\%/\allowbreak91.1\% --- rather than
-an artifact of a lucky partition.
+Full detection numbers, the deterministic/cosine Block/Escalate split, benign
+false-positive rates, and a held-out-split stability check are reported in
+\S\ref{sec:vault-executor-eval}, together with the per-minister benign
+escalate rates on both populations.
 
 \subsection{CHANNEL: session-level taint and value provenance}
 \label{sec:channel}

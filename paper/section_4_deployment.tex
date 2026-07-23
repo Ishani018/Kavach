@@ -80,11 +80,17 @@ unmodified since its original authoring commit, confirmed via
 layer alone recovers VAULT 35.9\% (42/117) and EXECUTOR 34.5\% (70/203);
 adding the cosine-escalate-only triage layer (\S\ref{sec:triage}) raises
 full-pipeline detection to VAULT 74.4\% (87/117) and EXECUTOR 90.1\%
-(183/203), with zero new hard-block false positives on either benign
-population (793 BFCL, 55 agent-shaped). A held-out even/odd split confirms
-this is stable, not an artifact of partition: VAULT 71.2\% (42/59) versus
-77.6\% (45/58); EXECUTOR 89.2\% (91/102) versus 91.1\% (92/101) --- both
-halves reported explicitly rather than only their average.
+(183/203) --- of which 42 points (VAULT) and 70 points (EXECUTOR) are
+hard-\textsc{Block} from the deterministic layer, and 45 and 113 points
+respectively are \textsc{Escalate}-only from cosine triage --- with zero
+new hard-block false positives on either benign population (793 BFCL, 55
+agent-shaped). Benign \textsc{Escalate} rates on the two populations
+(agent-shaped/BFCL) are: VAULT 5.5\%/13.4\%, EXECUTOR 0\%/14.9\%, CHANNEL
+40.0\%/4.5\%, NAVIGATOR 21.8\%/10.8\%. A held-out even/odd split confirms
+the full-pipeline rate is stable, not an artifact of partition: VAULT
+71.2\% (42/59) versus 77.6\% (45/58); EXECUTOR 89.2\% (91/102) versus
+91.1\% (92/101) --- both halves reported explicitly rather than only their
+average.
 
 For comparison, the pre-rearchitecture cosine-primary configuration ---
 same harness, same 519 cases, same scoring convention, code unmodified from
@@ -170,7 +176,7 @@ script confirms genuine 5/5 on the real trajectories.
 The measurements above use either a synthetic reference corpus or a small,
 hand-verified set of AgentDojo cases. To validate detection at scale on real
 model behavior, we replayed all 629 real recorded attack trajectories for
-GPT-4o (\texttt{gpt-4o-2024-05-13}) across AgentDojo's four suites'
+GPT-4o (\texttt{gpt-4o-2024\allowbreak-05-13}) across AgentDojo's four suites'
 \texttt{important\allowbreak\_instructions} attack family, sourced directly from
 AgentDojo's own published \texttt{runs/} data --- real conversation
 transcripts with real tool calls and real tool outputs, not a benchmark
@@ -223,24 +229,23 @@ own instruction'' even when it literally is. We reverted this change and
 report the gap as a documented scope limitation (\S\ref{sec:limitations})
 rather than a closed fix.
 
-\paragraph{Scope of this validation.} This validation covers one model
-(\texttt{gpt-4o-2024-05-13}) and one attack family
-(\texttt{important\allowbreak\_instruc\allowbreak tions}), because these are the complete recorded
-trajectories AgentDojo publishes; whether detection transfers to other
-models' tool-calling styles or to subtler injection framings is untested.
-We note the trajectories are real model behavior rather than synthetic
-replay, a deliberate trade of breadth for realism.
+\paragraph{Scope of this validation.} This covers one model
+(\texttt{gpt-4o-2024\allowbreak-05-13}) and one attack family
+(\texttt{important\allowbreak\_instruc\allowbreak tions}) --- the complete
+recorded trajectories AgentDojo publishes; whether detection transfers to
+other models' tool-calling styles or subtler injection framings is
+untested, a deliberate trade of breadth for realism.
 
 \subsection{InjecAgent}
 \label{sec:injecagent}
 InjecAgent's full corpus is 1,054 cases: 510 direct-harm (DH) and 544
 data-stealing (DS), each the cross product of InjecAgent's 17 user tasks
-with its 30 DH / 32 DS attacker instructions. We dispatch both DS and DH cases as a two-step sequence --- a source read,
-then the destination send (DS) or the direct-harm action itself (DH) ---
-so CHANNEL's session-scoped taint/provenance tracker can observe the
-read-then-act pattern in both settings; DH's dispatch was corrected to this
-two-step form as a methodology fix during this work, not a change to any
-minister's detection logic.
+with its 30 DH / 32 DS attacker instructions. Both are dispatched as a
+two-step sequence --- a source read, then the destination send (DS) or the
+direct-harm action itself (DH) --- so CHANNEL's session-scoped
+taint/provenance tracker can observe the read-then-act pattern in both
+settings; DH's dispatch was corrected to this two-step form as a
+methodology fix, not a change to any minister's detection logic.
 
 On DS, Kavach achieves \textbf{544/544 (100\%) strict (hard-\textsc{Block})
 recall}, entirely via CHANNEL: every one of the 544 cases is decided by
