@@ -123,53 +123,40 @@ offline.
 \section{Related Work}
 \label{sec:related}
 
-\paragraph{Positioning relative to concurrent runtime work.} Microsoft
-Execution Containers (MXC, announced Build 2026) and ClawGuard
-\cite{clawguard2026} both harden the OpenClaw runtime Kavach was originally
-built against. MXC is an OS-level policy sandbox that reduces blast radius
-but cannot reason about intent: an agent authorized to read credential files
-and make HTTP calls can still be manipulated into exfiltrating them via
-indirect injection while remaining fully within its MXC policy --- orthogonal
-to the argument-content question Kavach answers. ClawGuard reports a 0\%
-attack-success rate on AgentDojo under hand-authored rules; its automatic
-rule-derivation component is future work, so that number reflects
-hand-authored benchmark coverage rather than a generalizing detector.
-DeepContext \cite{albrethsen2026deepcontext} and PSG-Agent \cite{psgagent2026}
-are architecturally adjacent and positioned in
-Table~\ref{tab:guardrail-comparison}; our differentiation from both runs
-throughout this paper: mechanism choice (deterministic vs.\ cosine) is made
-per detection domain on direct evidence, and we report where each choice
-does and does not generalize (\S\ref{sec:limitations}) rather than only
-where it succeeds.
+\paragraph{Positioning relative to concurrent runtime work.} MXC (Microsoft
+Execution Containers, Build 2026) and ClawGuard \cite{clawguard2026} both
+harden the OpenClaw runtime Kavach was originally built against. MXC is an
+OS-level policy sandbox --- orthogonal to Kavach's argument-content question,
+since an authorized agent can still be manipulated into exfiltrating data
+within its own policy. ClawGuard's 0\% AgentDojo attack-success rate is
+under hand-authored rules only, its rule-derivation component unevaluated.
+DeepContext \cite{albrethsen2026deepcontext} and PSG-Agent
+\cite{psgagent2026} are architecturally adjacent (Table~\ref{tab:guardrail-comparison});
+our differentiation throughout is that mechanism choice (deterministic
+vs.\ cosine) is made per detection domain on direct evidence, with
+generalization reported explicitly (\S\ref{sec:limitations}) rather than
+only success.
 
-\paragraph{Plan-time authorization systems.} The closest external precedents
-for NAVIGATOR's authorization question operate at the plan level rather than
-the tool-call level. PlanGuard \cite{gong2026planguard} constructs an isolated
-plan from the user's instructions, then gates execution with a
-hard-constraint stage followed by an LLM-based intent verifier, reporting
-100\% attack-blocking on InjecAgent. NAVIGATOR's pinned-intent design is
-analogous to PlanGuard's first stage --- but where PlanGuard reports a
-working mechanism, we report our hard-constraint layer as an incomplete,
-three-attempt negative result (\S\ref{par:navigator-authflow}); PlanGuard's
-LLM-based verifier may be doing real work our deterministic heuristics did
-not find a way to replace. IntentGuard \cite{kang2025intentguard} performs
-instruction-following intent analysis with origin tracing and treats
-user-confirmation-on-alert as a first-class mechanism, close in spirit to
-CHANNEL's deliberate escalate-not-block verdict on genuine provenance
-ambiguity (\S\ref{sec:channel}), though at the plan level rather than
-argument-provenance level. Progent \cite{shi2025progent} enforces a
-progressive per-tool allowlist and reports an AgentDojo ASR reduction from
-39.9\% to 1.0\%; we cite this as an upper reference point for a mature
-policy layer, not a number Kavach reproduces, since policy synthesis and
-deterministic argument parsing are not directly comparable.
+\paragraph{Plan-time authorization systems.} PlanGuard \cite{gong2026planguard},
+IntentGuard \cite{kang2025intentguard}, and Progent \cite{shi2025progent}
+are the closest precedents for NAVIGATOR's authorization question, each at
+the plan level rather than the tool-call level. PlanGuard's hard-constraint
+stage plus LLM verifier reports 100\% attack-blocking on InjecAgent; NAVIGATOR's
+analogous pinned-intent design is instead reported as an incomplete,
+three-attempt negative result (\S\ref{par:navigator-authflow}) --- PlanGuard's
+LLM verifier may do real work our deterministic heuristics did not
+replace. IntentGuard's user-confirmation-on-alert is close in spirit to
+CHANNEL's escalate-not-block verdict (\S\ref{sec:channel}), at the plan
+rather than argument-provenance level. Progent's progressive allowlist
+reports an AgentDojo ASR reduction from 39.9\% to 1.0\%, cited as an upper
+reference point, not a number Kavach reproduces (policy synthesis and
+deterministic argument parsing are not directly comparable).
 
-\paragraph{Red-team and scanning tools.} garak \cite{garak2024} and
-PyRIT \cite{pyrit2024} are offensive test harnesses that probe a model or
-agent pre-deployment rather than enforce at runtime; LLM-Guard
-\cite{llmguard2024} scans input/output at the prompt boundary rather than
-the tool-call boundary. These are complementary rather than competing:
-Kavach is a runtime, tool-call-time enforcement layer such tools can be
-used to red-team.
+\paragraph{Red-team and scanning tools.} garak \cite{garak2024}, PyRIT
+\cite{pyrit2024}, and LLM-Guard \cite{llmguard2024} probe or scan at the
+prompt/input boundary pre-deployment rather than enforcing at the
+tool-call boundary at runtime --- complementary to, not competing with,
+Kavach.
 
 Table~\ref{tab:guardrail-comparison} (Appendix~B) situates Kavach against 26
 systems on five axes: enforcement boundary, mechanism, corpus extensibility,

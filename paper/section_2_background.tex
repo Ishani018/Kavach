@@ -122,31 +122,11 @@ in \S\ref{sec:eval}, following Kapoor et al.~\cite{kapoor2024aiagents},
 rather than treating a fixed false-positive ceiling as a gate a
 configuration must pass before its recall is reported.
 
-\subsection{The OWASP and MITRE taxonomic grounding}
+\subsection{OWASP and MITRE taxonomic grounding}
 
-The two most widely cited threat taxonomies for AI agents as of 2026 are:
-
-\textbf{MITRE ATT\&CK for Enterprise} — the standard technique taxonomy, now
-extended to AI systems via MITRE ATLAS. Kavach's ministers draw patterns from
-T1059 (Command and Scripting Interpreter), T1546 (Event Triggered Execution),
-T1552 (Unsecured Credentials), T1539 (Steal Web Session Cookie), T1041
-(Exfiltration Over C2 Channel), T1567 (Exfiltration Over Web Service), T1083
-(File and Directory Discovery), and others. ShieldNet \cite{shieldnet2026}
-independently derives 25+ attack types from MITRE ATT\&CK for their MCP
-supply-chain benchmark.
-
-\textbf{OWASP Top 10 for Agentic Applications 2026} — released December~9, 2025.
-Ten categories: ASI01 Agent Goal Hijack, ASI02 Tool Misuse \& Exploitation,
-ASI03 Identity \& Privilege Abuse, ASI04 Agentic Supply Chain Vulnerabilities,
-ASI05 Unexpected Code Execution (RCE), ASI06 Memory \& Context Poisoning,
-ASI07 Insecure Inter-Agent Communication, ASI08 Cascading Failures,
-ASI09 Human-Agent Trust Exploitation, ASI10 Rogue Agents. Kavach's minister
-mapping:
-EXECUTOR $\leftrightarrow$ ASI05 (Unexpected Code Execution), ASI04 (Agentic Supply Chain Vulnerabilities);
-VAULT $\leftrightarrow$ ASI03 (Identity \& Privilege Abuse), ASI09 (Human-Agent Trust Exploitation);
-CHANNEL $\leftrightarrow$ ASI07 (Insecure Inter-Agent Communication), ASI08 (Cascading Failures);
-NAVIGATOR $\leftrightarrow$ ASI01 (Agent Goal Hijack), ASI10 (Rogue Agents).
-
-Using both taxonomies as the authoring source for the attack-pattern corpus (§3.2)
-ensures that the corpus is grounded in the published threat model of the field
-rather than in the specific attacks the team happened to have seen.
+Kavach's attack-pattern corpus is authored against the two most widely cited
+AI-agent threat taxonomies, not against attacks the team happened to have
+seen: MITRE ATT\&CK/ATLAS (EXECUTOR: T1059, T1546; VAULT: T1552, T1539;
+CHANNEL: T1041, T1567; NAVIGATOR: T1083 and others) and the OWASP Top 10 for
+Agentic Applications 2026, mapped per minister (EXECUTOR: ASI04/05; VAULT:
+ASI03/09; CHANNEL: ASI07/08; NAVIGATOR: ASI01/10).
