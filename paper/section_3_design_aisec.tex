@@ -151,7 +151,7 @@ call's argument values are classified by session origin:
 \textsc{output\_\allowbreak derived} (first seen in an earlier call's output this
 session), or \textsc{novel} (neither). \textsc{Output\_\allowbreak derived} or
 \textsc{novel} on a consequential call returns \textsc{Escalate}, not
-\textsc{Block}: paying a bill from its own recipient IBAN, or replying to
+\textsc{Block}: paying a bill using an IBAN read from the bill itself, or replying to
 an email just read, are legitimate same-session read-then-send chains
 that must not be treated as an attacker-substituted destination
 (\S\ref{sec:design-tradeoffs}). Taint's \textsc{Block} authority
