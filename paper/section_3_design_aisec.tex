@@ -11,13 +11,13 @@
 
 \subsection{Overview}
 
-Kavach is a runtime guardrail that interposes between an LLM agent's tool
-dispatch and the tool's actual execution. Every resolved tool call is
+Kavach is a runtime guardrail interposed between an LLM agent's tool
+dispatch and the tool's actual execution. Every resolved call is
 evaluated by a parliament of four domain-specialized ministers --- VAULT
-(credential and identity abuse), EXECUTOR (dangerous code execution),
-CHANNEL (data exfiltration and provenance), and NAVIGATOR (unauthorized or
-drifted agent action), pre-selected per call by a similarity-gated router
-(falling back to all four when none crosses its threshold). VAULT,
+(credential/identity abuse), EXECUTOR (dangerous code execution), CHANNEL
+(data exfiltration/provenance), and NAVIGATOR (unauthorized or drifted
+action), pre-selected per call by a similarity-gated router (falling back
+to all four when none crosses threshold). VAULT,
 EXECUTOR, and CHANNEL are validated detectors with reported detection
 numbers throughout this paper; NAVIGATOR is the fourth, exploratory
 component, and we report plainly that it is not yet one
@@ -27,26 +27,25 @@ contribution reports it broken out per-minister, not folded in invisibly
 combines their verdicts by pure veto (any minister's \textsc{Block}
 suffices, no score averaging) into \textsc{Block}, \textsc{Escalate}, or
 \textsc{Allow}, via a single HTTP endpoint,
-\texttt{POST /hook\allowbreak/parliament}, called synchronously at the host
-runtime's pre-execution hook; a verdict other than \textsc{Allow} prevents
-the call from executing. Two further pre-rearchitecture components remain
-outside the four ministers: TRAJECTORY, a session-level monitor
-re-confirming or escalating a subset of already-detected cases (disclosed
-in full, including a real benign false-positive interaction, in
-\S\ref{sec:design-tradeoffs}); and COMPASS, a session-intent-drift check
-that \emph{can} independently upgrade a verdict to \textsc{Block} when
-active, but whose trigger condition never arises in any of this paper's
-dispatch harnesses --- confirmed zero occurrences across all 519 + 1,054 +
-629 evaluated cases (\S\ref{sec:cost}).
+\texttt{POST /hook\allowbreak/parliament}, called synchronously at the
+pre-execution hook; any non-\textsc{Allow} verdict prevents execution. Two
+pre-rearchitecture components remain outside the four ministers:
+TRAJECTORY, a session-level monitor re-confirming or escalating a subset
+of already-detected cases (disclosed in full, including a real benign
+false-positive interaction, in \S\ref{sec:design-tradeoffs}); and COMPASS,
+a session-intent-drift check that \emph{can} independently upgrade a
+verdict to \textsc{Block}, but whose trigger condition never arose in any
+dispatch harness here --- zero occurrences across all 519 + 1,054 + 629
+cases (\S\ref{sec:cost}).
 
 \subsection{Deterministic-primary detection: why, and for which ministers}
 \label{sec:deterministic-primary}
 
-Kavach's ministers were originally cosine-primary: each proposed action was
-embedded and scored against a curated corpus of attack-pattern descriptions,
-with a per-minister confidence threshold deciding the verdict. Four
-independent lines of evidence, developed over the course of this project,
-converged on replacing this design for three of the four ministers.
+Kavach's ministers were originally cosine-primary: each action was
+embedded and scored against a curated attack-pattern corpus, with a
+per-minister confidence threshold deciding the verdict. Four independent
+lines of evidence converged on replacing this design for three of the
+four ministers.
 
 \begin{itemize}
 \item \textbf{Evidence 1 --- a lexical-inflation bug pointed at the fix, not
@@ -146,21 +145,21 @@ extended with a tokenizer and a behavior-general fallback checking
 destination-shaped values (email, IBAN, URL) for any unnamed tool, so a
 genuinely novel exfiltration tool is not silently invisible.
 
-\paragraph{Provenance.} Independent of taint, every destination-tool call's
-argument values are classified by where they came from this session:
+\paragraph{Provenance.} Independent of taint, every destination-tool
+call's argument values are classified by session origin:
 \textsc{user\_supplied}, \textsc{self} (verified identity),
-\textsc{output\_derived} (first seen in an earlier tool call's output this
+\textsc{output\_derived} (first seen in an earlier call's output this
 session), or \textsc{novel} (neither). \textsc{Output\_derived} or
-\textsc{novel} on a consequential call returns \textsc{Escalate},
-deliberately not \textsc{Block}: paying a bill by reading its own file for
-the recipient IBAN, or replying to an email just read, are real, legitimate
-same-session read-then-send chains that must not be treated the same as an
-attacker-substituted destination (\S\ref{sec:design-tradeoffs}). Taint's
-\textsc{Block} authority previously ignored this classification entirely,
-hard-blocking legitimate self- or user-named destinations we found and
-fixed by direct measurement (\S\ref{sec:injecagent}); a destination first
-seen only in a prior tool's \emph{output} still blocks, deliberately,
-since that is exactly how an injected destination would appear too.
+\textsc{novel} on a consequential call returns \textsc{Escalate}, not
+\textsc{Block}: paying a bill from its own recipient IBAN, or replying to
+an email just read, are legitimate same-session read-then-send chains
+that must not be treated as an attacker-substituted destination
+(\S\ref{sec:design-tradeoffs}). Taint's \textsc{Block} authority
+previously ignored this, hard-blocking legitimate self/user-named
+destinations, found and fixed by direct measurement
+(\S\ref{sec:injecagent}); a destination first seen only in a prior
+tool's \emph{output} still blocks deliberately, since that is exactly how
+an injected one would appear too.
 
 CHANNEL's locked reference numbers and full evaluation methodology are
 reported in \S\ref{sec:channel-eval}.

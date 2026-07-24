@@ -17,14 +17,14 @@ lives.
 
 Agent harnesses expose several classes of latent vulnerabilities.
 \emph{Configuration-as-code} attacks exploit declarative configuration the
-harness loads and executes unsanitized (CVE-2026-21852 on Claude Code's
+harness executes unsanitized (CVE-2026-21852 on Claude Code's
 \texttt{.claude/settings.json}; CVE-2026-21858 on n8n).
-\emph{Serialization-injection} attacks exploit serialization/deserialization
-of tool responses and agent state, enabling arbitrary class instantiation
-in trusted namespaces (CVE-2025-68664 on LangChain Core, CVSS 9.3).
-\emph{Hook-bypass} attacks exploit incorrectly wired security hook points
-(OpenClaw issues \#5513, \#5943: \texttt{before\_tool\_call} documented but
-never invoked), and \emph{CSRF/session} attacks exploit the harness's web
+\emph{Serialization-injection} attacks exploit tool-response/state
+deserialization, enabling arbitrary class instantiation in trusted
+namespaces (CVE-2025-68664 on LangChain Core, CVSS 9.3).
+\emph{Hook-bypass} attacks exploit incorrectly wired hook points (OpenClaw
+issues \#5513, \#5943: \texttt{before\_tool\_call} documented but never
+invoked), and \emph{CSRF/session} attacks exploit the harness's web
 surface (CVE-2025-34291 on LangFlow, actively exploited in the wild as of
 January 2026~\cite{crowdsec2026langflow}).
 
@@ -45,15 +45,15 @@ it uses to detect violations.
 
 \paragraph{Input-time guardrails} (PromptGuard 2
 \cite{saxe2025llamafirewall}, Azure Prompt Shields) operate on the user's
-message before the agent processes it, and cannot detect attacks arriving
-via tool outputs, the dominant vector in prompt-injection benchmarks
+message before the agent processes it, missing attacks arriving via tool
+outputs, the dominant vector in prompt-injection benchmarks
 \cite{zhan2024injecagent}.
 
 \paragraph{Plan-time / chain-of-thought guardrails} (AlignmentCheck
-\cite{saxe2025llamafirewall}, DRIFT \cite{drift2026}) audit the agent's
-reasoning trace before it commits to an action --- powerful but expensive
-(full LLM inference), and blind to a tool call's \emph{resolved arguments},
-seeing only declarative intent.
+\cite{saxe2025llamafirewall}, DRIFT \cite{drift2026}) audit the reasoning
+trace before an action commits --- powerful but expensive (full LLM
+inference), and blind to \emph{resolved arguments}, seeing only
+declarative intent.
 
 \paragraph{Tool-call-time guardrails} operate at the tool-call boundary ---
 Kavach's enforcement point. CodeShield \cite{saxe2025llamafirewall} applies
@@ -67,12 +67,12 @@ corpus alone was the wrong primary mechanism for three of four detectors.
 
 \paragraph{Information-flow guardrails} (CaMeL \cite{debenedetti2025camel},
 FIDES \cite{costa2025fides}, RTBAS \cite{zhong2025rtbas}) tag data and
-enforce statically --- provable, but unable to detect attacks whose
+enforce statically --- provable, but unable to catch attacks whose
 provenance is correctly labeled while the argument content is malicious.
 
 \paragraph{Output-time guardrails} (NeMo Guardrails, Conseca
-\cite{tsai2025conseca}, and the post-hoc monitor Kavach replaces) act after
-execution --- useful for forensics, unable to prevent it.
+\cite{tsai2025conseca}, and the post-hoc monitor Kavach replaces) act
+after execution --- useful for forensics, too late to prevent it.
 
 \paragraph{Drift-detection guardrails} (TaskTracker
 \cite{abdelnabi2024tasktracker}, DeepContext
@@ -83,19 +83,15 @@ comparing a proposed consequential action against the session's pinned
 intent; we report both a completed taxonomy layer and an incomplete
 authorization mechanism in \S\ref{sec:limitations}.
 
-Across these categories, the tool-call boundary is the only enforcement point at
-which the \emph{resolved runtime arguments} of an action are available for
-inspection before that action executes. Input-time and plan-time guards see only
-declared intent --- the user message or the agent's reasoning trace --- not the
-concrete arguments the call will run with; output-time guards observe the action
-only after it has executed, too late to prevent it; and information-flow guards
-enforce data provenance rather than the semantics of the argument content. This
-is Kavach's enforcement point, and it is structurally unreachable by guards in
-the other categories: they fire at boundaries where the resolved-argument view
-does not yet, or no longer, exists. \S\ref{par:external-baselines} reports a
-consistent, if narrower, coverage gap for the two closest available
-tool-call-content tools specifically, not a test of the general structural
-claim above.
+Across these categories, the tool-call boundary is the only enforcement point
+where an action's \emph{resolved runtime arguments} are available before it
+executes: input-time and plan-time guards see only declared intent, not
+concrete arguments; output-time guards observe the action only after
+execution; information-flow guards enforce provenance, not argument
+semantics. This is Kavach's enforcement point, structurally unreachable by
+guards in the other categories. \S\ref{par:external-baselines} reports a
+narrower coverage gap for the two closest tool-call-content tools
+specifically, not a test of this general claim.
 
 Table~\ref{tab:guardrail-comparison} (\S\ref{sec:related}) places Kavach in
 context on five axes: enforcement boundary, mechanism, corpus extensibility,
@@ -126,9 +122,9 @@ than gating recall behind a fixed false-positive ceiling.
 
 \subsection{OWASP and MITRE taxonomic grounding}
 
-Kavach's attack-pattern corpus is authored against the two most widely cited
-AI-agent threat taxonomies, not against attacks the team happened to have
-seen: MITRE ATT\&CK/ATLAS (EXECUTOR: T1059, T1546; VAULT: T1552, T1539;
-CHANNEL: T1041, T1567; NAVIGATOR: T1083 and others) and the OWASP Top 10 for
-Agentic Applications 2026, mapped per minister (EXECUTOR: ASI04/05; VAULT:
-ASI03/09; CHANNEL: ASI07/08; NAVIGATOR: ASI01/10).
+Kavach's attack-pattern corpus is authored against two widely cited
+AI-agent threat taxonomies, not attacks the team happened to see: MITRE
+ATT\&CK/ATLAS (EXECUTOR: T1059, T1546; VAULT: T1552, T1539; CHANNEL:
+T1041, T1567; NAVIGATOR: T1083 and others) and OWASP Top 10 for Agentic
+Applications 2026 (EXECUTOR: ASI04/05; VAULT: ASI03/09; CHANNEL: ASI07/08;
+NAVIGATOR: ASI01/10).

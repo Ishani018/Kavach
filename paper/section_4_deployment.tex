@@ -54,9 +54,10 @@ by discipline alone.
 
 \paragraph{The corpus's other 207 cases, and Kavach's rate on all 519.}
 Target sets overlap, so per-minister counts do not sum to 519: VAULT
-(117) and EXECUTOR (203) share 8 (312 distinct), leaving 207 targeting
-neither. Within those 207 (all AtomicRedTeam), CHANNEL (72) and NAVIGATOR
-(144) share 9 (union 207); their \emph{primary} evaluation remains
+(117) and EXECUTOR (203) share 8 (312 distinct, not the naive 320),
+leaving 207 targeting neither. Within those 207 (all AtomicRedTeam),
+CHANNEL (72) and NAVIGATOR (144) share 9 (union 207, not the naive 216);
+their \emph{primary} evaluation remains
 InjecAgent (\S\ref{sec:injecagent}) and AgentDojo (\S\ref{sec:channel-eval},
 \S\ref{sec:gpt4o}). Any-minister detection on these 207 is 206/207
 (99.5\%), though each minister's own verdict alone catches only 23/72
@@ -113,7 +114,7 @@ pooled: VAULT is 93.8\% (45 true vs.\ 3 false) on agent-shaped benign but
 is 100\% (113 vs.\ 0) agent-shaped but 48.9\% (113 vs.\ 118) on BFCL.
 Precision is high on the population closer to Kavach's deployment context
 and lower on generic traffic, an effect of BFCL's volume amplifying a
-modest per-call rate rather than a change in the mechanism; both
+modest per-call rate, not a change in mechanism; both
 populations' benign:attack ratios are corpus-constructed, not a measured
 production base rate, so these figures should be read relative to each
 other, not as an absolute expectation.
@@ -215,15 +216,17 @@ real tool calls and outputs, not a minimal ground-truth replay.
 comparison at this granularity, so we replayed AgentDojo's 97 recorded
 no-injection GPT-4o trajectories under the identical criterion. Kavach
 fires on 64/97 (66.0\%), but only 4/97 (4.1\%) are hard-\textsc{Block}
-(the rest Escalate); per-minister credit: CHANNEL 28, EXECUTOR 19,
-NAVIGATOR 12, VAULT 5 --- NAVIGATOR is a minority contributor. On the
+(the rest Escalate; one minister credited per fired case, same convention
+as \S\ref{sec:injecagent}). Per-minister credit: CHANNEL 28, EXECUTOR 19,
+NAVIGATOR 12, VAULT 5 --- NAVIGATOR is a minority contributor, not the
+driver: CHANNEL and EXECUTOR alone account for 47/64 (73\%). On the
 attack side, hard-Block alone fires on 7/629 (1.1\%), \emph{lower} than
 the benign 4.1\%, since these are session-level provenance attacks
 CHANNEL deliberately escalates rather than hard-blocks
 (\S\ref{sec:design-tradeoffs}); hard-Block is reserved for VAULT/EXECUTOR's
-structural certainty, rarely triggered by multi-step sessions. This
-recontextualizes rather than invalidates 74.2\%, consistent with
-\S\ref{sec:design-tradeoffs}'s 67.3\% Escalate rate.
+structural certainty, rarely triggered by multi-step sessions. Read
+66.0\%/74.2\% as this criterion's sensitivity, not precision, consistent
+with \S\ref{sec:design-tradeoffs}'s 67.3\% Escalate rate.
 
 \paragraph{Diagnosing the apparent misses.}
 Of the 162 trajectories on which Kavach did not fire, we traced every case
