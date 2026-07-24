@@ -147,9 +147,9 @@ genuinely novel exfiltration tool is not silently invisible.
 
 \paragraph{Provenance.} Independent of taint, every destination-tool
 call's argument values are classified by session origin:
-\textsc{user\_supplied}, \textsc{self} (verified identity),
-\textsc{output\_derived} (first seen in an earlier call's output this
-session), or \textsc{novel} (neither). \textsc{Output\_derived} or
+\textsc{user\_\allowbreak supplied}, \textsc{self} (verified identity),
+\textsc{output\_\allowbreak derived} (first seen in an earlier call's output this
+session), or \textsc{novel} (neither). \textsc{Output\_\allowbreak derived} or
 \textsc{novel} on a consequential call returns \textsc{Escalate}, not
 \textsc{Block}: paying a bill from its own recipient IBAN, or replying to
 an email just read, are legitimate same-session read-then-send chains
