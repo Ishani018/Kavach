@@ -23,8 +23,9 @@ harness executes unsanitized (CVE-2026-21852 on Claude Code's
 deserialization, enabling arbitrary class instantiation in trusted
 namespaces (CVE-2025-68664 on LangChain Core, CVSS 9.3).
 \emph{Hook-bypass} attacks exploit incorrectly wired hook points (OpenClaw
-issues \#5513, \#5943: \texttt{before\_tool\_call} documented but never
-invoked), and \emph{CSRF/session} attacks exploit the harness's web
+issues \#5513, \#5943: \texttt{before\_\allowbreak tool\_\allowbreak call}
+documented but never invoked), and \emph{CSRF/session} attacks exploit the
+harness's web
 surface (CVE-2025-34291 on LangFlow, actively exploited in the wild as of
 January 2026~\cite{crowdsec2026langflow}).
 
