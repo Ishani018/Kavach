@@ -20,17 +20,12 @@ measurements, since these diverged in ways that mattered
 
 \subsection{An audit discrepancy, and how it was resolved}
 \label{sec:audit-resolution}
-Early in this work, three measurements of VAULT/EXECUTOR detection rate on
-the same reference corpus disagreed sharply: 34.2\%/34.5\% (deterministic
-layer alone, in-process, since superseded by a VAULT rule fix to the
-current 35.9\%/34.5\%, \S\ref{sec:vault-executor}), 72.6\%/89.9\% (full
-pipeline, in-process), and 14.9\%/19.2\% (an earlier live-HTTP
-measurement). Two causes: a duplicate server process corrupted the
-live-HTTP figure by answering a fraction of requests, and the metric
-itself differed --- one counted \textsc{Block}-or-\textsc{Escalate} as a
-hit, another only the deterministic layer's contribution. Corrected, the
-live-HTTP and in-process numbers agreed --- a benchmark harness's own bugs
-can masquerade as detector performance.
+Early in this work, three measurements of VAULT/EXECUTOR detection rate
+on the same corpus disagreed sharply (34.2\%/34.5\%, 72.6\%/89.9\%,
+14.9\%/19.2\%), traced to a duplicate server process corrupting one
+measurement and an inconsistent Block-or-Escalate-vs-deterministic-only
+metric across the others. Corrected, live-HTTP and in-process agreed: a
+benchmark harness's own bugs can masquerade as detector performance.
 
 \subsection{A composite evaluation corpus for VAULT and EXECUTOR}
 \label{sec:kavach-pb}
@@ -290,7 +285,13 @@ CHANNEL's taint mechanism
 (\texttt{CHANNEL-TAINT\allowbreak:read\allowbreak-then\allowbreak-send}), with
 VAULT and EXECUTOR returning \textsc{Allow} on all 544 --- this result
 exercises CHANNEL's multi-step provenance/taint mechanism directly, not
-VAULT/\allowbreak EXECUTOR's deterministic layer.
+VAULT/\allowbreak EXECUTOR's deterministic layer. This figure should be
+read the same way as the benign 0\% below: DS's dispatch is
+read-then-send for every case by construction, so taint's precondition is
+satisfied corpus-wide --- 544/544 records that the precondition held, not
+that the mechanism discriminated. What establishes discrimination is the
+two-step benign test that follows, which the corpus as published does not
+supply.
 
 \paragraph{The paired 0\% benign hard-block FPR did not test this
 mechanism, and we found and fixed a real gap.} InjecAgent's benign
