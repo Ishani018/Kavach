@@ -1,214 +1,369 @@
 % paper/section_4_deployment.tex
-% Deployment & Detection. Prose is submission-ready; \TBD marks numbers
-% pending the Dell benchmark runs (InjecAgent re-run, benign gate, native).
+% REWRITTEN evaluation section for the deterministic-primary architecture.
+% Supersedes the cosine-primary/COMPASS/OpenClaw-hookgap evaluation this
+% section previously described.
 
-\section{Deployment and Detection}
+\section{Evaluation}
 \label{sec:eval}
 
-\subsection{The gateway hook gap}
-\label{sec:hookgap}
-Our first finding is a property of the host runtime, not of Kavach. OpenClaw
-exposes two execution paths: an \emph{embedded} runner used when the agent is
-driven programmatically, and a \emph{gateway} path used by the interactive
-terminal and the hosted gateway. A pre-execution security plugin must run at
-the \texttt{before\_tool\_call} boundary --- after arguments are resolved, before
-the tool executes. We find this boundary is reachable on the embedded path but
-not on the gateway path: a sentinel-file probe (a tool call that writes a marker)
-executes with no plugin interception when routed through the gateway, while the
-identical call is intercepted in embedded mode, where the parliament returns
-\textsc{Block} and the tool never runs. The gateway's tool-execution path simply
-exposes no pre-execution plugin hook --- a systemic property that affects any
-security plugin, not only Kavach. Two defects, \#5513 (the typed-hook runner
-snapshotting the plugin registry at construction) and \#5943
-(\texttt{before\_tool\_call} not invoked in \texttt{executeToolCalls()}), were
-historically responsible; we diagnosed both independently and authored a
-candidate patch (\texttt{openclaw\_pr/}), and both were subsequently resolved
-upstream in OpenClaw v2026.4.15 --- consistent with our diagnosis, as the
-embedded hook now fires without any patching on our part. We evaluate Kavach on
-the embedded path. The general lesson is that a working pre-execution hook is a
-precondition for \emph{any} runtime guardrail, and agent platforms should treat
-it as a first-class, tested primitive on the path that actually executes tool
-calls, rather than optional plugin surface. As of OpenClaw v2026.4.15 --- the
-version in which issues \#5513 and \#5943 were resolved --- the embedded runner
-correctly fires \texttt{before\_tool\_call} without any patching; the gateway
-execution path remains without a pre-execution interception point, as our
-sentinel probe confirms on this release. The finding is therefore architectural,
-not version-specific: the gateway and embedded paths use different
-tool-execution code, and the gateway path exposes no plugin hook regardless of
-the bug status of any individual release.
+We evaluate Kavach on three independent axes: deterministic-primary
+detection on a composite evaluation corpus for VAULT and EXECUTOR,
+assembled because the two standard benchmarks below almost entirely miss
+them (\S\ref{sec:kavach-pb}--\ref{sec:vault-executor-eval}); CHANNEL's
+session-level provenance mechanism against real multi-step AgentDojo
+trajectories (\S\ref{sec:channel-eval}); and a large-scale validation
+against AgentDojo's own recorded model transcripts
+(\S\ref{sec:gpt4o}). We report benign false positives jointly with recall
+throughout, and distinguish in-process from live-HTTP-dispatch
+measurements, since these diverged in ways that mattered
+(\S\ref{sec:audit-resolution}).
 
-\subsection{Live interception}
-\label{sec:live}
-\label{sec:liveintercept}
-We evaluate Kavach against an agent running on a Dell Precision~3660 (NVIDIA
-RTX~4090), with Gemma\,4~26B served via Ollama as the agent backbone. Kavach
-itself comprises its corpus, the four ministers, the Speaker, and the
-\texttt{BAAI/bge-base-en-v1.5} (768-d) embedding model that scores each proposed
-tool call; on this machine the embedding model is co-located on the GPU for
-convenience, but it is not GPU-bound (\S\ref{sec:crossmodel} runs it CPU-only).
-A staged attack that induces the agent
-to read a credential file and transmit its contents is intercepted before
-execution: the deciding minister returns \textsc{Block}, the call is denied, and
-a provenance-grounded record (technique $\rightarrow$ tactic $\rightarrow$ stage)
-is committed to the hash-chained Ledger. End-to-end interception latency for the
-blocking decision is approximately 78\,ms. The plugin fails closed on the
-tool-call path: a verdict that does not return within the timeout denies the
-call (\texttt{toolCallFailMode = deny}). This demonstrates live pre-execution
-interception through OpenClaw's embedded-mode \texttt{before\_tool\_call} hook: a
-resolved tool call is intercepted, the parliament returns \textsc{Block}, the
-call is prevented from executing, and a provenance-grounded verdict is committed
-to the hash-chained ledger before any side effect occurs.
+\subsection{An audit discrepancy, and how it was resolved}
+\label{sec:audit-resolution}
+Early in this work, three measurements of VAULT/EXECUTOR detection rate
+on the same corpus disagreed sharply (34.2\%/34.5\%, 72.6\%/89.9\%,
+14.9\%/19.2\%), traced to a duplicate server process corrupting one
+measurement and an inconsistent Block-or-Escalate-vs-deterministic-only
+metric across the others. Corrected, live-HTTP and in-process agreed: a
+benchmark harness's own bugs can masquerade as detector performance.
 
-\subsection{Representation mismatch: an instructive negative result}
-\label{sec:repmismatch}
-Our evaluation uses three distinct paths, which we keep separate throughout.
-(i)~The live-interception demonstration of \S\ref{sec:liveintercept} runs through
-OpenClaw's embedded-mode \texttt{before\_tool\_call} hook end-to-end. (ii)~The
-InjecAgent detection results (\S\ref{sec:repmismatch}--\S\ref{sec:hybridresults})
-are obtained by submitting each case's resolved tool call directly to the
-parliament scorer via \texttt{/hook/parliament} --- the standard replay
-methodology for reproducible guardrail evaluation, which measures what the
-parliament decides for a given action independent of whether a particular agent
-backbone would emit it. (iii)~The AgentDojo results (\S\ref{sec:crossmodel}) run
-a live agent through AgentDojo's own execution harness, with the parliament
-inserted as an in-loop defense, so they exercise live agent-generated tool calls
-rather than replay. Only the demonstration in (i) traverses the OpenClaw hook;
-the benchmark numbers do not depend on OpenClaw.
+\subsection{A composite evaluation corpus for VAULT and EXECUTOR}
+\label{sec:kavach-pb}
+InjecAgent and AgentDojo, the two standard agent-security benchmarks we rely
+on elsewhere in this section, almost exclusively stress CHANNEL: InjecAgent's
+attack shape is a read-then-send taint chain, and AgentDojo's is a
+provenance-mismatched destination value on a consequential call. Neither
+meaningfully exercises VAULT or EXECUTOR at all --- a gap we found live,
+while validating VAULT/EXECUTOR's deterministic-primary rearchitecture
+(\S\ref{sec:deterministic-primary}) and discovering we had no real benchmark
+to validate it against.
 
-Our corpus is authored in the register of MITRE technique descriptions and
-tool-call syntax. On InjecAgent \cite{zhan2024injecagent}, whose attacks are
-expressed as fluent natural-language instructions, this configuration yields a
-23.5\% hard-block false-positive rate on the direct-harm setting (0.0\% on
-data-stealing) on benign actions evaluated per distinct case --- higher than the
-corpus's tool-call register would suggest, and concentrated almost entirely in
-one setting. We attribute this elevated false-positive rate to a
-\emph{representation mismatch}: the corpus is embedded in tool-call/technique
-register while InjecAgent's benign actions are phrased as natural language, so
-benign natural-language actions land near attack patterns in embedding space
-despite sharing no malicious intent. This is an attribution grounded in how the
-corpus was authored rather than a measured cross-register comparison: a
-controlled evaluation on benign traffic expressed in the corpus's own tool-call
-register would be expected to show a markedly lower false-positive rate, and we
-identify that native-register measurement as a direct test of this hypothesis,
-left to future work. We report the mismatch because it is the kind of deployment
-lesson a purely benchmark-simulated evaluation would hide. We surface this as a
-finding rather than suppressing it: a corpus authored in one register evaluated
-against attacks in another register is a realistic deployment scenario, and the
-23.5\% hard-block FPR on the direct-harm setting is the honest characterization
-of Kavach's current operating point at its deployed threshold settings. The
-hybrid retrieval fix (\S\ref{sec:hybridresults}) recovers recall on the attack
-side; recalibrating per-minister thresholds against a representative benign
-workload is the direct path to reducing the FPR, and we identify this as the
-primary next engineering step.
+Rather than author new synthetic attacks to close this gap, we assembled a
+unified, composite evaluation corpus for VAULT and EXECUTOR from
+already-real, externally-validated attack data (AtomicRedTeam, GTFOBins,
+BFCL) under one runner, one wire format, and one scoring convention. This
+is deliberate: a self-authored attack set risks unconsciously being shaped
+to be catchable by the very system that writes it, and reusing
+independently-authored corpora avoids this risk structurally rather than
+by discipline alone.
 
-To make the mismatch concrete rather than only statistical, we ran a small
-hand-authored probe of ten \emph{unambiguously} benign tool calls (reading
-\texttt{README.md}, a \texttt{GET} to the GitHub API, writing a report PDF, a
-routine status e-mail) through the deployed parliament at its production
-thresholds: five are hard-\textsc{Block}ed, four \textsc{Escalate}, one is
-\textsc{Allow}ed. This is an illustrative probe, not a headline metric --- the
-actions are hand-authored and the sample tiny --- but each is benign beyond
-dispute, so hard-blocking half of them localizes the FPR to the
-threshold/representation setting rather than to any quirk of InjecAgent's benign
-population.
+\paragraph{The corpus's other 207 cases, and Kavach's rate on all 519.}
+Target sets overlap, so per-minister counts do not sum to 519: VAULT
+(117) and EXECUTOR (203) share 8 (312 distinct, not the naive 320),
+leaving 207 targeting neither. Within those 207 (all AtomicRedTeam),
+CHANNEL (72) and NAVIGATOR (144) share 9 (union 207, not the naive 216);
+their \emph{primary} evaluation remains
+InjecAgent (\S\ref{sec:injecagent}) and AgentDojo (\S\ref{sec:channel-eval},
+\S\ref{sec:gpt4o}). Any-minister detection on these 207 is 206/207
+(99.5\%), though each minister's own verdict alone catches only 23/72
+(31.9\%, CHANNEL) and 92/144 (63.9\%, NAVIGATOR) --- the rest caught by
+cosine-triage or a different minister. Kavach's overall any-minister rate
+across all 519 --- the same denominator the baselines below use --- is
+515/519 (99.2\%), a looser metric than the strict per-target recall
+reported next, not a like-for-like comparison. NAVIGATOR's own
+contribution, per \S\ref{sec:architecture}'s disclosure convention: sole
+contributor on 9/519 (1.7\%), so 506/519 (97.5\%) survive with it removed.
 
-A threshold sweep over $\theta_{\text{CHANNEL}} \in \{0.45, 0.50, 0.55, 0.60\}$
-on our benign probe reveals no separating knee: benign CHANNEL confidences
-(0.406--0.702) overlap attack confidences (0.534--0.717) across the full range,
-so single-threshold tuning cannot reach a hard-block FPR of $\leq$1/10 while
-holding 7/10 attack recall. The structural fix is therefore corpus
-recalibration on a representative benign workload --- reducing CHANNEL's
-over-broad exfiltration patterns --- not threshold adjustment.
+\paragraph{Reuse and scoring.} Attack cases are drawn from AtomicRedTeam
+and GTFOBins; benign calls from BFCL (793, general-purpose) plus a
+55-case agent-shaped benign set, reported separately rather than pooled.
+All cases are dispatched through the same \texttt{/hook/parliament} path
+under one per-minister scoring convention and one benign false-positive
+convention, purely to make an existing evaluation gap measurable, not as
+a standalone artifact. Each attack case carries a \texttt{target\_patterns} list
+naming which minister(s) it should trigger; we report both an overall
+detected rate and a per-minister hit rate, since a case can be detected
+overall while its targeted minister misses. On the benign side,
+\textsc{Block} is a hard false positive and \textsc{Escalate} is reported
+separately, never conflated with \textsc{Block} or a clean
+\textsc{Allow} --- the same convention CHANNEL's provenance mechanism uses
+(\S\ref{sec:channel}).
 
-\subsection{Hybrid retrieval recovers recall at a controlled false-positive rate}
-\label{sec:hybridresults}
-The fix follows from the diagnosis. Under dense-only retrieval the lexical
-channel is absent and benign and attack actions are separated only by embedding
-proximity; adding the lexical channel both sharpens recall on attacks that share
-distinctive tokens with the corpus and discounts benign actions that are merely
-semantically near an attack pattern. We add BM25 over the same corpus, fused with
-dense retrieval by reciprocal-rank fusion for candidate selection, with the final
-confidence computed as the dense cosine similarity scaled by a lexical gate (a
-benign action that is semantically near an attack pattern but shares none of its
-distinctive tokens is discounted). With this hybrid configuration, on InjecAgent
-Kavach holds strict (hard-\textsc{Block}) recall at 0.633 (direct-harm) / 0.438
-(data-stealing) and loose (block-or-escalate) recall at 0.90 / 0.875. The
-residual false-positive rate (23.5\% hard-block on direct-harm, 0.0\% on
-data-stealing) is a corpus-quality property addressed separately --- a small
-number of over-broad CHANNEL patterns account for it (\S\ref{sec:limitations})
---- rather than a property of the retrieval fusion, which recovers recall. The
-gate floor is a single tunable parameter; Table~\TBD{} reports the recall/FPR
-trade-off across its range.
+\subsection{Results: VAULT and EXECUTOR}
+\label{sec:vault-executor-eval}
+On this 519-case AtomicRedTeam/GTFOBins reference corpus (117
+VAULT-targeted, 203 EXECUTOR-targeted; \texttt{target\allowbreak\_patterns} is
+unmodified since its original authoring commit, confirmed via
+\texttt{git diff}, so it is independent ground truth), the deterministic
+layer alone recovers VAULT 35.9\% (42/117) and EXECUTOR 34.5\% (70/203);
+adding the cosine-escalate-only triage layer (\S\ref{sec:triage}) raises
+full-pipeline detection to VAULT 74.4\% (87/117) and EXECUTOR 90.1\%
+(183/203) --- of which 42 points (VAULT) and 70 points (EXECUTOR) are
+hard-\textsc{Block} from the deterministic layer, and 45 and 113 points
+respectively are \textsc{Escalate}-only from cosine triage --- with zero
+new hard-block false positives on either benign population (793 BFCL, 55
+agent-shaped). Benign \textsc{Escalate} rates on the two populations
+(agent-shaped/BFCL) are: VAULT 5.5\%/13.4\%, EXECUTOR 0\%/14.9\%, CHANNEL
+40.0\%/4.5\%, NAVIGATOR 21.8\%/10.8\%. A held-out even/odd split confirms
+the full-pipeline rate is stable, not an artifact of partition: VAULT
+71.2\% (42/59) versus 77.6\% (45/58); EXECUTOR 89.2\% (91/102) versus
+91.1\% (92/101) --- both halves reported explicitly rather than only their
+average.
 
-\subsection{Detection results and cost}
-\label{sec:results}
-Table~\TBD{} reports InjecAgent strict and loose recall and false-positive rate
-under per-minister thresholds with hybrid retrieval. Per-minister detection
-rates are
-uneven, and hard-block detection is carried by EXECUTOR and NAVIGATOR; VAULT and
-CHANNEL act as escalators on this benchmark (VAULT's per-minister threshold sits
-above its observed attack-confidence ceiling, so it contributes escalations
-rather than hard blocks --- see \S\ref{sec:limitations}).
-\S\ref{sec:frontier} reports the minister ablation that motivates the four-way
-split. On cost, the embed-once optimization reduces embedding calls per decision
-from up to nine to one, and measured latency is 78\,ms p50 / 83\,ms p95 ---
-an order of magnitude below lifecycle-instrumenting scanners
-(PRISM~\cite{prism2026} $\approx$15.8\,s p95; AgentArmor~\cite{agentarmor2026}
-$\approx$20.9\,s). We report cost jointly with detection rather than in
-isolation. All headline detection numbers are cold
-transfer from third-party benchmarks (InjecAgent~\cite{zhan2024injecagent},
-AgentDojo~\cite{debenedetti2024agentdojo}) whose attacks the corpus was not
-authored against; the synthetic generator (\texttt{make\_synthetic.py}) is used
-\emph{only} to validate that the \S\ref{sec:frontier} estimator recovers a
-known injected error-correlation $\rho$, and never as an evaluation of the
-detector against its own payloads.
+\paragraph{Escalate-precision, not just recall.} A high benign Escalate
+rate could make an attack-side Escalate uninformative, so we report
+Escalate-precision --- of a minister's own Escalate verdicts, what
+fraction land on a true attack --- per benign population rather than
+pooled: VAULT is 93.8\% (45 true vs.\ 3 false) on agent-shaped benign but
+29.8\% (45 vs.\ 106) on the larger, more general BFCL population; EXECUTOR
+is 100\% (113 vs.\ 0) agent-shaped but 48.9\% (113 vs.\ 118) on BFCL.
+Precision is high on the population closer to Kavach's deployment context
+and lower on generic traffic, an effect of BFCL's volume amplifying a
+modest per-call rate, not a change in mechanism; both
+populations' benign:attack ratios are corpus-constructed, not a measured
+production base rate, so these figures should be read relative to each
+other, not as an absolute expectation.
 
-\paragraph{Semantic triage, not a regex fast path.}
-Cost is controlled by a two-stage semantic pipeline rather than a syntactic
-pre-filter. A single query embedding is computed once per action (the embed-once
-optimization above) and reused by a lightweight router that gates which
-Ministers fire: a Minister is activated only when the action's cosine similarity
-to that Minister's domain descriptors exceeds $\theta_{\text{route}}$ (0.40),
-so a typical action runs one or two Ministers rather than all four. This router
-is Kavach's triage layer. We deliberately do \emph{not} add a zero-LLM
-regex/AST fast path: the central finding of \S\ref{sec:repmismatch} is that
-attacks expressed in natural-language register evade tool-call/technique-syntax
-matching, so a syntactic pre-filter would reintroduce exactly the representation
-mismatch the semantic corpus exists to close, and would silently pass the
-fluent-language attacks Kavach is designed to catch. A complementary
-optimization that is \emph{safe} because it never suppresses a detection is a
-deterministic allowlist for provably benign calls (e.g.\ workspace-scoped
-read-only operations) evaluated before embedding; we leave this latency
-refinement to future work.
+The controlled comparison is architecture vs.\ architecture, full
+pipeline vs.\ full pipeline, not component vs.\ system. Pre-rearchitecture
+cosine-primary --- same harness, same 519 cases, code unmodified,
+Block-or-Escalate a hit on both sides (re-verified against the current
+corpus: 79/117, 174/203, confirming the convention rather than asserting
+it) --- recovers VAULT 67.5\% (79/117) and EXECUTOR 85.7\% (174/203), at
+4.9\% (39/793) hard-block FPR on general-purpose benign (BFCL). The
+74.4\%/90.1\% pipeline above (not the deterministic layer's own
+35.9\%/34.5\%, a decomposition of it) wins both axes: a modest,
+mechanism-attributable recall gain (+6.9pp VAULT, +8 cases; +4.4pp
+EXECUTOR, +9 cases) alongside the decisive result, hard-block FPR
+eliminated (4.9\%\,$\to$\,0\%) --- a same-team baseline showing the
+rearchitecture improves on the design it replaced on this same 519-case
+corpus.
 
-Finally, \texttt{/ledger/verify} re-walks the hash chain and detects
-any post-hoc edit to a recorded decision or its provenance, which we demonstrate
-on a tampered ledger in the appendix.
+We additionally compare against two independent, non-Kavach baselines on
+the identical 519-case corpus and both benign populations, matching their
+denominator against Kavach's own 515/519 (99.2\%, \S\ref{sec:kavach-pb})
+rather than the narrower per-target figures above. A naive keyword/regex
+blocklist ($\sim$30 hand-written patterns, no corpus, no tuning) recovers
+12.1\% (63/519) at 0\% FPR --- the expected floor for an un-corpus-driven
+list. A zero-shot LLM judge (local \texttt{qwen2.5:7b}, no corpus, single
+fixed prompt, resolved call only) recovers 78.8\% (409/519) --- below
+Kavach's Block-or-Escalate 99.2\% but above its single-tier,
+hard-\textsc{Block}-only 29.5\% (not on equal footing; see below) --- at
+a false-positive cost Kavach's deterministic layer avoids entirely: 1.4\%
+BFCL, 14.5\% agent-shaped.
+A larger model (\texttt{qwen2.5:32b}, same
+prompt and populations) does not simply dominate: recall falls to 71.3\%
+(370/519) while FPR drops to 0.4\% combined (0\% agent-shaped) --- a
+different point on the same recall/precision trade-off, not a strictly
+better one, indicating the trade-off is inherent to LLM-judge-style
+detection rather than an artifact of model scale. Read together with the
+cosine-primary ablation above: a naive filter under-detects, a generic LLM
+judge (at either scale) trades recall against precision but cannot match
+both, and cosine-primary approaches neither Kavach's recall nor its
+zero-FPR guarantee.
 
-\subsection{Cross-model generalization}
-\label{sec:crossmodel}
-The headline numbers above are measured on the primary configuration
-(Dell~Precision~3660, RTX~4090, Gemma\,4~26B). To test whether parliament
-decisions are driven by the shared semantic corpus rather than by a particular
-agent backbone, we replicate the InjecAgent detection run on a secondary,
-CPU-only configuration (Intel~i5, 16\,GB~RAM) with \texttt{qwen2.5:3b} as the
-agent backbone, holding the embedding model and corpus identical. On this
-secondary configuration the parliament catches \(26/30\) attack actions at the
-block-or-escalate level (loose recall \(0.87\)) with zero request errors, and on
-a separate benign gate of \(17\) natural-language user instructions it
-hard-blocks \emph{none} (block-only FPR \(0.0\%\)); mean per-action latency is
-\(\approx\!2.6\)\,s, reflecting CPU-only embedding on this laptop versus the
-GPU-accelerated embedding available on the primary machine. Strict (hard-\textsc{Block}) recall is markedly lower on the
-secondary configuration (\(0.13\)): under the laptop's freshly calibrated
-thresholds the operating point shifts toward \textsc{Escalate} on \emph{both}
-sides---attacks are flagged rather than hard-blocked (strict \(0.13\) vs.\ loose
-\(0.87\)), and \(4/17\) benign instructions escalate (block-or-escalate FPR
-\(23.5\%\)) while none are blocked. Cross-model agreement is therefore at the
-level of \emph{flagging} suspicious actions, not of the final block decision,
-and the hard-\textsc{Block} decisions that do fire remain high-precision (no
-benign hard-blocks observed). We read this as qualified support for backbone
-independence---the shared corpus, not the agent model, drives whether an action
-is flagged---while noting the small benign sample and that a threshold-matched
-comparison against the primary configuration remains \TBD. Table~\TBD{} reports
-the two configurations side by side; full secondary-run artifacts are in
-\texttt{benchmarks/results\_v2/laptop\_qwen25\_3b/}.
+\paragraph{This comparison is not symmetric; we disclose the gap.} The
+three baselines above are single-tier (flagged or not); Kavach's figures
+mix Block and the softer Escalate. As a single hard-block action, Kavach's
+own recall on these 519 cases is 153/519 (29.5\%) --- below both judges'
+flagged rate --- and its own any-minister FPR on the same benign
+populations is 29.6\%/67.3\% (BFCL/agent-shaped), \emph{above} either
+judge's (1.4\%/14.5\% at 7B, 0.4\%/0\% at 32B). Weigh 29.5\%/29.6\%/67.3\%
+against these baselines' binary figures, not 99.2\%/0\%; the latter pair
+is a fair comparison only against another Block-or-Escalate system, such
+as the cosine-primary ablation above.
+
+This split addresses partition luck, not rule-authoring circularity: the
+deterministic rules were authored by inspecting misses across the full
+corpus, so both halves were visible during rule development. The
+generalization audit (\S\ref{sec:generalization-audit}) attempts to measure
+past this limit, and has its own limit in turn: its scenarios are
+author-written, testing vocabulary novelty rather than an independently
+sourced distribution.
+
+\subsection{CHANNEL: session-level provenance}
+\label{sec:channel-eval}
+CHANNEL's provenance mechanism (\S\ref{sec:channel}) is evaluated on two real
+populations: 22 real multi-step benign sessions and the AgentDojo attack
+cases whose two-call read-then-send shape is structurally applicable to
+CHANNEL's mechanism. On the benign population, 5/22 sessions correctly
+escalate via CHANNEL with 0 hard-block false positives from CHANNEL itself
+--- exactly the sessions with a legitimate destination value (an IBAN,
+most commonly) read earlier in the same session rather than typed by the
+user (\S\ref{sec:channel}). A further 3/22 are hard-blocked by an unrelated
+TRAJECTORY/NAVIGATOR interaction, never blended into the 5/22 figure and
+reported in full in \S\ref{sec:design-tradeoffs}. On the attack side, 5/5
+structurally applicable AgentDojo cases correctly escalate, verified
+twice: against the benchmark's minimal \texttt{ground\_truth()} sequence,
+and independently against AgentDojo's own full recorded model
+trajectories for the same cases --- real, longer sessions with benign
+calls interleaved. This second check caught a bug in our own verification
+script (a benign call after the attack step could overwrite an earlier
+correct escalation) before we reported the number as final; the corrected
+script confirms genuine 5/5.
+
+\subsection{Large-scale real-trajectory validation}
+\label{sec:gpt4o}
+The measurements above use either a synthetic reference corpus or a small,
+hand-verified set of AgentDojo cases. To validate at scale on real model
+behavior, we replayed all 629 real recorded attack trajectories for GPT-4o
+(\texttt{gpt-4o-2024\allowbreak-05-13}) across AgentDojo's four suites'
+\texttt{important\allowbreak\_instructions} family, sourced directly from
+AgentDojo's own published \texttt{runs/} data --- real transcripts with
+real tool calls and outputs, not a minimal ground-truth replay.
+
+\paragraph{Headline result.} Kavach fires (\textsc{Block} or
+\textsc{Escalate}, any minister, at any point in the session) on 467/629
+(74.2\%) of these real trajectories: banking 119/144 (82.6\%), slack 105/105
+(100\%), travel 63/140 (45.0\%), workspace 180/240 (75.0\%).
+
+\paragraph{Benign control, same criterion.} 74.2\% had no benign
+comparison at this granularity, so we replayed AgentDojo's 97 recorded
+no-injection GPT-4o trajectories under the identical criterion. Kavach
+fires on 64/97 (66.0\%), but only 4/97 (4.1\%) are hard-\textsc{Block}
+(the rest Escalate; one minister credited per fired case, same convention
+as \S\ref{sec:injecagent}). Per-minister credit: CHANNEL 28, EXECUTOR 19,
+NAVIGATOR 12, VAULT 5 --- NAVIGATOR is a minority contributor, not the
+driver: CHANNEL and EXECUTOR alone account for 47/64 (73\%). On the
+attack side, hard-Block alone fires on 7/629 (1.1\%), \emph{lower} than
+the benign 4.1\%, since these are session-level provenance attacks
+CHANNEL deliberately escalates rather than hard-blocks
+(\S\ref{sec:design-tradeoffs}); hard-Block is reserved for VAULT/EXECUTOR's
+structural certainty, rarely triggered by multi-step sessions. Read
+66.0\%/74.2\% as this criterion's sensitivity, not precision, consistent
+with \S\ref{sec:design-tradeoffs}'s 67.3\% Escalate rate.
+
+\paragraph{Diagnosing the apparent misses.}
+Of the 162 trajectories on which Kavach did not fire, we traced every case
+to its actual tool-call content rather than reporting a bare miss rate.
+AgentDojo's own \texttt{security} field marks a trajectory as a successful
+attack whenever the environment state changed at all relative to the
+pre-trajectory state and does not exactly match the injected goal ---
+conflating ``the injected attack succeeded'' with ``the model made no
+consequential call related to the injection at all.'' 131 of the 162 misses
+fall in the latter category, verified by extracting every tool call from
+each miss's transcript against a fixed consequential-tool list: the model
+never invoked any consequential tool in connection with the injected
+instruction, so there was no unauthorized action for any minister to catch,
+regardless of what AgentDojo's field reports. A further 12 are trajectories
+where AgentDojo's own field already indicates the injection did \emph{not}
+succeed (8 \texttt{workspace}, 4 \texttt{travel}) --- not Kavach misses
+either, since there is no successful attack to have caught. The remaining
+19 are genuine misses.
+
+\paragraph{The remaining 19 real misses, categorized by mechanism.} We
+categorize each by whether the underlying attack has a destination
+\emph{value} to trace (CHANNEL's domain) or is purely an unauthorized
+\emph{action} with no data flow at all (closer to NAVIGATOR's domain,
+\S\ref{sec:limitations}). Five cases (\texttt{travel}, all
+\texttt{reserve\_hotel}) name an attacker-substituted external party --- a
+real destination value, of the same shape as \texttt{send\_money}'s
+recipient IBAN --- but the tool was never added to CHANNEL's
+destination-tool list, a scope gap rather than a mechanism failure.
+Fourteen cases (\texttt{banking}: 11; \texttt{workspace}: 3,
+\texttt{delete\_file} and \texttt{append\allowbreak\_to\allowbreak\_file})
+mutate existing account or same-account state with no new destination
+value introduced at all --- no value for any provenance mechanism to
+trace, since these attacks ask ``should this action have happened,'' not
+``where did this value come from.'' Adding the tool to CHANNEL's
+destination list to close the five \texttt{reserve\_hotel} cases
+introduces a new false positive instead: the value extractor recognizes
+only email/IBAN/phone/URL shapes, not proper-noun business names. We
+reverted this change and report the gap as a documented scope limitation
+(\S\ref{sec:limitations}) rather than a closed fix.
+
+\paragraph{Scope of this validation.} This covers one model
+(\texttt{gpt-4o-2024\allowbreak-05-13}) and one attack family, the complete
+recorded trajectories AgentDojo publishes; transfer to other models'
+tool-calling styles or subtler injection framings is untested, a
+deliberate trade of breadth for realism.
+
+\subsection{InjecAgent}
+\label{sec:injecagent}
+InjecAgent's full corpus is 1,054 cases: 510 direct-harm (DH) and 544
+data-stealing (DS), each the cross product of InjecAgent's 17 user tasks
+with its 30 DH / 32 DS attacker instructions. Both are dispatched as a
+two-step sequence --- a source read, then the destination send (DS) or the
+direct-harm action itself (DH) --- so CHANNEL's session-scoped
+taint/provenance tracker can observe the read-then-act pattern in both
+settings; DH's dispatch was corrected to this two-step form as a
+methodology fix, not a change to any minister's detection logic.
+
+On DS, Kavach achieves \textbf{544/544 (100\%) strict (hard-\textsc{Block})
+recall}, entirely via CHANNEL: every one of the 544 cases is decided by
+CHANNEL's taint mechanism
+(\texttt{CHANNEL-TAINT\allowbreak:read\allowbreak-then\allowbreak-send}), with
+VAULT and EXECUTOR returning \textsc{Allow} on all 544 --- this result
+exercises CHANNEL's multi-step provenance/taint mechanism directly, not
+VAULT/\allowbreak EXECUTOR's deterministic layer. This figure should be
+read the same way as the benign 0\% below: DS's dispatch is
+read-then-send for every case by construction, so taint's precondition is
+satisfied corpus-wide --- 544/544 records that the precondition held, not
+that the mechanism discriminated. What establishes discrimination is the
+two-step benign test that follows, which the corpus as published does not
+supply.
+
+\paragraph{The paired 0\% benign hard-block FPR did not test this
+mechanism, and we found and fixed a real gap.} InjecAgent's benign
+dispatch is single-call --- no destination step follows the source-read
+--- so taint's precondition is never presented to it; the 0\% figure is a
+structural guarantee of the dispatch, not a measurement. Direct test: 32
+genuine two-step benign actions built from InjecAgent's own tool
+vocabulary, dispatched live. Legitimate self-forwarding was hard-blocked
+32/32 times, since taint's only carve-out was a literal account-identity
+match this harness never supplies. We fixed the two positively
+confirmable cases --- destination matches the session's own identity, or
+was named in the user's own instruction --- by having taint defer to
+CHANNEL's own provenance classification (\S\ref{sec:channel});
+re-validated with zero change to DS's 544/544 recall or the 519-case
+reference corpus (checkpoint gate unchanged: 87/117 VAULT, 183/203
+EXECUTOR). The harder case --- a destination first seen only in an
+earlier tool's output, which could be a legitimate invoice recipient or
+exactly how an injected destination is smuggled in --- remains an open
+gap, deliberately left blocking rather than resolved by this fix, since
+resolving it correctly needs the still-incomplete NAVIGATOR authorization
+work (\S\ref{par:navigator-authflow}).
+
+DH tells a different, weaker story: no individual minister reaches hard
+\textsc{Block} on a DH case. 221/510 (43.3\%) reach the loose
+(block-or-escalate) level; \emph{decided-by} counts (the one minister the
+Speaker credits per case, mutually exclusive by construction, vs.\
+counting any minister that fired, which gives EXECUTOR 34 and NAVIGATOR
+51 since 51 cases have two-plus ministers firing together) split this as
+CHANNEL (153), VAULT (34), EXECUTOR (17), and NAVIGATOR (17); the
+remaining 289/510 (56.7\%) are missed entirely. CHANNEL's provenance
+mechanism escalates 153/510 (30\%) via a novel-value classification,
+while its own hard-block contribution stays exactly 0\%, as designed.
+Separately, 16/510 (3.1\%) reach a hard \textsc{Block} in aggregate via
+TRAJECTORY (\S\ref{sec:design-tradeoffs}), not any minister --- consistent
+with its already-disclosed role, not a change to any minister's detection
+contract. DH remains a genuine, unresolved gap, not a strength of the
+current architecture, and is not folded into DS's headline number. This
+snapshot predates CHANNEL's destination-shape generalization fix
+(Appendix~A); re-measuring after it lands is future work, kept out here
+so \S\ref{sec:eval} reflects one consistent snapshot, not a pre/post-fix mix.
+
+On the paired benign side (1,054 user-instruction prompts, one per attack
+case), hard-block FPR is \textbf{0\%} --- no benign prompt is ever
+hard-blocked --- but the soft-escalate rate is \textbf{35.2\% (371/1,054)}
+by the same decided-by convention, again led by CHANNEL (248), with
+EXECUTOR (62) and NAVIGATOR (61) contributing the rest and VAULT at 0.
+DS's strong recall and DH's weak recall should both be read against this
+FPR context, not in isolation; across the combined 1,054-case corpus,
+Kavach's strict (hard-\textsc{Block}-only) recall is 544/1054 (51.6\%) ---
+entirely DS, since DH's strict contribution is 0\% --- the number
+missing from a strict, apples-to-apples row in Table~\ref{tab:guardrail-comparison}.
+
+\subsection{Cost}
+\label{sec:cost}
+Kavach's latency is bimodal, and we report the split rather than a blended
+figure: 17 of 159 timed calls complete under 90\,ms (p50 46\,ms, p95
+86\,ms), the remaining 142 in over 680\,ms (p50 733\,ms, p95 1437\,ms), with
+no call in between. The split does not cleanly track whether a
+deterministic rule short-circuited the call --- 26 of 159 were
+short-circuit-eligible and matched, of which only 17 returned fast despite
+an identical decision path --- traced to the pipeline's ledger-completeness
+design: every response, short-circuited or not, spawns a background task
+running the skipped COMPASS (\S\ref{sec:architecture}) and NAVIGATOR
+scoring for audit purposes, competing for the same CPU-bound embedding
+inference as the next request's foreground call under sequential dispatch.
+This is a scheduling artifact of our single-process CPU measurement, not
+the detection logic; whether bounding or deferring it in a real deployment
+actually closes the gap is unmeasured (\S\ref{sec:limitations}). On
+GPU-equipped hardware we have separately observed the
+embedding path at $\sim$78\,ms p50 (RTX 4090, steady state); verdicts are
+hardware-independent (replaying 107 reference cases with the encoder
+pinned to CPU produced zero verdict or fired-minister differences against
+the GPU baseline). The bashlex parse for \texttt{sh}/\texttt{bash}
+(\S\ref{sec:vault-executor}) measures $\sim$0.5\,ms per call, negligible on
+either path.

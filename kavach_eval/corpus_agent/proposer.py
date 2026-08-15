@@ -8,7 +8,7 @@ a NEW pattern (in Kavach's exact L1/L2/L3 schema) that would catch this attack
 and similar technique-substitution variants.
 
 Design rules:
-- Local Ollama (default qwen2.5:3b; --model upgrades to Gemma). No API cost,
+- Local Ollama (default qwen2.5:7b; --model upgrades to Gemma). No API cost,
   reproducible offline.
 - Structured JSON output only; parsed and schema-validated. If the model returns
   unparseable text, retry ONCE, then skip (logged as FAILED_PROPOSAL). Never
@@ -33,7 +33,7 @@ _SCHEMA_KEYS = ("id", "category", "source", "rationale",
 
 
 class PatternProposer:
-    def __init__(self, model: str = "qwen2.5:3b") -> None:
+    def __init__(self, model: str = "qwen2.5:7b") -> None:
         self.model = model
         import requests
         self._requests = requests

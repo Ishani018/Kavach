@@ -1,8 +1,8 @@
-% paper/section_3_design.tex
+% paper/section_3_design_aisec.tex
 % ─────────────────────────────────────────────────────────────────────────────
-% Section 3: Kavach Architecture
-% Slot into skeleton.tex where \section{Kavach Architecture} appears.
-% Numbers marked [TBD] are filled in from benchmark workstream D output.
+% Section 3: Kavach Architecture — REWRITTEN for the deterministic-primary
+% rearchitecture. Supersedes the cosine-primary/COMPASS design this section
+% previously described.
 % ─────────────────────────────────────────────────────────────────────────────
 
 \section{Kavach Architecture}
@@ -11,246 +11,245 @@
 
 \subsection{Overview}
 
-Kavach is a runtime guardrail that interposes between an LLM agent orchestrator
-and its tool-execution layer. Every tool call proposed by the agent is
-intercepted, evaluated by a Parliament of domain-bound Ministers, and sentenced
-by a deterministic Speaker before any side-effecting action is permitted to
-execute. The end-to-end request path is: user intent is seeded; each proposed
-tool call is embedded once; COMPASS scores intent drift; the semantic router
-activates the relevant ministers, which retrieve against their corpora in
-parallel; and the Speaker aggregates their verdicts under the trajectory
-ceiling before returning BLOCK / ESCALATE / ALLOW.
+Kavach is a runtime guardrail interposed between an LLM agent's tool
+dispatch and the tool's actual execution. Every resolved call is
+evaluated by a parliament of four domain-specialized ministers --- VAULT
+(credential/identity abuse), EXECUTOR (dangerous code execution), CHANNEL
+(data exfiltration/provenance), and NAVIGATOR (unauthorized or drifted
+action), pre-selected per call by a similarity-gated router (falling back
+to all four when none crosses threshold). VAULT,
+EXECUTOR, and CHANNEL are validated detectors with reported detection
+numbers throughout this paper; NAVIGATOR is the fourth, exploratory
+component, and we report plainly that it is not yet one
+(\S\ref{sec:limitations}) --- every aggregate figure including a NAVIGATOR
+contribution reports it broken out per-minister, not folded in invisibly
+(e.g.\ \S\ref{sec:injecagent}, \S\ref{sec:cost}). A deterministic Speaker
+combines their verdicts by pure veto (any minister's \textsc{Block}
+suffices, no score averaging) into \textsc{Block}, \textsc{Escalate}, or
+\textsc{Allow}, via a single HTTP endpoint,
+\texttt{POST /hook\allowbreak/parliament}, called synchronously at the
+pre-execution hook; any non-\textsc{Allow} verdict prevents execution. Two
+pre-rearchitecture components remain outside the four ministers:
+TRAJECTORY, a session-level monitor re-confirming or escalating a subset
+of already-detected cases (disclosed in full, including a real benign
+false-positive interaction, in \S\ref{sec:design-tradeoffs}); and COMPASS,
+a session-intent-drift check that \emph{can} independently upgrade a
+verdict to \textsc{Block}, but whose trigger condition never arose in any
+dispatch harness here --- zero occurrences across all 519 + 1,054 + 629
+cases (\S\ref{sec:cost}).
 
-The system exposes a single HTTP endpoint \texttt{POST /hook/parliament}
-that the OpenClaw plugin (\S\ref{sec:plugin}) calls synchronously in the
-\texttt{pre\_tool\_call} hook. The endpoint returns a JSON verdict
-\texttt{\{decision, confidence, ministers\_fired, compass\_score,
-drift\_delta\}} within the configured latency budget.
+\subsection{Deterministic-primary detection: why, and for which ministers}
+\label{sec:deterministic-primary}
 
-\subsection{Core Components}
-
-\paragraph{Ledger.}
-An append-only SQLite journal (\texttt{kavach\_parliament.db}) records every
-evaluation request and its verdict. Each row captures:
-\texttt{session\_id}, \texttt{turn}, \texttt{tool\_name}, \texttt{action\_embedding}
-(768-d float blob), \texttt{verdict}, and \texttt{timestamp\_utc}.
-The Ledger is the single source of truth for session state; no in-memory
-session object exists, making the server horizontally stateless between
-requests. Session risk score is recomputed from the Ledger at each call via
-a lightweight SQL aggregate, adding $<$2\,ms overhead.
-
-\paragraph{Semantic Router.}
-On each evaluation request the proposed action text is embedded with
-\texttt{BAAI/bge-base-en-v1.5} (768-d, cosine similarity). The resulting
-vector is compared against five pre-computed domain centroids stored in
-\texttt{kavach\_router\_config.json}. Ministers whose centroid cosine similarity
-exceeds $\theta_{\text{route}} = 0.40$ are activated; COMPASS always runs
-regardless of routing similarity.
-
-\paragraph{Embedding model.}
-Kavach embeds every action and corpus pattern with
-\texttt{BAAI/bge-base-en-v1.5} (768-d), used with the asymmetric query/passage
-prefix convention the model is trained for (queries are prefixed
-\texttt{"Represent this sentence for searching relevant passages:"}, corpus
-documents are embedded bare). The choice is driven by deployment constraints
-rather than a leaderboard ranking. First, BGE is open-source and runs locally,
-which is a precondition for the offline reproducibility we claim
-(\S\ref{sec:intro}): an API-hosted embedding model would make the decision path
-depend on a remote service and break that guarantee. Second, a local model
-incurs no per-query API cost and keeps the detection path free of any network
-call, consistent with Kavach's design as a deterministic, model-agnostic monitor
-that runs without a GPU (\S\ref{sec:crossmodel}). Third, BGE-base is a strong
-general-purpose retrieval encoder at its size on the MTEB benchmark, and its
-asymmetric-retrieval training matches how Kavach uses it --- short proposed
-actions queried against a corpus of attack-pattern descriptions. We did
-\emph{not} perform a systematic embedding-model ablation: comparing BGE against
-alternative open-source retrieval encoders on Kavach's own detection task is
-left to future work, and the numbers we report are specific to this encoder.
-
-The router replaces the stage-bound dispatcher used in early prototypes
-(OpenClaw stages Init$\to$Input$\to$Inference$\to$Decision$\to$Execution).
-Ministers are \emph{domain-bound}, not stage-bound: EXECUTOR fires on any
-action resembling code execution regardless of which pipeline stage proposed it.
-This is the key architectural departure from OpenClaw's native trust model
-and from contemporaneous work such as NemoClaw~\cite{nvidia2025nemoclaw}, which
-enforces a single boundary at the pipeline entry point.
-
-\paragraph{Ministers.}
-Each activated Minister performs a semantic scan: the action embedding is
-compared via cosine distance against every pattern in the Minister's
-ChromaDB collection. A hit is declared when the hybrid confidence score meets
-the minister's per-domain block threshold: $\theta_{\text{EXECUTOR}} = 0.55$,
-$\theta_{\text{VAULT}} = 0.75$, $\theta_{\text{CHANNEL}} = 0.60$,
-$\theta_{\text{NAVIGATOR}} = 0.70$, with a shared grey-zone floor of 0.50.
-Scores in the grey zone produce an \textsc{Escalate} verdict; scores below
-0.50 produce \textsc{Allow}.
-Each corpus pattern carries L1/L2/L3 descriptors (intent $\to$ mechanism
-$\to$ surface) that are propagated into the verdict log for provenance
-(described in \S\ref{sec:provenance}).
-
-The four domain-bound Ministers and their attack-surface coverage:
+Kavach's ministers were originally cosine-primary: each action was
+embedded and scored against a curated attack-pattern corpus, with a
+per-minister confidence threshold deciding the verdict. Four independent
+lines of evidence converged on replacing this design for three of the
+four ministers.
 
 \begin{itemize}
-  \item \textbf{EXECUTOR} — code execution, process injection, persistence
-        mechanisms, container escape (100 patterns; MITRE ATT\&CK T1059,
-        T1055, T1053, T1611 and sub-techniques).
-  \item \textbf{VAULT} — credential access, secret file reads, metadata service
-        queries, platform keychain enumeration (100 patterns; T1552, T1528,
-        T1555 and sub-techniques).
-  \item \textbf{CHANNEL} — data exfiltration via any outbound channel: HTTP/S,
-        DNS, SMTP, cloud storage, git push, covert channels (100 patterns;
-        T1048, T1567, T1102 and sub-techniques).
-  \item \textbf{NAVIGATOR} — session trajectory anomalies: post-task
-        persistence, scope widening, recon sequences, anti-forensic actions
-        (100 patterns; OWASP ASI01, T1083, T1082, T1070).
+\item \textbf{Evidence 1 --- a lexical-inflation bug pointed at the fix, not
+just the bug.} BM25/IDF term weighting over-weighted rare generic tokens
+(\texttt{url}, \texttt{user}) because L3 code-syntax text had leaked into
+the lexical index, false-blocking benign calls (\texttt{get\_webpage},
+\texttt{read\_inbox}). A regex/exact-match layer on L3 syntax tokens
+shipped instead of two rejected rerankers (SPLADE, cross-encoder): the
+false positives were \emph{structural}, and a deterministic match on
+structure resolved them without touching the semantic layer.
+\item \textbf{Evidence 2 --- a targeted dense fine-tune traded one failure
+mode for a worse one.} A low-rank adapter fine-tuned on the frozen BGE
+encoder fixed the false positives outright (71\%$\to$0\%) but regressed
+real attack recall on 30 genuine InjecAgent attacks from 63.3\% to 26.7\%:
+its LOLBIN-shaped training positives sharply separated \emph{that} shape
+and pulled genuinely different attack shapes (bank transfers, access-grant
+abuse) away from the decision boundary. The adapter was correctly not
+merged.
+\item \textbf{Evidence 3 --- the corpus gap this exposed was general, not a
+training artifact.} Adding 62 real business-logic attacks (transfers,
+access grants) as positive examples revealed they do not match
+\emph{anything} already in the corpus (mean cosine similarity 0.565, far
+below any operating threshold) --- a structural blind spot for an
+ordinary-looking business action carrying a malicious argument.
+\item \textbf{Evidence 4 --- a proposed fifth minister was formally
+falsified before being built.} We tested whether cosine similarity could
+discriminate STEWARD's target attack class at all, using paired
+legitimate/malicious AgentDojo calls sharing a tool name and differing
+only in argument content: similarity deltas were near zero
+(0.003--0.024). STEWARD was not built --- argument-\emph{value} provenance
+is a different question than action-level semantic similarity, and no
+corpus expansion closes that gap for a mechanism that only looks at the
+action as a whole.
 \end{itemize}
 
-\paragraph{COMPASS.}
-The Calibrated Oracle for Mission-Pattern Alignment and Session Semantics
-evaluates \emph{intent alignment} rather than attack-pattern similarity. It
-maintains a \emph{session centroid} — an exponential moving average of action
-embeddings weighted by turn recency — and measures cosine drift between the
-centroid and the seeded user-intent vector (extracted from the first
-non-system turn of the session).
+\paragraph{The decision.} Evidence 1--4 point at one distinction: structural
+attack signals (a credential-path shape, a network-fetch-to-disk pattern, an
+argument value's provenance) are caught more reliably by deterministic
+parsing than by any refinement of cosine similarity, while genuinely
+intent-shaped signals may still need a semantic or session-state mechanism.
+We therefore moved VAULT, EXECUTOR, and CHANNEL to deterministic-primary
+detection, keeping cosine only as an escalate-only triage layer on the
+deterministic residual (\S\ref{sec:triage}). NAVIGATOR remains cosine-primary;
+a direct deterministic swap was attempted and abandoned at its own go/no-go
+gate (zero net discrimination gain), and a second attempt at a deterministic
+authorization layer is reported as a negative result in
+\S\ref{sec:limitations}.
 
-\begin{equation}
-  \delta_{\text{drift}}(t) =
-    1 - \cos\!\left(\bar{\mathbf{c}}_t,\, \mathbf{u}\right)
-  \label{eq:drift}
-\end{equation}
+\subsection{VAULT and EXECUTOR: structural parsing}
+\label{sec:vault-executor}
 
-where $\bar{\mathbf{c}}_t$ is the turn-$t$ session centroid and $\mathbf{u}$ is
-the user-intent embedding. When $\delta_{\text{drift}} > \theta_{\text{drift}}$
-the call is escalated regardless of individual minister verdicts.
+VAULT and EXECUTOR score each proposed tool call's arguments with
+deterministic prefilters (\texttt{parliament/prefilters.py}) built on a
+behavioral-primitive taxonomy: VAULT's primitives (V1--V6) cover
+credential paths, dotenv files, and secret environment variables;
+EXECUTOR's (E1--E7) cover network-fetch-to-disk, reverse-shell shapes, and
+persistence writes. Two extraction layers back these, chosen per shell
+dialect by a latency/correctness trade-off measured directly rather than
+assumed:
 
-The COMPASS calibration set (\texttt{kavach\_corpus\_v1.json}, key
-\texttt{COMPASS}) contains 100 labelled pairs — 50 \textsc{aligned} and 50
-\textsc{hijacked} — covering 25 distinct user-intent scenarios each paired with
-both a legitimate and an attack-injected proposed action. Youden's $J$
-statistic is used to select $\theta_{\text{drift}}$ via
-\texttt{compass\_calibrator.py}.
+\paragraph{Real AST parsing where it is both correct and fast.} For
+\texttt{sh}/\texttt{bash}, arguments are parsed with \texttt{bashlex} into a
+real syntax tree, closing shape-based false negatives a tokenizer cannot
+(e.g.\ heredoc content) at $\sim$0.5\,ms per call. PowerShell has an
+equivalently real AST, but invoking it needs a \texttt{powershell.exe}
+subprocess at $\sim$1.4\,s per call --- 18$\times$ over budget --- so the
+real AST is wired in only for \texttt{sh}/\texttt{bash}; PowerShell and
+\texttt{command\_prompt} remain on the tokenizer below, with the real
+PowerShell AST kept as an offline/audit tool.
 
-\paragraph{Speaker.}
-The Speaker is a deterministic finite function — no learned parameters — that
-maps the set of Minister verdicts and COMPASS output to a single sentence:
+\paragraph{A structural tokenizer for the remaining dialects.} For dialects
+where a real grammar parser is unavailable or too slow, a lightweight
+shell-quote-aware tokenizer extracts URL-, path-, and credential-shaped
+tokens directly, with a two-tier credential test (a strong extension/path
+match, and a broader path-shaped fallback) rather than a single regex.
 
-\begin{equation}
-V = \text{Speaker}(\{v_m\}_{m \in M_{\text{active}}},\, \delta_{\text{drift}},\, r_{\text{session}})
-\end{equation}
+Full detection numbers, the deterministic/cosine Block/Escalate split, benign
+false-positive rates, and a held-out-split stability check are reported in
+\S\ref{sec:vault-executor-eval}, together with the per-minister benign
+escalate rates on both populations.
 
-The decision table (applied in priority order):
-\begin{enumerate}
-  \item Session risk $r_{\text{session}} \geq r_{\text{max}}$ $\Rightarrow$
-        \textsc{Block} (session-level trajectory ceiling; fires independently
-        of any single Minister's verdict --- this is what makes Kavach a
-        session monitor rather than a per-call guard).
-  \item Any Minister returns \textsc{Block} $\Rightarrow$ \textsc{Block}.
-  \item $\delta_{\text{drift}} > \theta_{\text{drift}}$ $\Rightarrow$ \textsc{Escalate}.
-  \item Any Minister returns \textsc{Grey} (\textsc{Escalate}) $\Rightarrow$ \textsc{Escalate}.
-  \item All Ministers return \textsc{Allow} $\Rightarrow$ \textsc{Allow}.
-\end{enumerate}
-The aggregation is a pure veto: a single \textsc{Block} suffices, with no
-confidence-weighted averaging. \S\ref{sec:frontier} studies this choice
-empirically against Bayesian and hybrid alternatives under adaptive attack.
+\subsection{CHANNEL: session-level taint and value provenance}
+\label{sec:channel}
 
-\paragraph{Bayesian alternative: priors are estimated, not fixed.}
-The Bayesian aggregator we compare against in \S\ref{sec:frontier} does not use
-hardcoded conditional probabilities. Its prior and per-Minister reliabilities are
-maintained as Beta--Bernoulli posteriors over ground-truth-labelled outcomes.
-The block prior is the shrinkage estimate
-\begin{equation}
-\hat{\pi}_{\text{block}} = \alpha\,\frac{b}{N} + (1-\alpha)\,\pi_0,
-\qquad \alpha = \min\!\left(\tfrac{N}{100},\,1\right),
-\end{equation}
-where $b$ is the number of \textsc{Block} ground-truth labels among $N$ labelled
-ledger entries and $\pi_0$ a weak default. Each Minister's reliability
-$r_{m,v}$ for vote type $v$ is the running posterior mean of a
-Beta$(\cdot)$ updated as
-\begin{equation}
-r_{m,v} \leftarrow \frac{r_{m,v}\,n_{m,v} + \mathbb{1}[\text{vote correct}]}{n_{m,v}+1},
-\qquad n_{m,v} \leftarrow n_{m,v}+1 .
-\end{equation}
-Crucially, these updates are applied \emph{offline} against verified ground
-truth and never at inference time. This is a deliberate security decision:
-allowing the runtime to fabricate its own ``ground truth'' from underdetermined
-self-decisions would create a feedback channel an adversary could poison to
-drift the priors. The deployed Speaker is the deterministic veto above; the
-Bayesian path is an analyzed alternative, not the enforcement path.
+CHANNEL is inherently a multi-call, session-level detector: the attack shape
+it targets is a sensitive-data \emph{read} followed by an external
+\emph{send} in the same session, which no single-call regex can express. It
+maintains two independent pieces of per-session state.
 
-\subsection{Taxonomy-grounded provenance}
+\paragraph{Taint.} A call to a known source tool (a sensitive-data read)
+marks the session tainted; a subsequent call to a known destination tool
+is \textsc{Block}ed if tainted and the destination is not allow-listed ---
+the allow-list is empty by default, since no corpus evidence supports a
+``trusted'' external recipient distinct from an attacker-controlled one.
+Source and destination are matched by tool name against curated lists,
+extended with a tokenizer and a behavior-general fallback checking
+destination-shaped values (email, IBAN, URL) for any unnamed tool, so a
+genuinely novel exfiltration tool is not silently invisible.
+
+\paragraph{Provenance.} Independent of taint, every destination-tool
+call's argument values are classified by session origin:
+\textsc{user\_\allowbreak supplied}, \textsc{self} (verified identity),
+\textsc{output\_\allowbreak derived} (first seen in an earlier call's output this
+session), or \textsc{novel} (neither). \textsc{Output\_\allowbreak derived} or
+\textsc{novel} on a consequential call returns \textsc{Escalate}, not
+\textsc{Block}: paying a bill using an IBAN read from the bill itself, or replying to
+an email just read, are legitimate same-session read-then-send chains
+that must not be treated as an attacker-substituted destination
+(\S\ref{sec:design-tradeoffs}). Taint's \textsc{Block} authority
+previously ignored this, hard-blocking legitimate self/user-named
+destinations, found and fixed by direct measurement
+(\S\ref{sec:injecagent}); a destination first seen only in a prior
+tool's \emph{output} still blocks deliberately, since that is exactly how
+an injected one would appear too.
+
+CHANNEL's locked reference numbers and full evaluation methodology are
+reported in \S\ref{sec:channel-eval}.
+
+\subsection{Cosine-ESCALATE-only triage}
+\label{sec:triage}
+
+For VAULT and EXECUTOR, cosine similarity against the original attack-pattern
+corpus is retained, but only as a triage layer over the deterministic
+\emph{residual} --- cases the structural parsers did not match --- and its
+verdict is hardcoded to \textsc{Escalate}: it can never \textsc{Block}. A
+semantic signal that cannot reliably discriminate (Evidence 4) should not be
+trusted with an irreversible verdict, but remains useful as a flag for human
+review on cases a deterministic rule did not anticipate.
+
+\paragraph{An LLM tiebreaker for narrative-phrasing attacks: built, not
+deployed.} VAULT/EXECUTOR's rules match literal syntax; a prose-described
+attack (e.g.\ ``append an SSH authorized-keys entry'' rather than the
+literal path) can evade them. We built and validated an escalation tier
+where a small local model (\texttt{qwen2.5:7b}) only extracts factual
+flags rather than rendering a verdict directly: 94.1\% in pilot, 4/5 on
+held-out phrasings, one characterized generalization gap (a network-share
+phrasing the fix does not cover). It is deliberately held back from live
+dispatch until that gap closes, so no number in \S\ref{sec:eval} includes
+it --- future work, not a contribution.
+
+\subsection{Provenance ledger}
 \label{sec:provenance}
-Every verdict carries a provenance chain that grounds it in a structured
-cyber-taxonomy: the matched corpus pattern resolves to a technique identifier
-(MITRE ATLAS for AI/agent-native techniques, e.g.\ AML.T0051 indirect prompt
-injection and AML.T0086 exfiltration via agent tool invocation; MITRE ATT\&CK
-for host-level techniques), which maps to a tactic and an ordered kill-chain
-stage. Resolution is corpus-tagged: every one of the 401 patterns declares a
-specific source technique (MITRE ATT\&CK, MITRE ATLAS, or an OWASP Agentic
-category), so the chain resolves to a named technique rather than a per-minister
-default in every case; a per-minister default remains available as a fallback so
-the chain is always populated, and the chain records which basis was used. One
-pattern (CHAN-101) was subsequently added via the automated corpus improvement
-agent after a red-team evasion was identified; it is disclosed here as an
-exception to the blind-writing protocol, and its source is tagged accordingly in
-the artifact. The provenance record is serialized into the
-SHA-256 hash-chained Ledger as a hashed field. Consequently, editing the
-\emph{grounding} of a historical decision --- for instance, relabeling a
-credential-access block as a benign read to mislead an auditor --- breaks the
-hash chain at that entry, detected by \texttt{/ledger/verify}. Prior runtime
-monitors provide either explainability or tamper-evident logging but not a
-taxonomy-grounded chain whose integrity is cryptographically verifiable; the
-ordered stage axis additionally provides the substrate for stage-aware
-trajectory reasoning, which we leave to future work.
 
-\subsection{OpenClaw Plugin}
-\label{sec:plugin}
+Every verdict is logged to an append-only, SHA-256 hash-chained SQLite
+ledger: each row's hash covers the previous row's hash plus its own
+content, so any edit, deletion, or reorder breaks every later hash,
+detectable in $O(n)$ by \texttt{/ledger/verify} --- tamper-\emph{evident},
+not tamper-\emph{proof}, since write access lets an attacker recompute the
+whole chain. During this work we found and fixed a case where the
+verification query itself, not the ledger, omitted a newer column,
+producing a false tamper report; the fix restored a clean
+\texttt{intact: true} across all rows.
 
-The Kavach plugin (\texttt{openclaw-plugin-kavach.ts}) implements the
-OpenClaw plugin interface:
+\subsection{Design decisions and trade-offs}
+\label{sec:design-tradeoffs}
 
-\begin{itemize}
-  \item \textbf{\texttt{pre\_tool\_call}}: synchronously calls
-        \texttt{/hook/parliament} before the agent executes a tool.
-        On \textsc{Block} or \textsc{Escalate}, the plugin throws
-        \texttt{KavachBlockError} or \texttt{KavachEscalateError}, preventing
-        tool execution.
-  \item \textbf{\texttt{on\_tool\_error}}: increments the circuit-breaker
-        failure counter. After \texttt{kavachCircuitBreakerThreshold}
-        consecutive Kavach server errors the plugin enters \emph{open-circuit}
-        mode: all tool calls are blocked and an operator alert is raised.
-\end{itemize}
+\paragraph{Deterministic-primary is a per-minister decision, not a blanket
+policy.} NAVIGATOR's question --- was this action authorized by what the
+user actually asked for --- does not reduce to a structural shape the way
+a credential path or network-fetch-to-disk pattern does, so it was not
+moved uniformly with the other three (\S\ref{sec:limitations}). CHANNEL's
+provenance mechanism escalates rather than blocks for the same kind of
+reason: real, common, benign same-session read-then-send patterns in
+actual trajectory data would be incorrectly stopped by a hard block, so we
+chose the reversible verdict where that false-positive cost is concrete.
 
-The plugin is configured via \texttt{openclaw.plugin.json} with
-\texttt{parliamentUrl} (default: \texttt{http://127.0.0.1:8088}) and
-\texttt{SESSION\_ID} in the OpenClaw runtime environment.
+\paragraph{Escalate has a real operational cost, and we report it as
+such.} An Escalate verdict is a request for human review, not a
+prevented action --- the call still reaches the user or operator queue,
+and someone has to look at it. This has a real cost on legitimate
+traffic: on the 55-case agent-shaped benign population, 37/55 (67.3\%)
+trigger at least one Escalate somewhere in the pipeline --- a majority
+of ordinary calls, not a tail case. VAULT and EXECUTOR's full-pipeline
+detection numbers (\S\ref{sec:vault-executor}) report the Block/Escalate
+split explicitly for exactly this reason: a reader who reads either
+recall number as ``prevented'' without checking that split will overstate
+what the deployed system prevents versus flags for review. A high benign
+Escalate rate also raises whether an Escalate is informative at all;
+\S\ref{sec:vault-executor-eval} reports Escalate-precision directly rather
+than leaving that question open.
 
-We emphasize that Kavach itself is \emph{not} an OpenClaw component: all
-detection logic --- embedding, the four Ministers, the Speaker, and the Ledger
---- lives in \texttt{parliament/server.py}, a standalone ASGI (FastAPI) service
-exposing HTTP endpoints. The OpenClaw plugin is a $\sim$150-line adapter that
-renders a tool call to text and \texttt{POST}s it; any agent framework that can
-issue an HTTP request at a pre-execution hook integrates against the same
-service without modification. The framework binding is an adapter, not a
-dependency.
+\paragraph{Synchronous evaluation on the hot path.} Kavach evaluates
+synchronously in the pre-execution hook. Asynchronous evaluation would
+reduce latency but allow a race between the verdict and execution; we accept
+the latency cost to maintain the guarantee that no tool executes before a
+verdict is issued.
 
-\subsection{Design Decisions and Trade-offs}
-
-\paragraph{Ministers are domain-bound, not stage-bound.}
-OpenClaw's five-stage pipeline (Init$\to$Execution) provides natural hooks but
-creates stage-specific blind spots: an attack that appears in the Inference
-stage looks different from the same attack in the Decision stage, requiring
-per-stage classifiers. By binding Ministers to attack \emph{domains} we achieve
-consistent coverage across all stages with a single collection per domain.
-
-\paragraph{Append-only Ledger, no session objects.}
-Storing session state in an append-only log rather than an in-memory object
-prevents an attacker from clearing session state via a crafted tool call.
-The immutability guarantee is enforced at the database level
-(\texttt{kavach\_parliament.db} opened read-write only by the server; no
-\texttt{DELETE} or \texttt{UPDATE} statements are issued).
-
-\paragraph{Synchronous evaluation on the hot path.}
-Kavach evaluates in the \texttt{pre\_tool\_call} hook synchronously.
-Asynchronous evaluation would reduce latency but allow a race between the
-verdict and execution; we accept the latency cost to maintain the security
-guarantee that \emph{no tool executes before a verdict is issued}.
+\paragraph{A pre-rearchitecture session monitor remains active alongside the
+four ministers.} TRAJECTORY predates this rearchitecture
+(\S\ref{sec:deterministic-primary}) and combines five signals ---
+per-call confidence, session-intent drift, action coherence, denial-echo,
+cross-minister escalation --- into a per-session risk score, sharing its
+mechanism with the intent-drift detector reported as a negative result
+in \S\ref{sec:limitations}. It is not a first-line detector: zero cases
+counted toward a reported detection number were first identified by
+TRAJECTORY across every locked evaluation --- a minister always fires
+first. It instead re-confirms or escalates already-detected cases: 148 of
+the 629 real GPT-4o trajectories in \S\ref{sec:gpt4o} (none affecting the
+reported 467/629), and 3 of the 22 real benign AgentDojo sessions in
+\S\ref{sec:channel-eval} --- a hard \textsc{Block}, jointly with
+NAVIGATOR, on benign traffic our escalate-only CHANNEL mechanism does not
+produce. We report this plainly: a real false-positive-producing
+interaction on a live component not subject to the same validation rigor
+as VAULT, EXECUTOR, and CHANNEL, and not a contribution of this paper.
+Disclosing this is not resolving it: TRAJECTORY keeps \textsc{Block}
+authority in every configuration evaluated here, and an operator wanting
+only the three validated ministers' verdicts must disable it explicitly.

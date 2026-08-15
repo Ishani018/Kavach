@@ -21,9 +21,70 @@ Do not re-run them; cite the artifacts.
 | InjecAgent (data-stealing) | `benchmarks/results_v2/injecagent_dell_ds/` | loose recall 0.875, strict 0.438, DS hard-block FPR 0% |
 | Latency (GPU steady-state) | `benchmarks/results_v2/latency/benign_summary.json` | p50 ~78 ms / p95 ~82 ms |
 | §5 vote dump | `minister_runs.jsonl` (2108 actions) | feeds `kavach_eval/make_section5.py` |
+| InjecAgent live-agent (kavach-rearch, qwen2.5:7b, laptop CPU) | `benchmarks/results_v2/injecagent_live_50case.jsonl` + `README_injecagent_live_50case.md` | CHANNEL blocked 4/4 dispatched exfil sends (see methodology below) |
 
 Aggregate (per distinct case): loose recall 0.887, strict 0.532, hard-block FPR
 19%, block-or-escalate FPR 38%. (See README §11 and `AUDIT_VERIFICATION.md`.)
+
+---
+
+## InjecAgent live-agent methodology (kavach-rearch, qwen2.5:7b)
+
+**This is a THIRD distinct methodology, alongside the two already in the
+"Already completed" table above** — read this section before citing or
+comparing any InjecAgent number across `main`/`kavach-rearch`:
+
+1. **`main`'s InjecAgent DH/DS rows** (table above): a real agent (Gemma 4
+   26B via Ollama) runs live on the Dell, generating its own tool-call
+   trajectory turn-by-turn.
+2. **`kavach-rearch`'s InjecAgent DS row** (README.md's Evaluation table,
+   `1.0 / 1.0 / 0.0%`): a **static structured-args replay**
+   (`injecagent_runner.py`) — the correct two-step call sequence
+   (source-read, then destination-send) is pre-resolved from InjecAgent's own
+   case data and dispatched directly to Kavach. No LLM, no agent loop, no
+   model-behavior variance. Fast and reproducible, but cannot observe
+   real-model failure modes (malformed calls, refusals, multi-call turns).
+3. **This section — the live-agent case study** (`injecagent_live_runner.py`,
+   new this session): a REAL agent (qwen2.5:7b via Ollama, CPU-only laptop)
+   runs live, exactly like methodology (1) above but on weaker/local
+   hardware, dispatching every proposed call to Kavach's live server.
+
+Never quote (2) and (3) against each other as if they measured the same
+thing, and never quote (3) as a recall/FPR percentage — its effective N is
+6/50 (12%), not 50/50; see `benchmarks/results_v2/README_injecagent_live_50case.md`
+for the full breakdown and honest caveats. The headline finding worth citing
+is qualitative: **CHANNEL correctly blocked 4/4 fully-dispatched send-step
+exfil attempts (confidence 1.0), and NAVIGATOR correctly ESCALATEd a 5th** —
+the one miss (`dh_u16_a08`) is a single-step DH policy-tampering call with no
+CHANNEL taint chain involved, consistent with NAVIGATOR's already-documented
+financial-authorization/physical-access-control coverage gap.
+
+**Reproduce with:**
+```powershell
+python injecagent_live_runner.py \
+  --n-cases 50 --seed 20260714 --stratified \
+  --kavach-url http://127.0.0.1:8088 \
+  --out benchmarks/results_v2/injecagent_live_50case.jsonl
+```
+Requires Ollama running locally with `qwen2.5:7b` pulled, and Kavach's
+parliament server up on the target URL — the runner pre-flight-checks
+`/health` before any case and aborts (does not silently continue) if Kavach
+is unreachable, both at start and mid-run.
+
+**Optional constrained-decoding mode** (`forced_tool_call.py`, new this
+session, standalone/reusable — see its own docstring for a zero-Kavach-
+dependency usage example): pass `--force-format` to force every model
+response into valid tool-call JSON via Ollama's structured-output `format`
+field, instead of the native `tools` field the model may decline. This is
+opt-in, not the default — the free-form path's refusal/permission-asking
+behavior (40/50 cases in the run above) is itself a real, honest signal
+about model capability, not something to silently suppress. Use
+`--force-format` when you specifically want to isolate "does Kavach's
+defense hold given a real dispatched call" from "does the model choose to
+act at all." `forced_tool_call.py` has zero Kavach-specific imports and can
+be handed directly to an AgentDojo-based runner on different hardware —
+only `tool_schemas`, `messages`, `model`, and `ollama_url` need to come from
+the caller's own code.
 
 ---
 

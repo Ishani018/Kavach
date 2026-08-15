@@ -611,7 +611,7 @@ class LiveProgressMonitor(threading.Thread):
         self.logdir = logdir
         self.abort_threshold = abort_threshold
         self.poll_interval = poll_interval
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self._seen: set[Path] = set()
         self.utility_pass = 0
         self.security_pass = 0
@@ -628,7 +628,7 @@ class LiveProgressMonitor(threading.Thread):
         self._kavach_warned = False
 
     def stop(self):
-        self._stop.set()
+        self._stop_event.set()
 
     def _scan(self):
         for f in self.logdir.rglob("*.json"):
@@ -701,7 +701,7 @@ class LiveProgressMonitor(threading.Thread):
             print("⚠️  " * 18 + "\n", flush=True)
 
     def run(self):
-        while not self._stop.wait(self.poll_interval):
+        while not self._stop_event.wait(self.poll_interval):
             self._scan()
             if self.total >= self._last_reported + self.REPORT_EVERY:
                 self._report()
@@ -1033,10 +1033,10 @@ def main() -> None:
         print("\n[agentdojo] ── Benign Utility (NO attack) ──────────────────────")
         benign_no_def = benign_utility(suite, args.model_id, False, logdir,
                                        ollama_port=args.ollama_port,
-                                       user_tasks=user_tasks, task_set=args.task_set)
+                                       user_tasks=user_tasks_to_run, task_set=args.task_set)
         benign_kavach = benign_utility(suite, args.model_id, True, logdir,
                                        ollama_port=args.ollama_port,
-                                       user_tasks=user_tasks, task_set=args.task_set)
+                                       user_tasks=user_tasks_to_run, task_set=args.task_set)
         benign = {"no_defense": benign_no_def, "with_kavach": benign_kavach,
                   "benign_overblock": round(benign_no_def["benign_utility"]
                                             - benign_kavach["benign_utility"], 4)}

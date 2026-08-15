@@ -62,6 +62,8 @@ try:
     from .speaker import SpeakerVerdict, combine_verdicts
     from . import trajectory as traj
     from . import provenance as prov
+    from . import prefilters
+    from . import channel_taint
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -76,6 +78,8 @@ except ImportError:
     from parliament.speaker import SpeakerVerdict, combine_verdicts
     from parliament import trajectory as traj
     from parliament import provenance as prov
+    from parliament import prefilters
+    from parliament import channel_taint
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration loading
@@ -162,6 +166,8 @@ _state: dict[str, Any] = {
     "router":     None,
     "intents":    {},    # session_id → np.ndarray (BGE vector of user intent)
     "history":    defaultdict(traj.new_history),  # session_id → deque[ActionRecord]
+    "channel_taint": defaultdict(channel_taint.new_taint_state),  # session_id → SessionTaint
+    "channel_provenance": defaultdict(channel_taint.new_provenance_state),  # session_id → SessionProvenance (independent of channel_taint -- see composition rule in channel_taint.py)
 }
 
 
@@ -287,6 +293,7 @@ def _init_db() -> None:
             latency_ms      REAL,
             provenance_json TEXT,
             retrieval_mode  TEXT,
+            short_circuited INTEGER,
             prev_hash       TEXT,
             entry_hash      TEXT
         )
@@ -303,6 +310,15 @@ def _init_db() -> None:
         conn.execute("ALTER TABLE votes ADD COLUMN provenance_json TEXT")
     if "retrieval_mode" not in cols:
         conn.execute("ALTER TABLE votes ADD COLUMN retrieval_mode TEXT")
+    if "short_circuited" not in cols:
+        # Pipeline-reordering optimization: marks ledger rows written by
+        # the short-circuit response path (VAULT/EXECUTOR/CHANNEL
+        # confident BLOCK, COMPASS/routing/NAVIGATOR skipped on the
+        # response path and backfilled asynchronously afterward via a
+        # separate stage="parliament_async_completion" row with the same
+        # correlation_id). NULL/0 for every row written before this
+        # optimization existed or by the full synchronous pipeline.
+        conn.execute("ALTER TABLE votes ADD COLUMN short_circuited INTEGER")
     conn.commit()
     conn.close()
 
@@ -332,6 +348,12 @@ def _entry_hash(prev_hash: str, row: dict) -> str:
     # identically under both old and new code. (June-10 self-audit fix.)
     if row.get("provenance_json") is not None:
         fields.append("provenance_json")
+    # Same backward-compatible pattern for short_circuited (pipeline-
+    # reordering optimization): only enters the hash when explicitly set,
+    # so every row written before this optimization existed hashes
+    # identically under old and new code.
+    if row.get("short_circuited") is not None:
+        fields.append("short_circuited")
     canonical = json.dumps(
         {k: row[k] for k in fields},
         sort_keys=True, separators=(",", ":"), default=str,
@@ -360,6 +382,7 @@ def _log_vote(
     traj_risk: float | None = None,
     provenance: dict | None = None,
     retrieval_mode: str = "dense",
+    short_circuited: bool | None = None,
 ) -> None:
     conn = sqlite3.connect(DB_PATH)
     row = {
@@ -377,6 +400,7 @@ def _log_vote(
         "traj_risk":      traj_risk,
         "latency_ms":     latency_ms,
         "provenance_json": json.dumps(provenance, sort_keys=True) if provenance else None,
+        "short_circuited": (1 if short_circuited else 0) if short_circuited is not None else None,
     }
     prev_hash  = _last_hash(conn)
     entry_hash = _entry_hash(prev_hash, row)
@@ -384,13 +408,14 @@ def _log_vote(
         """INSERT INTO votes
            (ts, session_id, correlation_id, stage, input_text, verdict,
             decided_by, confidence, reason, ministers_json, compass_sim,
-            traj_risk, latency_ms, provenance_json, retrieval_mode, prev_hash, entry_hash)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            traj_risk, latency_ms, provenance_json, retrieval_mode,
+            short_circuited, prev_hash, entry_hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (*[row[k] for k in (
             "ts", "session_id", "correlation_id", "stage", "input_text",
             "verdict", "decided_by", "confidence", "reason", "ministers_json",
             "compass_sim", "traj_risk", "latency_ms", "provenance_json")],
-         retrieval_mode, prev_hash, entry_hash),
+         retrieval_mode, row["short_circuited"], prev_hash, entry_hash),
     )
     conn.commit()
     conn.close()
@@ -550,6 +575,7 @@ class ParliamentResponse(BaseModel):
     correlation_id: str
     latency_ms:     float
     ts:             str
+    short_circuited: bool = False
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -594,9 +620,274 @@ async def check_drift(req: ParliamentRequest) -> dict[str, Any]:
     }
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Cosine as ESCALATE-ONLY triage for VAULT/EXECUTOR (Kavach-PB Part 3)
+# ──────────────────────────────────────────────────────────────────────────────
+# SAFETY CONTRACT (mirrors CHANNEL's provenance "cannot BLOCK" guarantee):
+# This is the ONE AND ONLY place a cosine-derived MinisterScan is constructed
+# for VAULT or EXECUTOR. Its verdict is HARDCODED to "ESCALATE" -- it is
+# structurally incapable of returning BLOCK or ALLOW, independent of any
+# similarity score or threshold. It runs ONLY on the deterministic-miss
+# residual (see the caller: skipped entirely when a prefilter already fired
+# for that minister), so it can never override a deterministic BLOCK and can
+# only add an ESCALATE to a call the deterministic rules let through. This
+# makes it impossible to reintroduce the original cosine-BLOCK FPR problem:
+# cosine here cannot block anything, only flag-for-review the long tail.
+_COSINE_TRIAGE_ESCALATE_THRESHOLD = 0.45  # only ESCALATE on a non-trivial similarity; below this, stay silent (ALLOW-by-omission)
+
+
+def _cosine_triage_escalate(minister: str, req_text: str, action_vec) -> MinisterScan | None:
+    """Query minister's cosine collection and return a HARDCODED-ESCALATE scan
+    if similarity clears a floor, else None. Never BLOCK, never ALLOW-scan --
+    the only two outcomes are (ESCALATE, None). See the safety contract above.
+    Only called for minister in {VAULT, EXECUTOR} on the deterministic-miss
+    residual."""
+    assert minister in ("VAULT", "EXECUTOR"), "cosine triage is VAULT/EXECUTOR-only"
+    bm25_idx = _state["bm25_indexes"].get(minister)
+    coll = _state["collections"].get(minister)
+    if coll is None:
+        return None
+    # Reuse the existing hybrid scorer purely to obtain a similarity + nearest
+    # pattern; we DISCARD its verdict entirely and impose our own. Thresholds
+    # passed are irrelevant to the outcome (we ignore raw.verdict), but we pass
+    # the real ones so confidence/matched_id are populated normally.
+    raw = run_minister_hybrid(
+        minister, req_text, coll, bm25_idx, _embed_query,
+        _get_minister_thresholds(minister, dict(CFG["thresholds"])), 10, action_vec,
+    )
+    if raw is None or raw.confidence < _COSINE_TRIAGE_ESCALATE_THRESHOLD:
+        return None
+    # THE hardcoded verdict. Not derived from raw.verdict. Cannot be BLOCK.
+    return MinisterScan(
+        minister=minister,
+        verdict="ESCALATE",
+        confidence=raw.confidence,
+        matched_id=f"{minister}-COSINE-TRIAGE:{raw.matched_id or 'nearest'}",
+        matched_text=f"cosine triage (ESCALATE-only, never blocks): nearest "
+                     f"{raw.matched_id!r} at sim {raw.confidence:.3f} on deterministic-miss residual",
+        matched_level="triage",
+        source=raw.source,
+        retrieval_mode="cosine-triage",
+    )
+
+
+def _run_deterministic_ministers(
+    req_text: str, session_id: str, account_email: str | None,
+    user_instruction: str | None = None, tool_output: str | None = None,
+) -> list[MinisterScan]:
+    """VAULT/EXECUTOR/CHANNEL's deterministic verdicts — unconditional,
+    synchronous, no embedding, no ChromaDB query (Stage 2). Factored out
+    of the main handler so both the short-circuit path and the full
+    pipeline call the exact same logic — no risk of the two diverging.
+    A None result from any checker becomes an explicit ALLOW MinisterScan
+    so none of the three ever silently disappears from minister_results/
+    minister_dict/the ledger, same fail-open discipline as before this
+    refactor.
+
+    CHANNEL contributes up to TWO independent scans here (taint +
+    provenance, both named "CHANNEL" — see channel_taint.py's composition-
+    rule docstring for why this is intentional, not a naming collision to
+    fix). combine_verdicts() correctly considers both; server.py's
+    minister_dict-building step keeps whichever is more restrictive on a
+    same-name collision (see the _VERDICT_RANK comment at that call site).
+
+    user_instruction / tool_output: optional, forwarded to
+    channel_taint.check_provenance() — see that function's docstring for
+    what happens when a caller never supplies them (provenance simply
+    never fires, not a silent failure)."""
+    parsed_call = prefilters.parse_call(req_text)
+
+    vault_scan = prefilters.check_vault(parsed_call) if parsed_call is not None else None
+    if vault_scan is None:
+        vault_scan = MinisterScan(
+            minister="VAULT", verdict="ALLOW", confidence=0.0,
+            matched_id=None, matched_text=None, matched_level="deterministic",
+            source=None, retrieval_mode="deterministic",
+        )
+
+    executor_scan = prefilters.check_executor(parsed_call) if parsed_call is not None else None
+    if executor_scan is None:
+        executor_scan = MinisterScan(
+            minister="EXECUTOR", verdict="ALLOW", confidence=0.0,
+            matched_id=None, matched_text=None, matched_level="deterministic",
+            source=None, retrieval_mode="deterministic",
+        )
+
+    taint_state = _state["channel_taint"][session_id]
+    channel_scan = channel_taint.check_channel_taint(req_text, taint_state, account_email=account_email)
+    if channel_scan is None:
+        channel_scan = MinisterScan(
+            minister="CHANNEL", verdict="ALLOW", confidence=0.0,
+            matched_id=None, matched_text=None, matched_level="deterministic",
+            source=None, retrieval_mode="deterministic",
+        )
+
+    provenance_state = _state["channel_provenance"][session_id]
+    provenance_scan, provenance_records = channel_taint.check_provenance(
+        req_text, provenance_state, account_email=account_email,
+        user_instruction=user_instruction, tool_output=tool_output,
+    )
+
+    # Composition fix: taint's BLOCK is a structural default ("tainted,
+    # destination not on the static allowlist"), not positive evidence the
+    # destination is actually illegitimate -- confirmed via a direct
+    # false-positive measurement (335-case obfuscation study's sibling
+    # check on genuine benign two-step read-then-send actions, see
+    # §limitations): with no account_email/user_instruction context wired
+    # through, a legitimate self-forward blocked 32/32 times. Provenance
+    # runs on this same call and has positive evidence when it does fire:
+    # if every one of this call's destination values is classified SELF
+    # (matches the session's own verified identity) or USER_SUPPLIED
+    # (present in the user's own original instruction), that is a
+    # confirmed-legitimate destination, and taint's structural-default
+    # BLOCK should not override a positive finding. OUTPUT_DERIVED and
+    # NOVEL are deliberately left alone (still BLOCK): OUTPUT_DERIVED is
+    # the genuinely ambiguous read-then-send case this project's NAVIGATOR
+    # authorization work has not yet resolved, and NOVEL is
+    # indistinguishable from an attacker-injected value -- suppressing
+    # taint there would reopen exactly the exfiltration gap the mechanism
+    # exists to close.
+    if channel_scan.verdict == "BLOCK" and provenance_records and all(
+        r.classification in ("SELF", "USER_SUPPLIED") for r in provenance_records
+    ):
+        channel_scan = MinisterScan(
+            minister="CHANNEL", verdict="ALLOW", confidence=0.0,
+            matched_id=None, matched_text=None, matched_level="deterministic",
+            source=None, retrieval_mode="deterministic",
+        )
+
+    results = [vault_scan, executor_scan, channel_scan]
+    if provenance_scan is not None:
+        results.append(provenance_scan)
+    return results
+
+
+def _short_circuit_candidate(deterministic_results: list[MinisterScan]) -> MinisterScan | None:
+    """Returns the first deterministic MinisterScan that both (a) confidently
+    BLOCKs and (b) is short-circuit-eligible (prefilters.is_short_circuit_
+    eligible — the denylist of newest/least-validated rules that must
+    still go through the full synchronous pipeline). None if no such scan
+    exists, meaning the caller falls through to the full pipeline exactly
+    as before this optimization existed."""
+    for scan in deterministic_results:
+        if scan.verdict == "BLOCK" and scan.confidence >= 1.0 and prefilters.is_short_circuit_eligible(scan.matched_id):
+            return scan
+    return None
+
+
+async def _complete_ledger_async(
+    session_id: str,
+    correlation_id: str,
+    req_text: str,
+    action_vec: np.ndarray,
+    deterministic_results: list[MinisterScan],
+    speaker_v: SpeakerVerdict,
+    traj_risk: float,
+) -> None:
+    """Fire-and-forget task kicked off AFTER a short-circuited response has
+    already been returned to the caller. Runs the skipped COMPASS drift
+    check, router, and NAVIGATOR's cosine scan purely to complete the
+    ledger's provenance picture — never changes the verdict already sent
+    to the caller (which is final the moment the response goes out).
+    Writes a SEPARATE follow-up ledger row (same correlation_id, a
+    distinct `stage` value) rather than mutating the original row, since
+    the hash chain is append-only/content-addressed by design — editing
+    an already-hashed row would break every subsequent entry_hash.
+    Exceptions here are logged, never raised — a failure to complete the
+    ledger's async half must never look like a live-request failure,
+    since by construction no live request is waiting on this."""
+    try:
+        drift, compass_sim = _compass_drift(session_id, req_text, action_vec)
+        activated = _route(req_text)
+
+        navigator_scan: MinisterScan | None = None
+        if "NAVIGATOR" in activated:
+            m_thresholds = _get_minister_thresholds("NAVIGATOR", dict(CFG["thresholds"]))
+            bm25_idx  = _state["bm25_indexes"].get("NAVIGATOR")
+            tech_coll = _state["tech_collections"].get("NAVIGATOR")
+            loop = asyncio.get_event_loop()
+            if tech_coll:
+                navigator_scan = await loop.run_in_executor(
+                    None, run_minister_dual_hybrid, "NAVIGATOR", req_text,
+                    _state["collections"]["NAVIGATOR"], tech_coll, bm25_idx,
+                    _embed_query, m_thresholds, 10, action_vec,
+                )
+            else:
+                navigator_scan = await loop.run_in_executor(
+                    None, run_minister_hybrid, "NAVIGATOR", req_text,
+                    _state["collections"]["NAVIGATOR"], bm25_idx,
+                    _embed_query, m_thresholds, 10, action_vec,
+                )
+
+        completion_ministers = {
+            r.minister: {
+                "verdict": r.verdict, "confidence": r.confidence,
+                "matched_id": r.matched_id, "retrieval_mode": r.retrieval_mode,
+            }
+            for r in deterministic_results
+        }
+        if navigator_scan is not None:
+            completion_ministers["NAVIGATOR"] = {
+                "verdict": navigator_scan.verdict, "confidence": navigator_scan.confidence,
+                "matched_id": navigator_scan.matched_id, "retrieval_mode": navigator_scan.retrieval_mode,
+            }
+
+        _log_vote(
+            session_id=session_id,
+            correlation_id=correlation_id,
+            stage="parliament_async_completion",
+            input_text=req_text,
+            verdict=speaker_v.verdict,
+            # Same convention as every other ledger row: decided_by is
+            # always the MINISTER name (e.g. "VAULT"), never a matched_id
+            # — matches speaker_v.decided_by, which the original
+            # synchronous row already used, so the two rows for one
+            # correlation_id agree on who decided.
+            decided_by=speaker_v.decided_by,
+            confidence=speaker_v.confidence,
+            reason=f"async completion of short-circuited call — original verdict unchanged, "
+                   f"this row fills in compass_sim/NAVIGATOR for ledger completeness only",
+            ministers=completion_ministers,
+            compass_sim=compass_sim,
+            latency_ms=0.0,
+            traj_risk=traj_risk,
+            provenance=None,
+            retrieval_mode=_state.get("retrieval_mode", "dense"),
+            short_circuited=True,
+        )
+    except Exception:
+        log.exception(
+            "async ledger completion failed for correlation_id=%s (short-circuited "
+            "response was already returned and is unaffected)", correlation_id,
+        )
+
+
 @app.post("/hook/parliament", response_model=ParliamentResponse)
 async def parliament(req: ParliamentRequest) -> ParliamentResponse:
-    """Full pipeline: COMPASS drift + router + activated ministers + speaker."""
+    """Full pipeline: COMPASS drift + router + activated ministers + speaker.
+
+    PIPELINE SHORT-CIRCUIT (response-latency optimization): VAULT/EXECUTOR/
+    CHANNEL's deterministic checks are microseconds; COMPASS's drift check
+    and the embedding router are the measured bottleneck (BGE embedding
+    cost, ~2.9-3.7s p50 CPU-only — see README's latency-correction
+    section). Validated via a feasibility/safety check against this
+    session's full evaluation data before being built: a confident
+    deterministic BLOCK is genuinely common (98/267 = 36.7% on the Type B
+    malicious set) and COMPASS/`_route()` were confirmed to be pure reads
+    with no cross-call session-state writes (trajectory.py's
+    record_action() only consumes action_vec/verdict/confidence/
+    decided_by/is_denial — none of which come from COMPASS or NAVIGATOR),
+    so skipping them cannot corrupt trajectory's session-risk
+    accumulation. The one real cost identified: the ledger currently logs
+    compass_sim and NAVIGATOR's score on every row regardless of who
+    decided — short-circuiting would lose that provenance UNLESS it's
+    backfilled, which is exactly what _complete_ledger_async() above does
+    as a fire-and-forget task after the response is already sent.
+    Eligibility is denylist-gated (prefilters.SHORT_CIRCUIT_INELIGIBLE_
+    RULE_NAMES) so the newest/least-validated rules still get full
+    COMPASS+NAVIGATOR confirmation synchronously, same as before this
+    optimization existed, until they've earned more real-world
+    confidence."""
     t0 = time.perf_counter()
     correlation_id = req.context.get("correlation_id") or str(uuid.uuid4())
 
@@ -608,6 +899,117 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # not yet appended). Pure cosine math over cached vectors — no embed.
     hist = _state["history"][req.session_id]
     traj_res = traj.trajectory_risk(hist, intent_vec=_state["intents"].get(req.session_id), current_vec=action_vec)
+
+    # Step 0d: VAULT/EXECUTOR/CHANNEL's deterministic verdicts, computed
+    # BEFORE COMPASS/routing (moved up from their old Step 3a2-3a4
+    # position) specifically so the short-circuit check below can run
+    # before paying the embedding+routing cost. Fail-open discipline is
+    # unchanged: these three run unconditionally regardless of what
+    # happens next, exactly as they did before this optimization existed.
+    account_email = req.context.get("account_email")
+    # user_instruction/tool_output: optional provenance inputs, same
+    # open-ended `context` extension point account_email already uses —
+    # see channel_taint.check_provenance()'s docstring for the
+    # DATA-AVAILABILITY GAP this works around (Kavach's wire format never
+    # carried tool outputs before this).
+    user_instruction = req.context.get("user_instruction")
+    tool_output = req.context.get("tool_output")
+    deterministic_results = _run_deterministic_ministers(
+        req.text, req.session_id, account_email,
+        user_instruction=user_instruction, tool_output=tool_output,
+    )
+
+    short_circuit_scan = _short_circuit_candidate(deterministic_results)
+    if short_circuit_scan is not None:
+        call_thresholds = dict(CFG["thresholds"])
+        speaker_v: SpeakerVerdict = combine_verdicts(
+            deterministic_results,
+            compass_drift=False,
+            compass_sim=1.0,  # no intent-drift signal available on the short-circuit path
+            thresholds=call_thresholds,
+            traj_risk=traj_res.risk,
+        )
+
+        traj.record_action(
+            hist,
+            action_vec=action_vec,
+            verdict=speaker_v.verdict,
+            confidence=speaker_v.confidence,
+            decided_by=speaker_v.decided_by,
+            is_denial=(speaker_v.verdict == "BLOCK"),
+        )
+
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+        ts = datetime.now(timezone.utc).isoformat()
+
+        minister_dict: dict[str, MinisterResult] = {
+            r.minister: MinisterResult(
+                verdict=r.verdict, confidence=r.confidence,
+                matched_id=r.matched_id, matched_text=r.matched_text,
+                retrieval_mode=r.retrieval_mode,
+            )
+            for r in deterministic_results
+        }
+        provenance = prov.resolve(short_circuit_scan.source, short_circuit_scan.minister)
+        provenance_dict = provenance.to_dict()
+
+        _log_vote(
+            session_id=req.session_id,
+            correlation_id=correlation_id,
+            stage="parliament",
+            input_text=req.text,
+            verdict=speaker_v.verdict,
+            decided_by=speaker_v.decided_by,
+            confidence=speaker_v.confidence,
+            reason=speaker_v.reason,
+            ministers={
+                r.minister: {
+                    "verdict": r.verdict, "confidence": r.confidence,
+                    "matched_id": r.matched_id, "retrieval_mode": r.retrieval_mode,
+                }
+                for r in deterministic_results
+            },
+            compass_sim=None,
+            latency_ms=latency_ms,
+            traj_risk=round(traj_res.risk, 4),
+            provenance=provenance_dict,
+            retrieval_mode=_state.get("retrieval_mode", "dense"),
+            short_circuited=True,
+        )
+
+        # Fire-and-forget: completes the ledger's compass_sim/NAVIGATOR
+        # picture asynchronously, AFTER the response below has already
+        # been returned. Never awaited, never blocks the response —
+        # errors are caught and logged inside the task itself.
+        asyncio.create_task(_complete_ledger_async(
+            session_id=req.session_id,
+            correlation_id=correlation_id,
+            req_text=req.text,
+            action_vec=action_vec,
+            deterministic_results=deterministic_results,
+            speaker_v=speaker_v,
+            traj_risk=round(traj_res.risk, 4),
+        ))
+
+        return ParliamentResponse(
+            verdict=speaker_v.verdict,
+            speaker={
+                "decided_by": speaker_v.decided_by,
+                "confidence": speaker_v.confidence,
+                "reason":     speaker_v.reason,
+            },
+            ministers=minister_dict,
+            pattern=short_circuit_scan.matched_id or "none",
+            provenance=provenance_dict,
+            compass_sim=None,
+            traj_risk=round(traj_res.risk, 4),
+            retrieval_mode=_state.get("retrieval_mode", "dense"),
+            activated=[],
+            correlation_id=correlation_id,
+            latency_ms=round(latency_ms, 2),
+            ts=ts,
+            short_circuited=True,
+        )
 
     # Step 0c: modulate this call's block threshold by COMPASS + trajectory.
     # A suspicious build-up lowers the bar to BLOCK on this call.
@@ -634,9 +1036,24 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # Step 3: Run activated ministers in parallel — hybrid BM25+dense retrieval
     # when an index exists, sharing action_vec (embed-once) and the
     # trajectory-modulated per-minister thresholds for this call.
+    #
+    # STAGE 2 (VAULT + EXECUTOR + CHANNEL swaps, REARCHITECTURE_PLAN.md):
+    # VAULT, EXECUTOR, and CHANNEL are EXCLUDED from this cosine-similarity
+    # dispatch loop entirely — their ChromaDB collections are no longer
+    # queried for verdicts at request time (still loaded at startup;
+    # corpus_loader.py untouched). Their deterministic detectors
+    # (prefilters.check_vault / check_executor / channel_taint.check_
+    # channel_taint) are now each minister's ONLY source of truth, scored
+    # synchronously below, unconditionally (regardless of routing — a router
+    # miss must never skip a deterministic minister, same fail-open
+    # discipline as Stage 1's additive pre-filters). NAVIGATOR is
+    # unchanged: still dispatched through the normal cosine path when the
+    # router activates it.
     loop = asyncio.get_event_loop()
     minister_tasks = []
     for minister in activated:
+        if minister in ("VAULT", "EXECUTOR", "CHANNEL"):
+            continue  # Stage 2: VAULT/EXECUTOR/CHANNEL no longer run the cosine path at all.
         bm25_idx  = _state["bm25_indexes"].get(minister)
         tech_coll = _state["tech_collections"].get(minister)
         m_thresholds = _get_minister_thresholds(minister, call_thresholds)
@@ -672,6 +1089,35 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
 
     minister_results: list[MinisterScan] = await asyncio.gather(*minister_tasks)
 
+    # Step 3a: Stage 2 — VAULT/EXECUTOR/CHANNEL's deterministic verdicts.
+    # Already computed once at Step 0d (before the short-circuit check
+    # above), factored into _run_deterministic_ministers() so both the
+    # short-circuit path and this full-pipeline fallthrough path use the
+    # exact same logic — reused here rather than recomputed, same
+    # unconditional/fail-open semantics as before this refactor.
+    minister_results = minister_results + deterministic_results
+
+    # Step 3b: Cosine ESCALATE-only triage for VAULT/EXECUTOR (Part 3).
+    # Runs ONLY on the deterministic-miss residual: for each of VAULT/EXECUTOR
+    # whose deterministic check did NOT already fire (BLOCK/ESCALATE), query
+    # cosine and possibly add a HARDCODED-ESCALATE scan (see
+    # _cosine_triage_escalate's safety contract -- it cannot BLOCK). This is
+    # additive: it never removes or downgrades a deterministic verdict, only
+    # flags-for-review a long-tail call the rules let through. Skipped on the
+    # short-circuit path above (that path only fires on a confident
+    # deterministic BLOCK, which by definition is not a miss).
+    _fired_ministers = {
+        r.minister for r in minister_results if r.verdict in ("BLOCK", "ESCALATE")
+    }
+    for _m in ("VAULT", "EXECUTOR"):
+        if _m in _fired_ministers:
+            continue  # deterministic rule already caught it -- no triage needed
+        _triage = await loop.run_in_executor(
+            None, _cosine_triage_escalate, _m, req.text, action_vec
+        )
+        if _triage is not None:
+            minister_results.append(_triage)
+
     # Step 4: Speaker combines verdicts (under the modulated thresholds).
     speaker_v: SpeakerVerdict = combine_verdicts(
         minister_results,
@@ -695,8 +1141,23 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     latency_ms = (time.perf_counter() - t0) * 1000.0
     ts = datetime.now(timezone.utc).isoformat()
 
+    # Two independent scans can share a minister name (CHANNEL's taint
+    # tracker and CHANNEL's provenance check both report as "CHANNEL" --
+    # see channel_taint.py's composition-rule docstring). A plain
+    # dict-assignment loop would silently let whichever scan is iterated
+    # LAST overwrite the other in this response, even though
+    # combine_verdicts() above already correctly considered both when
+    # deciding the actual verdict -- that's a real loss of audit
+    # information, not just a cosmetic gap, so on a same-name collision
+    # this keeps whichever scan is more restrictive (BLOCK > ESCALATE >
+    # ALLOW), matching the Speaker's own most-restrictive-wins philosophy
+    # rather than an arbitrary "last one wins."
+    _VERDICT_RANK = {"BLOCK": 2, "ESCALATE": 1, "ALLOW": 0}
     minister_dict: dict[str, MinisterResult] = {}
     for r in minister_results:
+        existing = minister_dict.get(r.minister)
+        if existing is not None and _VERDICT_RANK.get(existing.verdict, 0) >= _VERDICT_RANK.get(r.verdict, 0):
+            continue
         minister_dict[r.minister] = MinisterResult(
             verdict=r.verdict,
             confidence=r.confidence,
@@ -735,20 +1196,27 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         decided_by=speaker_v.decided_by,
         confidence=speaker_v.confidence,
         reason=speaker_v.reason,
+        # Keyed by r.minister (not positionally zipped with `activated`) so
+        # Stage 1 pre-filter hits — which run regardless of routing and can
+        # name a minister the router didn't activate — are logged under
+        # their own correct minister name rather than silently mispaired
+        # with whatever minister the old positional zip(activated, ...)
+        # happened to line up against.
         ministers={
-            m: {
+            r.minister: {
                 "verdict":        r.verdict,
                 "confidence":     r.confidence,
                 "matched_id":     r.matched_id,
                 "retrieval_mode": r.retrieval_mode,
             }
-            for m, r in zip(activated, minister_results)
+            for r in minister_results
         },
         compass_sim=compass_sim,
         latency_ms=latency_ms,
         traj_risk=round(traj_res.risk, 4),
         provenance=provenance_dict,
         retrieval_mode=active_retrieval,
+        short_circuited=False,
     )
 
     return ParliamentResponse(
@@ -768,6 +1236,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
         correlation_id=correlation_id,
         latency_ms=round(latency_ms, 2),
         ts=ts,
+        short_circuited=False,
     )
 
 
@@ -783,7 +1252,7 @@ async def verify_ledger() -> dict[str, Any]:
         """SELECT id, ts, session_id, correlation_id, stage, input_text,
                   verdict, decided_by, confidence, reason, ministers_json,
                   compass_sim, traj_risk, latency_ms, provenance_json,
-                  prev_hash, entry_hash
+                  prev_hash, entry_hash, short_circuited
            FROM votes ORDER BY id ASC""").fetchall()
     conn.close()
 
@@ -814,6 +1283,17 @@ async def verify_ledger() -> dict[str, Any]:
             "decided_by": r[7], "confidence": r[8], "reason": r[9],
             "ministers_json": r[10], "compass_sim": r[11],
             "traj_risk": r[12], "latency_ms": r[13], "provenance_json": r[14],
+            # Found during the overnight GPT-4o expansion's ledger check:
+            # this SELECT never fetched short_circuited, so _entry_hash()'s
+            # `row.get("short_circuited") is not None` always saw None here
+            # regardless of what was stored -- silently omitting the field
+            # from every recomputed hash from the row it was introduced on
+            # (id 795) onward, while the WRITE path (log_vote, above) always
+            # included it once set. That mismatch, not real tampering, was
+            # what /ledger/verify was reporting as "entry_hash mismatch" at
+            # id 795. Fixed by including the column here to match the write
+            # path exactly.
+            "short_circuited": r[17],
         }
         stored_prev, stored_entry = r[15], r[16]
         recomputed = _entry_hash(stored_prev, row)

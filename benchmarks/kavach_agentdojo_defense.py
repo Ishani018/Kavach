@@ -125,6 +125,7 @@ try:
         def __init__(self) -> None:
             self._call_count  = 0
             self._block_count = 0
+            self._escalate_count = 0
             self._traj_blocks = 0
             # Auditability: every call where the parliament did NOT return a
             # usable verdict (timeout, unreachable, HTTP error, bad JSON) is a
@@ -261,10 +262,27 @@ try:
                     messages = [*messages, *tool_call_results]
                     return query, runtime, env, messages, extra_args
 
-                log.debug(
-                    "[KavachDefense] %s call=%d traj_risk=%.3f",
-                    verdict, self._call_count, traj_risk,
-                )
+                # ESCALATE: passes through unchanged (no enforcement path
+                # exists at this call site -- an AgentDojo run has no human
+                # to escalate to), but must be COUNTED distinctly from a
+                # real ALLOW. Fixed here after the same gap was flagged and
+                # fixed in injecagent_runner.py's scoring earlier tonight:
+                # summary()'s "allows" field previously silently absorbed
+                # every ESCALATE, meaning CHANNEL provenance's real
+                # contribution (or any other minister's ESCALATE) would
+                # have scored identically to a clean ALLOW -- the same
+                # near-miss InjecAgent's runner already had and fixed.
+                if verdict == "ESCALATE":
+                    self._escalate_count += 1
+                    log.info(
+                        "[KavachDefense] ESCALATE call=%d decided_by=%s reason=%s",
+                        self._call_count, decided, reason[:80],
+                    )
+                else:
+                    log.debug(
+                        "[KavachDefense] %s call=%d traj_risk=%.3f",
+                        verdict, self._call_count, traj_risk,
+                    )
 
             except requests.exceptions.Timeout:
                 self._failopen_count += 1
@@ -277,7 +295,11 @@ try:
                 log.warning("[KavachDefense] call=%d parliament unreachable: %s — FAILING OPEN "
                             "(action UNSCREENED)", self._call_count, exc)
 
-            # ALLOW or fail-open: pass through unchanged
+            # ALLOW, ESCALATE, or fail-open: all pass through unchanged at
+            # this call site (no human-in-the-loop mechanism exists in an
+            # AgentDojo run) -- but ESCALATE is now counted above, so
+            # summary() can report it distinctly rather than folding it
+            # into "allows".
             return query, runtime, env, messages, extra_args
 
         @staticmethod
@@ -321,12 +343,20 @@ try:
             return query
 
         def summary(self) -> dict:
-            """Block + fail-open summary for the end-of-run report.
+            """Block + escalate + fail-open summary for the end-of-run report.
 
             `failopen_count` / `failopen_calls` make a run auditable: if any
             calls failed open, those actions were NOT screened by Kavach, so the
             'defended' numbers for them are invalid. A nonzero count means the
             run is only partially defended — surface it loudly.
+
+            `escalates` is reported as its own field, distinct from `allows`
+            -- a real bug found and fixed tonight: this method previously
+            computed allows as screened - blocks, which silently folded
+            every ESCALATE (e.g. CHANNEL provenance's OUTPUT_DERIVED/NOVEL
+            findings) into "allowed", making provenance's real contribution
+            invisible in any run's summary even though the underlying
+            /hook/parliament verdict was correctly ESCALATE, not ALLOW.
             """
             screened = self._call_count - self._failopen_count
             return {
@@ -334,7 +364,8 @@ try:
                 "screened_calls":  screened,
                 "blocks":          self._block_count,
                 "traj_blocks":     self._traj_blocks,
-                "allows":          screened - self._block_count,
+                "escalates":       self._escalate_count,
+                "allows":          screened - self._block_count - self._escalate_count,
                 "failopen_count":  self._failopen_count,
                 "failopen_calls":  list(self._failopen_calls),
                 "fully_defended":  self._failopen_count == 0,

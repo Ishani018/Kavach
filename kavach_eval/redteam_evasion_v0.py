@@ -713,10 +713,10 @@ class ThreatIntelParaphraser:
     LLM-based paraphraser using local Ollama and RAG with Threat Intel.
     """
 
-    def __init__(self, n_per_seed: int = 5) -> None:
+    def __init__(self, n_per_seed: int = 5, model: str = "qwen2.5:7b") -> None:
         self._n = n_per_seed
         self.url = "http://localhost:11434/api/generate"
-        self.model = "qwen2.5:3b"
+        self.model = model
         import requests
         self.requests = requests
 
@@ -738,7 +738,7 @@ class ThreatIntelParaphraser:
                 "model": self.model,
                 "prompt": prompt,
                 "stream": False
-            }, timeout=60)
+            }, timeout=120)
             resp.raise_for_status()
             content = resp.json().get("response", "")
             lines = [line.strip() for line in content.split("\n") if line.strip()]
@@ -799,11 +799,48 @@ _ATTACK_TOKENS = {
 
 
 def _stem(word: str) -> str:
-    """Very lightweight stemmer: lowercase + strip trailing 's', 'ing', 'ed'."""
+    """Very lightweight stemmer: lowercase + strip trailing 's', 'ing', 'ed'.
+
+    Fixes (found via a 93% false-AMBIGUOUS rate on a real red-team run —
+    obviously-malicious paraphrases like mimikatz/LSA-disable/shellcode-exec
+    were excluded because their words didn't stem to the literal forms in
+    _ATTACK_TOKENS):
+      - "bypass"/"access" ended in double-s; the old generic s-strip produced
+        "bypas"/"acces", which never matches the literal "bypass"/"access" in
+        the set. Skip the s-strip when the word already ends "ss".
+      - "-es" fired whenever a word ended in "es" at all, so a root that
+        genuinely ends in "e" plus a plain plural "s" ("privilege" ->
+        "privileges") got the "e" stripped too ("privileg" instead of
+        "privilege"). Now "-es" only strips (leaving the sibilant root) when
+        what's left ends in a sibilant that actually takes an "-es" plural in
+        English (ch/sh/ss/x/z/s, e.g. "patches"->"patch"); otherwise we fall
+        through to the plain trailing-"s" strip ("privileges"->"privilege").
+      - "-tion" stripped one char too many for verb/noun alignment
+        ("execution" -> "execu" instead of "execut", which is what
+        "executing" already correctly stems to). Strip "-ion" (3 chars) for
+        -ution/-ation family instead of "-tion" (4 chars).
+      - "malicious" stemmed to "maliciou", matching neither "malici" nor
+        "malicious" in the set. Added an explicit "-ous" strip.
+      - "persistence" had no matching suffix rule at all (falls through
+        unstemmed, "persistence" != "persist" in the set). Added an "-ence"
+        strip.
+    """
     w = word.lower()
-    for suffix in ("ing", "tion", "ed", "es", "er", "ly"):
+    if w.endswith("ous") and len(w) > 3 + 3:
+        return w[:-3]
+    if w.endswith("ence") and len(w) > 4 + 3:
+        return w[:-4]
+    for suffix in ("ing", "tion", "ed", "er", "ly"):
         if w.endswith(suffix) and len(w) > len(suffix) + 3:
+            if suffix == "tion":
+                # Strip only "-ion" (3 chars) so "execution" aligns with
+                # "executing" -> "execut", not "execu".
+                return w[:-3]
             return w[: -len(suffix)]
+    if w.endswith("es") and len(w) > 2 + 3 and w[:-2].endswith(("ch", "sh", "ss", "x", "z", "s")):
+        return w[:-2]
+    if w.endswith("ss"):
+        return w  # "bypass", "access" — do not strip a root-final double-s
     if w.endswith("s") and len(w) > 3:
         return w[:-1]
     return w
@@ -1482,6 +1519,15 @@ def _parse_args() -> argparse.Namespace:
         help="ChromaDB n_results per query (default: 10, matches server.py).",
     )
     ap.add_argument(
+        "--model",
+        type=str,
+        default="qwen2.5:7b",
+        help="Ollama model name for --use-llm/--use-threat-intel paraphrasing "
+             "(default: qwen2.5:7b — fast, no hidden 'thinking' tokens; "
+             "gemma4:26b's thinking mode takes ~230s/request, too slow for "
+             "a 250-seed run). Must already be pulled — check `ollama list`.",
+    )
+    ap.add_argument(
         "--skip-sanity",
         action="store_true",
         help="Skip the scorer sanity checks (not recommended).",
@@ -1556,8 +1602,8 @@ def main() -> None:
 
     # ── Build paraphraser + guard ─────────────────────────────────────────────
     if args.use_threat_intel or args.use_llm:
-        paraphraser = ThreatIntelParaphraser(n_per_seed=args.n_per_seed)
-        paraphraser_name = "qwen2.5:3b_ollama_threat_intel"
+        paraphraser = ThreatIntelParaphraser(n_per_seed=args.n_per_seed, model=args.model)
+        paraphraser_name = f"{args.model}_ollama_threat_intel"
         n_per_seed_total = args.n_per_seed  # 1 stage
     else:
         paraphraser = Paraphraser(n_per_seed=args.n_per_seed)

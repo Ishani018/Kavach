@@ -9,7 +9,8 @@
 set -euo pipefail
 
 KAVACH_URL="http://127.0.0.1:8088"
-MODEL="gemma4:26b"
+MODEL="qwen2.5:7b"          # paraphraser model — fast, no hidden 'thinking' tokens
+CLOSURE_MODEL="gemma4:26b"  # section-4 corpus_agent closure-measurement model (unrelated var)
 OUTDIR="kavach_eval/evasion_results/redteam_gemma_dell_n250"
 
 # Forward --resume if the caller passed it.
@@ -19,10 +20,10 @@ if [ "${1:-}" = "--resume" ]; then
 fi
 
 echo "────────────────────────────────────────────────────────────"
-echo "  Dell red-team LLM run — ${MODEL} — 250 seeds — threat-intel RAG"
+echo "  Dell red-team LLM run — paraphraser=${MODEL} — 250 seeds — threat-intel RAG"
 echo "────────────────────────────────────────────────────────────"
 
-# ── Preflight: ollama has gemma4:26b ─────────────────────────────────────────
+# ── Preflight: ollama has the paraphraser model ──────────────────────────────
 echo "[preflight] checking ollama for ${MODEL} ..."
 if ! ollama list 2>/dev/null | grep -q "${MODEL}"; then
   echo "[FATAL] ${MODEL} not found in ollama. Pull it:  ollama pull ${MODEL}"
@@ -52,6 +53,7 @@ python kavach_eval/redteam_evasion_v0.py \
   --use-llm \
   --max-seeds 250 \
   --use-threat-intel \
+  --model "${MODEL}" \
   --out-dir "${OUTDIR}" \
   ${RESUME_FLAG}
 
@@ -64,7 +66,7 @@ if [ -n "${REPORT}" ]; then
   echo "  → Section 4 (corpus_agent) command:"
   echo "      python kavach_eval/corpus_agent/agent.py \\"
   echo "        --evasion-report ${REPORT} \\"
-  echo "        --minister CHANNEL --model ${MODEL} --measure-closure"
+  echo "        --minister CHANNEL --model ${CLOSURE_MODEL} --measure-closure"
 else
   echo "  [warn] no evasion_report_*.json found in ${OUTDIR} — check the run output."
 fi
@@ -72,6 +74,6 @@ echo ""
 echo "  Commit results to parv-results (NOT main/parv):"
 echo "    git checkout parv-results"
 echo "    git add kavach_eval/evasion_results/"
-echo "    git commit -m 'data: Dell gemma4:26b red-team evasion results'"
+echo "    git commit -m 'data: Dell qwen2.5:7b red-team evasion results'"
 echo "    git push origin parv-results"
 echo "────────────────────────────────────────────────────────────"

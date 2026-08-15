@@ -231,11 +231,20 @@ def combine_verdicts(
     if blocks:
         winner = max(blocks, key=lambda r: r.confidence)
         eff_thresh = _eff(winner.minister)
-        reason = (
-            f"{winner.minister} matched {winner.matched_id or 'pattern'} "
-            f"({winner.matched_level or 'L?'}) at sim {winner.confidence:.3f} "
-            f">= block threshold {eff_thresh:.3f}"
-        )
+        if winner.matched_level == "deterministic":
+            # Stage 1 pre-filter hit (regex/deny-list rule, not a
+            # cosine-similarity match) — "at sim X" would misdescribe a
+            # deterministic rule firing, so use accurate wording instead.
+            reason = (
+                f"{winner.minister} deterministic rule matched "
+                f"{winner.matched_id or 'rule'} — {winner.matched_text or 'pattern hit'}"
+            )
+        else:
+            reason = (
+                f"{winner.minister} matched {winner.matched_id or 'pattern'} "
+                f"({winner.matched_level or 'L?'}) at sim {winner.confidence:.3f} "
+                f">= block threshold {eff_thresh:.3f}"
+            )
         if dynamic_active:
             reason += (
                 f" [dynamic: base={thresholds.get('per_minister', {}).get(winner.minister, thresholds['block']):.3f}"
