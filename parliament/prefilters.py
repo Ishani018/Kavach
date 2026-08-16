@@ -2,7 +2,7 @@
 parliament/prefilters.py
 =========================
 
-Stage 1 of the Kavach re-architecture (REARCHITECTURE_PLAN.md): additive,
+Stage 1 of the Kavach re-architecture (docs/status/REARCHITECTURE_PLAN.md): additive,
 deterministic pre-filters that run on EVERY call alongside the existing
 cosine-similarity ministers, without changing router/minister-internals/
 speaker/trajectory/provenance/ledger. A rule hit short-circuits to BLOCK;
@@ -44,7 +44,7 @@ from . import ast_parse
 # powershell.exe subprocess) is architecturally correct but costs ~1.4s/call
 # -- 18x over the 78ms latency budget, disqualifying for live use, same
 # class of rejection as the earlier SPLADE/cross-encoder latency decisions
-# (REARCHITECTURE_PLAN.md). PowerShell and every other dialect (including
+# (docs/status/REARCHITECTURE_PLAN.md). PowerShell and every other dialect (including
 # command_prompt, confirmed via direct test that bashlex raises ParsingError
 # on real cmd.exe batch syntax) stay on struct_parse.py's tokenizer here;
 # ast_parse.py's PowerShell path remains available as an opt-in offline/
@@ -120,7 +120,7 @@ def _flatten_arg_values(args: dict) -> list[str]:
 # ──────────────────────────────────────────────────────────────────────────────
 # Patterns modeled on gitleaks/truffleHog's maintained secret-format and
 # credential-path rule sets (borrowed pattern shapes, not novel — per
-# REARCHITECTURE_PLAN.md §2.1). Each entry: (name, compiled regex,
+# docs/status/REARCHITECTURE_PLAN.md §2.1). Each entry: (name, compiled regex,
 # ATT&CK/CWE source tag for provenance.py).
 
 VAULT_PATTERNS: list[tuple[str, re.Pattern, str]] = [
@@ -955,14 +955,14 @@ EXECUTOR_DENYLIST: list[tuple[str, re.Pattern, str]] = [
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Import-alias resolution (AST) — closes the tractable half of
-# REARCHITECTURE_PLAN.md §2.2's "resolved-call-name tracing" novel-work
+# docs/status/REARCHITECTURE_PLAN.md §2.2's "resolved-call-name tracing" novel-work
 # item: `import os as o; o.system(...)` and `from os import system as s;
 # s(...)` both defeat EXECUTOR_DENYLIST's pure string matching, since
 # neither substring `os.system(` nor a bare `system(` (without knowing it
 # resolves to os.system) appears literally in the code. The harder
 # variable-bound case (`fn = os.system; fn(...)`) needs real local
 # dataflow/def-use tracking, not just import resolution -- deliberately
-# OUT OF SCOPE for this pass (REARCHITECTURE_PLAN.md's own §2.2 language
+# OUT OF SCOPE for this pass (docs/status/REARCHITECTURE_PLAN.md's own §2.2 language
 # separates "resolved-call-name tracing" from "decode-then-exec dataflow
 # tracing" as two distinct novel-work items; only the former is closed
 # here). Left as a documented limitation, not attempted.

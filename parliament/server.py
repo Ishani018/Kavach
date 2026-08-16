@@ -1037,7 +1037,7 @@ async def parliament(req: ParliamentRequest) -> ParliamentResponse:
     # when an index exists, sharing action_vec (embed-once) and the
     # trajectory-modulated per-minister thresholds for this call.
     #
-    # STAGE 2 (VAULT + EXECUTOR + CHANNEL swaps, REARCHITECTURE_PLAN.md):
+    # STAGE 2 (VAULT + EXECUTOR + CHANNEL swaps, docs/status/REARCHITECTURE_PLAN.md):
     # VAULT, EXECUTOR, and CHANNEL are EXCLUDED from this cosine-similarity
     # dispatch loop entirely — their ChromaDB collections are no longer
     # queried for verdicts at request time (still loaded at startup;

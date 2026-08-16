@@ -8,7 +8,6 @@ PES University Capstone · PW26_RB_03
 Ishani Chakraborty · Parv Parmar · Janya Mahesh · Pranitha Goduguluri
 Supervisor: Prof. Rajesh Banginwar
 
-[![Target](https://img.shields.io/badge/target-AISec%202026%20%40%20CCS-5b8a72)]()
 [![License](https://img.shields.io/badge/license-MIT-c79849)]()
 
 </div>
@@ -82,8 +81,10 @@ Measured on a 519-case AtomicRedTeam/GTFOBins reference corpus, in-process score
 
 | | Deterministic rules only | Full pipeline (+ cosine ESCALATE-only triage on the residual) | Held-out split, both halves |
 |---|---|---|---|
-| VAULT | 34.2% (40/117) | **74.4% (87/117)** | 71.2% (42/59) / 74.1% (43/58) |
-| EXECUTOR | 34.5% (70/203) | **90.1% (181/201)** | 89.2% (91/102) / 91.1% (92/101) |
+| VAULT | 35.9% (42/117) | **74.4% (87/117)** | 71.2% (42/59) / 77.6% (45/58) |
+| EXECUTOR | 34.5% (70/203) | **90.1% (183/203)** | 89.2% (91/102) / 91.1% (92/101) |
+
+These are `paper/section_4_deployment.tex`'s published figures (§4.4), the reconciled, final numbers after an earlier draft round used different values for the same measurement. The held-out halves are additive with the headline by construction: VAULT 42+45=87/117, EXECUTOR 91+92=183/203.
 
 The "full pipeline" cosine layer here cannot BLOCK on its own; `_cosine_triage_escalate()` runs only on calls the deterministic rules missed and its verdict is hardcoded to ESCALATE. This demonstrates the deterministic-plus-triage design catches substantially more than deterministic rules alone without a live-agent test; it does not demonstrate real-world attack prevalence, since the reference corpus is a curated technique catalogue, not observed attack traffic.
 
@@ -112,8 +113,11 @@ The 544/544 strict-recall number demonstrates CHANNEL's taint mechanism correctl
 **467/629 (74.2%) fired** (BLOCK or ESCALATE, any minister, any point in the session): banking 119/144 (82.6%), slack 105/105 (100%), travel 63/140 (45.0%), workspace 180/240 (75.0%).
 
 The 162 apparent misses were traced individually rather than reported as a flat miss rate:
-- **131/162** never executed any consequential action connected to the injection at all — the model declined or ignored the injected instruction. AgentDojo's own `security` field conflates "the attack succeeded" with "the environment doesn't exactly match the injected goal," which produces a false miss label even when zero consequential calls occurred. This is a model-capability effect, not a Kavach detection failure, and inflates the naive miss count if not separated out.
+- **131/162** never executed any consequential action connected to the injection at all — the model declined or ignored the injected instruction. AgentDojo's own `security` field conflates "the attack succeeded" with "the environment doesn't exactly match the injected goal," which produces a false miss label even when zero consequential calls occurred. Verified by extracting every tool call from each miss's transcript against a fixed consequential-tool list. This is a model-capability effect, not a Kavach detection failure, and inflates the naive miss count if not separated out.
+- **12/162** are trajectories where AgentDojo's own `security` field already indicates the injection did not succeed (8 `workspace`, 4 `travel`) — not Kavach misses either, since there is no successful attack to have caught.
 - **19/162** are genuine misses, categorized by mechanism: 5 (`travel::reserve_hotel`) have a real destination value that CHANNEL's `DESTINATION_TOOLS` list did not cover at the time (a live fix attempt introduced a new false-positive class and was reverted, documented as an open one-line-shaped gap); 14 (`banking`: `update_scheduled_transaction`/`update_user_info`; `workspace`: `delete_file`/`append_to_file`) mutate existing state with no destination value to trace at all, structurally outside what CHANNEL's mechanism, however extended, can close.
+
+131 + 12 + 19 = 162, per `paper/section_4_deployment.tex` §4.6.
 
 This demonstrates detection performance against real observed model behavior for the categories where a mechanism applies; it does not demonstrate coverage of the 14/162 mutate-in-place category, which needs a different mechanism than any minister currently implements.
 
@@ -144,6 +148,7 @@ AgentHarm, ASB, Agent-SafetyBench, and SafeClawBench were surveyed and found not
 - **DH's full InjecAgent rescore is incomplete** under the current deterministic VAULT/EXECUTOR (see the documented discrepancy above); only a partial 215/510 rescore exists.
 - **The ledger is tamper-evident, not tamper-proof.** It detects a post-hoc edit; an attacker with write access to the host can recompute the entire hash chain.
 - **A pre-existing benign false positive was surfaced, not caused, this round.** `bitsadmin-transfer` (one of EXECUTOR's original rules) flags a legitimate "download an approved Windows Update via bitsadmin" call, a bare command-shape match with no legitimacy carve-out.
+- **The pre-rearchitecture cosine EXECUTOR had a structural LOLBIN blind spot, the direct motivation for `corpus_agent`'s design.** A red-team census (R2, `kavach_eval/R2_FINDINGS.md`) found the full hybrid retrieval pipeline evaded on 11/13 real LOLBINs tested live against `run_minister_hybrid`: `dense_sim` cleared the minister's threshold but the multiplicative lexical gate (`GATE_FLOOR = 0.65`) dragged the combined score back under it. A controlled mitigation (naive lexical patching, on a throwaway branch, corpus reverted afterward) closed 6 of the 11 evaders but left 5 still evading, proving naive lexical patching is pattern-placement-dependent, not a reliable fix. This is why `corpus_agent/` was built with a validated-pattern-authoring gate instead of ad hoc patching. The finding applied to the pre-rearchitecture cosine EXECUTOR specifically; the current deterministic EXECUTOR deny-list catches this same 13-tool LOLBIN set 13/13, so this specific gap is closed on the live system, but the underlying lesson about lexical-gate fragility is why NAVIGATOR (still cosine-scored) is not assumed free of the same failure mode.
 - **No head-to-head comparison with ClawGuard on AgentDojo exists.**
 - **Provenance attribution is partial.** The provenance resolver is precise only for patterns that declare a source technique; not every pattern does.
 - **AgentHarm/ASB/Agent-SafetyBench/SafeClawBench are not integrated**, per the Evaluation section above.
@@ -167,9 +172,9 @@ AgentHarm, ASB, Agent-SafetyBench, and SafeClawBench were surveyed and found not
 |---|---|---|---|
 | Tier A/B/C replay-based CI/CD validation pipeline (a `validate.py` predecessor with broader scope than what shipped) | `navigator-rearch` | `90b9008` | Ishani |
 | Startup-time embedding cache for router description vectors (avoids recomputing 20 embeddings per request) | `rearch-forcedformat-fix` | `6b31a55` | Ishani |
-| A separate, independent NAVIGATOR implementation | `nav-fixer2` | `f2dd7ef` | Parv Parmar (collaborator's active branch) |
+| A separate, unmerged NAVIGATOR implementation, last commit 2026-07-21 | `nav-fixer2` | `f2dd7ef` | Parv Parmar |
 
-All three remain on the remote permanently as archives. `nav-fixer2` is a collaborator's in-progress work and must not be merged, rebased, or force-pushed by anyone else.
+All three remain on the remote permanently as archives.
 
 ## Repository layout
 
@@ -278,7 +283,7 @@ python kavach_eval/eval_provenance.py                                 # provenan
 python kavach_eval/make_section5.py minister_runs.jsonl --rho-auto    # regenerate paper tables
 ```
 
-Reproducing the committed InjecAgent DS number (~15-30 min CPU-only):
+Reproducing the committed InjecAgent numbers (~15-30 min CPU-only): `--full` synthesizes and runs the complete 1,054-case set (both DH and DS) in one pass, regardless of which file `--cases` points at — `--cases` only tells the script which directory to find `attacker_cases_dh.jsonl` and `attacker_cases_ds.jsonl` in, both of which it loads. The 544/544 DS headline number above is the DS-category subset of this same run's output; the DH categories in the same output carry the documented discrepancy noted above.
 
 ```bash
 python3 injecagent_runner.py --full \

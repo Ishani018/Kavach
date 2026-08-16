@@ -3,7 +3,7 @@ parliament/llm_tiebreaker.py
 =============================
 
 RARE escalation tier for VAULT/EXECUTOR's narrative-phrasing gap
-(REARCHITECTURE_PLAN.md's EXECUTOR §2.2 "resolved-call-name tracing" gap,
+(docs/status/REARCHITECTURE_PLAN.md's EXECUTOR §2.2 "resolved-call-name tracing" gap,
 extended to VAULT). Confirmed this session: VAULT/EXECUTOR's deterministic
 regex/AST rules catch literal code/command syntax (`os.system(`, `.ssh/`)
 but miss the SAME techniques described in prose ("append to
@@ -13,7 +13,7 @@ attacks when phrased narratively, versus catching them reliably when
 phrased as literal syntax.
 
 Two feasibility pilots were run before this was wired in (per
-REARCHITECTURE_PLAN.md's discipline of not shipping unvalidated escalation
+docs/status/REARCHITECTURE_PLAN.md's discipline of not shipping unvalidated escalation
 tiers):
   1. Holistic judgment ("is this malicious or benign?") -- qwen2.5:7b
      scored 14/17 (82.4%), with 3 dangerous false negatives where the

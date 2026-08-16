@@ -2,7 +2,7 @@
 parliament/channel_taint.py
 ============================
 
-Stage 2 of the Kavach re-architecture (REARCHITECTURE_PLAN.md §2, CHANNEL):
+Stage 2 of the Kavach re-architecture (docs/status/REARCHITECTURE_PLAN.md §2, CHANNEL):
 symbolic taint tracking for the read-sensitive-data -> send-externally exfil
 shape. The taint/lattice model itself is borrowed (Denning 1976, realized in
 CaMeL/FIDES/NeuroTaint) -- not novel. What's novel here is applying it to
