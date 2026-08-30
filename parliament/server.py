@@ -164,6 +164,7 @@ _state: dict[str, Any] = {
     "tech_collections": {},  # minister name → chroma Collection (technical precision corpus)
     "bm25_indexes": {},      # minister name → bm25 index dict (built at startup)
     "router":     None,
+    "router_doc_embeddings": {},  # minister name → list[np.ndarray], cached at startup (see _route)
     "intents":    {},    # session_id → np.ndarray (BGE vector of user intent)
     "history":    defaultdict(traj.new_history),  # session_id → deque[ActionRecord]
     "channel_taint": defaultdict(channel_taint.new_taint_state),  # session_id → SessionTaint
@@ -206,10 +207,9 @@ def _route(text: str) -> list[str]:
     activated: list[str] = []
     threshold = CFG["thresholds"]["router_min"]
 
-    for minister, descriptions in _state["router"].items():
+    for minister, doc_vecs in _state["router_doc_embeddings"].items():
         max_sim = 0.0
-        for desc in descriptions:
-            doc_vec = _embed_doc(desc)
+        for doc_vec in doc_vecs:
             sim = _cosine(q, doc_vec)
             if sim > max_sim:
                 max_sim = sim
@@ -513,6 +513,14 @@ async def lifespan(app: FastAPI):
     _state["router"] = _router_full.get("routing_corpus", _router_full)
     _state["router"].pop("COMPASS", None)
     log.info("router loaded ministers: %s", list(_state["router"].keys()))
+
+    _state["router_doc_embeddings"] = {
+        minister: [_embed_doc(desc) for desc in descriptions]
+        for minister, descriptions in _state["router"].items()
+    }
+    log.info("router: cached %d description embeddings across %d ministers",
+             sum(len(v) for v in _state["router_doc_embeddings"].values()),
+             len(_state["router_doc_embeddings"]))
 
     _init_db()
     log.info("parliament ready on %s:%d  [retrieval=%s]",
