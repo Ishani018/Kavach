@@ -60,6 +60,38 @@ VAULT, EXECUTOR, and CHANNEL bypass the semantic router entirely; the router now
 
 Kavach reaches the tool-call boundary through an OpenClaw plugin (`plugin/`, TypeScript) calling `POST /hook/parliament` synchronously in the `before_tool_call` hook. `before_tool_call` fires reliably in OpenClaw's **embedded** execution path but not its **gateway** path, so no security plugin can intercept a gateway-routed call there; Kavach is evaluated in embedded mode only. Two OpenClaw defects responsible for part of that gap (#5513, #5943) were diagnosed independently, a candidate patch was drafted (`openclaw_pr/`), and both were resolved upstream in OpenClaw v2026.4.15, consistent with the diagnosis.
 
+## Original architecture (superseded)
+
+This section describes the architecture as it existed through commit `9e00ac4`, before the deterministic rearchitecture (see "Architecture" above for what actually runs today). **It is no longer live code.** It is documented here for historical and comparison purposes only — do not run anything in this repository expecting this to be the deployed system.
+
+Every call was still embedded once, but the semantic router gated and scored **all four ministers** (not just NAVIGATOR), and VAULT/EXECUTOR/CHANNEL each ran the same cosine-similarity mechanism NAVIGATOR still uses today: BM25 + dense hybrid retrieval against a per-minister attack-pattern corpus (Reciprocal Rank Fusion, k=60), with a per-minister effective threshold dynamically modulated by COMPASS drift (`effective_threshold = base + alpha * (compass_sim - 0.5)`, clipped so alignment never loosens the threshold below base). The Speaker was already asymmetric and veto-style — one confident BLOCK was enough, no score averaging — but it operated on continuous cosine confidence re-evaluated against that dynamic threshold, not on a binary deterministic rule match.
+
+```mermaid
+flowchart LR
+  A["Tool call"] --> B["Embed once<br/>BGE-base-en-v1.5, 768-d"]
+  B --> R["Semantic router<br/>gates ALL FOUR ministers"]
+  R --> V["VAULT<br/>BM25 + dense cosine hybrid<br/>vs credential-pattern corpus"]
+  R --> E["EXECUTOR<br/>BM25 + dense cosine hybrid<br/>vs LOLBIN/exec-pattern corpus"]
+  R --> C["CHANNEL<br/>BM25 + dense cosine hybrid<br/>vs exfiltration-pattern corpus"]
+  R --> N["NAVIGATOR<br/>BM25 + dense cosine hybrid<br/>vs drift-pattern corpus"]
+  B --> CO["COMPASS<br/>session intent-drift"]
+  V --> S["Speaker<br/>per-minister dynamic-threshold veto"]
+  E --> S
+  C --> S
+  N --> S
+  CO --> S
+  S --> P["Provenance resolver"]
+  P --> L[("Ledger<br/>SHA-256 hash chain")]
+  S --> OUT["BLOCK / ESCALATE / ALLOW"]
+```
+
+| Minister | Old mechanism (through `9e00ac4`) | New mechanism (current) | Measured old vs. new |
+|---|---|---|---|
+| VAULT | BM25 + dense cosine hybrid vs. a credential-pattern corpus, COMPASS-modulated threshold | Deterministic regex over credential-shaped paths/env vars/CLI flags (58 rules), no embedding at request time | No isolated old-cosine-only VAULT number was preserved separately from the full old pipeline; see the EXECUTOR and CHANNEL rows for the measured comparisons that are available. |
+| EXECUTOR | BM25 + dense cosine hybrid vs. a LOLBIN/dangerous-execution corpus | Deterministic deny-list + `bashlex` AST pass resolving import aliases (55 rules) | A red-team census found the old cosine EXECUTOR evaded **11/13** real LOLBINs tested live — `dense_sim` cleared the minister's threshold but the multiplicative lexical gate (`GATE_FLOOR = 0.65`) dragged the combined score back under it. The current deterministic EXECUTOR catches this same 13-tool set **13/13** (see "Known limitations" above). |
+| CHANNEL | BM25 + dense cosine hybrid vs. an exfiltration-pattern corpus | Deterministic session-level taint tracking + independent argument-value provenance classifier | Pre-rearchitecture cosine ministers on InjecAgent (live agent, Gemma 4 26B): DH strict recall 0.633 (23.5% FPR), DS strict recall 0.438 (0.0% FPR). Current CHANNEL deterministic taint on DS (static structured-args replay): strict recall **1.0** (0.0% FPR) — see "Evaluation" above. |
+| NAVIGATOR | *(unchanged)* | *(unchanged)* | Still the one cosine-scored minister, before and after — BM25 + dense hybrid vs. its own corpus. What changed is scope, not mechanism: the shared router used to gate and score all four ministers; it now gates NAVIGATOR alone, since VAULT/EXECUTOR/CHANNEL bypass routing entirely. |
+
 ## Threat model
 
 **In scope:** indirect prompt injection delivered through content an agent reads mid-session (a document, email body, web page, or tool output) that attempts to make the agent's *next tool call* do one of four things: exfiltrate credentials or secrets (VAULT), execute dangerous or persistence-establishing commands (EXECUTOR), send local data to an external destination (CHANNEL), or drift the agent's actions away from what the user actually asked for (NAVIGATOR). Kavach's unit of judgment is the tool call, not the conversation.
